@@ -13,6 +13,7 @@ from .dataframe.group import evaluate_groups_df
 from .dataframe.hierarchy import evaluate_hierarchy_df
 from .dataframe.panel import evaluate_panel_df
 from .dataframe.entity import evaluate_panel_with_entity_R
+from .dataframe.sensitivity import compute_cwsl_sensitivity_df
 
 __all__ = [
     "compute_cwsl_df",
@@ -20,4 +21,5 @@ __all__ = [
     "evaluate_hierarchy_df",
     "evaluate_panel_df",
     "evaluate_panel_with_entity_R",
+    "compute_cwsl_sensitivity_df",
 ]

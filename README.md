@@ -21,6 +21,16 @@ Multi-level performance summaries (e.g., overall → store → item → store×i
 ### Entity-aware evaluation using learned cost ratios
 Combine interval-level data with entity-level `R` (cost ratio) estimates to compute cost-aligned metrics.
 
+### Cost Sensitivity Analysis (CWSL robustness evaluation)
+Evaluate how CWSL behaves across multiple candidate cost ratios  
+\( R = \frac{c_u}{c_o} \), enabling:
+- robustness checks against cost assumptions  
+- identification of stable vs. sensitive forecast behaviors  
+- tuning of asymmetric cost parameters prior to model deployment  
+
+This is powered by `compute_cwsl_sensitivity_df`, which computes CWSL over any
+set of proposed R values and returns a tidy, analysis-ready DataFrame.
+
 ### Compatible with Electric Barometer & asymmetric forecasting
 Directly consumes metrics from `eb-metrics` for CWSL-based optimization.
 
