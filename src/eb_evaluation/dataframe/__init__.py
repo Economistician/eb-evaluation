@@ -9,6 +9,7 @@ from .hierarchy import evaluate_hierarchy_df
 from .panel import evaluate_panel_df
 from .entity import evaluate_panel_with_entity_R
 from .sensitivity import compute_cwsl_sensitivity_df
+from .cost_ratio import estimate_entity_R_from_balance
 
 __all__ = [
     "compute_cwsl_df",
@@ -17,4 +18,5 @@ __all__ = [
     "evaluate_panel_df",
     "evaluate_panel_with_entity_R",
     "compute_cwsl_sensitivity_df",
+    "estimate_entity_R_from_balance",
 ]

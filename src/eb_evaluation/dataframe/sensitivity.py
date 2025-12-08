@@ -11,12 +11,16 @@ from ebmetrics.metrics import cwsl_sensitivity
 def compute_cwsl_sensitivity_df(
     df: pd.DataFrame,
     *,
-    y_true_col: str = "actual_qty",
-    y_pred_col: str = "forecast_qty",
+    # Primary parameter names (parallel to other DF helpers)
+    actual_col: str = "actual_qty",
+    forecast_col: str = "forecast_qty",
     R_list: Sequence[float] = (0.5, 1.0, 2.0, 3.0),
     co: Union[float, str] = 1.0,
     group_cols: Optional[list[str]] = None,
     sample_weight_col: Optional[str] = None,
+    # Backwards-compatible aliases used in tests and earlier drafts
+    y_true_col: Optional[str] = None,
+    y_pred_col: Optional[str] = None,
 ) -> pd.DataFrame:
     """
     Compute CWSL cost-sensitivity curves from a pandas DataFrame.
@@ -32,11 +36,19 @@ def compute_cwsl_sensitivity_df(
         Input data containing at least the actual and forecast columns, and
         any grouping columns referenced in ``group_cols``.
 
-    y_true_col : str, default "actual_qty"
+    actual_col : str, default "actual_qty"
         Name of the column containing actual demand.
 
-    y_pred_col : str, default "forecast_qty"
+    forecast_col : str, default "forecast_qty"
         Name of the column containing forecasted demand.
+
+    y_true_col : str or None, optional
+        Backwards-compatible alias for ``actual_col``. If provided, it overrides
+        ``actual_col``. Kept for compatibility with older code/tests.
+
+    y_pred_col : str or None, optional
+        Backwards-compatible alias for ``forecast_col``. If provided, it overrides
+        ``forecast_col``.
 
     R_list : sequence of float, default=(0.5, 1.0, 2.0, 3.0)
         Candidate cost ratios R = cu / co to evaluate. Must contain at least
@@ -71,20 +83,18 @@ def compute_cwsl_sensitivity_df(
             group_cols + ["R", "CWSL"]
 
         Each row corresponds to a single (group, R) combination.
-
-    Raises
-    ------
-    KeyError
-        If required columns are missing from ``df``.
-    ValueError
-        If ``R_list`` is invalid (e.g., no positive values), or if the
-        underlying ``cwsl_sensitivity`` call fails due to invalid data.
     """
+    # Resolve backwards-compatible aliases
+    if y_true_col is not None:
+        actual_col = y_true_col
+    if y_pred_col is not None:
+        forecast_col = y_pred_col
+
     if group_cols is None:
         group_cols = []
 
     # Basic column validation
-    required_cols = [y_true_col, y_pred_col]
+    required_cols = [actual_col, forecast_col]
     if isinstance(co, str):
         required_cols.append(co)
     if sample_weight_col is not None:
@@ -112,8 +122,8 @@ def compute_cwsl_sensitivity_df(
         if not isinstance(keys, tuple):
             keys = (keys,)
 
-        y_true = g[y_true_col].to_numpy(dtype=float)
-        y_pred = g[y_pred_col].to_numpy(dtype=float)
+        y_true = g[actual_col].to_numpy(dtype=float)
+        y_pred = g[forecast_col].to_numpy(dtype=float)
 
         # Handle overbuild cost: scalar vs column
         if isinstance(co, str):

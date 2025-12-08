@@ -8,12 +8,15 @@ analysis, and entity-aware diagnostics.
 
 # Re-export core evaluation functions for convenient imports
 
-from .dataframe.single import compute_cwsl_df
-from .dataframe.group import evaluate_groups_df
-from .dataframe.hierarchy import evaluate_hierarchy_df
-from .dataframe.panel import evaluate_panel_df
-from .dataframe.entity import evaluate_panel_with_entity_R
-from .dataframe.sensitivity import compute_cwsl_sensitivity_df
+from .dataframe import (
+    compute_cwsl_df,
+    evaluate_groups_df,
+    evaluate_hierarchy_df,
+    evaluate_panel_df,
+    evaluate_panel_with_entity_R,
+    compute_cwsl_sensitivity_df,
+    estimate_entity_R_from_balance,
+)
 
 __all__ = [
     "compute_cwsl_df",
@@ -22,4 +25,5 @@ __all__ = [
     "evaluate_panel_df",
     "evaluate_panel_with_entity_R",
     "compute_cwsl_sensitivity_df",
+    "estimate_entity_R_from_balance",
 ]
