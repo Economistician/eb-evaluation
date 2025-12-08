@@ -120,6 +120,67 @@ result = evaluate_panel_with_entity_R(
 )
 ```
 
+4. Cost-Ratio Estimation (R = cu/co) Utilities
+
+Electric Barometer workflows often require setting or tuning the cost ratio R=cu/co, which determines the asymmetry between shortfall cost and overbuild cost in CWSL.
+
+The evaluation package now includes **data-driven estimators** for R, based on cost balance:
+
+- **Global R estimation** for a single forecast series
+- **Entity-level R estimation** across a panel (e.g., item, store, SKU)
+
+**Global Cost-Ratio Estimation**
+
+```python
+from eb_evaluation.dataframe import estimate_R_from_cost_balance
+
+R_star = estimate_R_from_cost_balance(
+    y_true=y_true,
+    y_pred=y_pred,
+    ratios=[0.5, 1.0, 2.0, 4.0],
+    co=1.0,
+)
+```
+
+`R_star` is the value in the grid that minimizes the absolute imbalance: | underbuild cost (R) - overbuild cost (R) |
+
+This is useful for:
+
+- selecting a reasonable global R for CWSL
+- probing how sensitive model selection is to cost assumptions
+
+**Entity-Level Cost-Ratio Estimation**
+
+```python
+from eb_evaluation.dataframe import estimate_entity_R_from_balance
+
+result = estimate_entity_R_from_balance(
+    df=df,
+    entity_col="item_id",
+    y_true_col="actual_qty",
+    y_pred_col="forecast_qty",
+    ratios=[0.5, 1.0, 2.0, 4.0],
+    co=1.0,
+)
+```
+Output columns include:
+
+| Column        | Meaning                                 |
+| ------------- | --------------------------------------- |
+| `entity`      | Entity identifier                       |
+| `R`           | Chosen cost ratio                       |
+| `cu`          | Computed shortfall cost (cu = R * co)   |
+| `co`          | Overbuild cost (input)                  |
+| `under_cost`  | Total ∑ cu * shortfall                  |
+| `over_cost`   | Total ∑ co * overbuild                  |
+| `diff`        | Absolute imbalance at chosen R          |
+
+This enables:
+
+- entity-specific tuning of asymmetry
+- understanding which products/stores are shortfall-leaning or overbuild-leaning
+- advanced operational diagnostics inside EB
+
 ---
 
 ## License
