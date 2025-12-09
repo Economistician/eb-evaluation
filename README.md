@@ -242,6 +242,44 @@ best_name, best_model, results = select_model_by_cwsl(
 
 This fits models normally but **selects** based on **minimizing CWSL**, ensuring decisions reflect real shortfall/overbuild economics.
 
+## Model Selection (ElectricBarometer & AutoEngine)
+
+`eb-evaluation` includes a full CWSL-driven model selection engine for operational forecasting.
+
+### ElectricBarometer (CWSL Model Selector)
+A high-level selector that:
+- trains multiple candidate models  
+- evaluates them with CWSL, RMSE, and wMAPE  
+- selects the best model based on **minimum CWSL**  
+- optionally refits the winner on full data  
+
+Example:
+```python
+from eb_evaluation.model_selection import ElectricBarometer
+
+eb = ElectricBarometer(
+    models={"lr": LinearRegression(), "rf": RandomForestRegressor()},
+    cu=2.0,
+    co=1.0,
+    selection_mode="holdout",
+)
+
+eb.fit(X_train, y_train, X_val, y_val)
+pred = eb.predict(X_test)
+```
+
+### AutoEngine (Preset Model Zoo)
+
+Convenience factory that assembles an ElectricBarometer with a curated model zoo.
+
+```python
+from eb_evaluation.model_selection import AutoEngine
+
+engine = AutoEngine(cu=2.0, co=1.0, speed="balanced")
+eb = engine.build_selector(X_train, y_train)
+eb.fit(X_train, y_train, X_val, y_val)
+```
+
 ---
 
 ## 3. Cross-Validated Model Selection (CWSL-CV)
