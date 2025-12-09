@@ -23,7 +23,7 @@ Combine interval-level data with entity-level `R` (cost ratio) estimates to comp
 
 ### Cost Sensitivity Analysis (CWSL robustness evaluation)
 Evaluate how CWSL behaves across multiple candidate cost ratios  
-\( R = \frac{c_u}{c_o} \), enabling:
+\( R = rac{c_u}{c_o} \), enabling:
 - robustness checks against cost assumptions  
 - identification of stable vs. sensitive forecast behaviors  
 - tuning of asymmetric cost parameters prior to model deployment  
@@ -163,6 +163,7 @@ result = estimate_entity_R_from_balance(
     co=1.0,
 )
 ```
+
 Output columns include:
 
 | Column        | Meaning                                 |
@@ -180,6 +181,94 @@ This enables:
 - entity-specific tuning of asymmetry
 - understanding which products/stores are shortfall-leaning or overbuild-leaning
 - advanced operational diagnostics inside EB
+
+---
+
+# Model Selection Utilities (CWSL-Driven)
+
+`eb-evaluation` also provides a complete **model selection engine powered by CWSL**, allowing you to compare multiple forecasting models under asymmetric costs — the correct way to select models in operational environments such as QSR forecasting.
+
+---
+
+## 1. Compare Multiple Forecast Outputs
+
+```python
+from eb_evaluation.model_selection import compare_forecasts
+
+df = compare_forecasts(
+    y_true=y_true,
+    forecasts={
+        "model_a": y_pred_a,
+        "model_b": y_pred_b,
+    },
+    cu=2.0,
+    co=1.0,
+)
+```
+
+Returns a tidy leaderboard DataFrame with:
+
+- CWSL  
+- NSL  
+- UD  
+- wMAPE  
+- HR@τ  
+- FRS  
+- MAE  
+- RMSE  
+- MAPE  
+
+---
+
+## 2. Select Best Model on a Validation Set (CWSL-optimized)
+
+```python
+from eb_evaluation.model_selection import select_model_by_cwsl
+
+best_name, best_model, results = select_model_by_cwsl(
+    models={
+        "xgboost": xgb_model,
+        "lightgbm": lgb_model,
+        "mean": MeanModel(),
+    },
+    X_train=X_train,
+    y_train=y_train,
+    X_val=X_val,
+    y_val=y_val,
+    cu=2.0,
+    co=1.0,
+)
+```
+
+This fits models normally but **selects** based on **minimizing CWSL**, ensuring decisions reflect real shortfall/overbuild economics.
+
+---
+
+## 3. Cross-Validated Model Selection (CWSL-CV)
+
+```python
+from eb_evaluation.model_selection import select_model_by_cwsl_cv
+
+best_name, best_model, results = select_model_by_cwsl_cv(
+    models={
+        "xgboost": xgb_model,
+        "zero": ZeroEstimator(),
+    },
+    X=X,
+    y=y,
+    cu=2.0,
+    co=1.0,
+    cv=5,
+)
+```
+
+Returns:
+
+- mean CWSL, RMSE, wMAPE  
+- standard deviations  
+- final model refit on full data  
+
+This is the recommended approach for **stable, robust, production-grade model selection**.
 
 ---
 
