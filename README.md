@@ -280,6 +280,42 @@ eb = engine.build_selector(X_train, y_train)
 eb.fit(X_train, y_train, X_val, y_val)
 ```
 
+### CWSLRegressor (sklearn-style wrapper)
+
+A drop-in, scikit-learn–compatible estimator that wraps `ElectricBarometer` and exposes:
+
+- `.fit(X, y)`
+- `.predict(X)`
+- `.score(X, y)` → returns **negative CWSL**
+- `.get_params()` / `.set_params()` for pipeline compatibility
+- internal CV or holdout splitting
+
+This allows CWSL-driven model selection to be used seamlessly inside sklearn Pipelines and GridSearchCV.
+
+Example:
+
+```python
+from eb_evaluation.model_selection import CWSLRegressor
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
+
+reg = CWSLRegressor(
+    models={
+        "lr": LinearRegression(),
+        "rf": RandomForestRegressor(),
+    },
+    cu=2.0,
+    co=1.0,
+    selection_mode="cv",
+    cv=3,
+)
+
+reg.fit(X_train, y_train)
+pred = reg.predict(X_test)
+score = reg.score(X_test, y_test)
+print(reg.best_name_, reg.results_)
+```
+
 ---
 
 ## 3. Cross-Validated Model Selection (CWSL-CV)
