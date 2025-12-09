@@ -17,6 +17,7 @@ from .compare import (
 )
 from .electric_barometer import ElectricBarometer
 from .auto_engine import AutoEngine
+from .cwsl_regressor import CWSLRegressor
 
 __all__ = [
     "compare_forecasts",
