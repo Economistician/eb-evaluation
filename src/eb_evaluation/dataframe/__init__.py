@@ -11,6 +11,10 @@ from .entity import evaluate_panel_with_entity_R
 from .sensitivity import compute_cwsl_sensitivity_df
 from .cost_ratio import estimate_entity_R_from_balance
 
+# Backwards-compatible alias: older code/tests may still refer to
+# `cwsl_sensitivity_df` as the public name.
+cwsl_sensitivity_df = compute_cwsl_sensitivity_df
+
 __all__ = [
     "compute_cwsl_df",
     "evaluate_groups_df",
@@ -18,5 +22,6 @@ __all__ = [
     "evaluate_panel_df",
     "evaluate_panel_with_entity_R",
     "compute_cwsl_sensitivity_df",
+    "cwsl_sensitivity_df",
     "estimate_entity_R_from_balance",
 ]
