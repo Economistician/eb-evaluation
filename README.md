@@ -259,6 +259,58 @@ This makes feature engineering a clean, reusable stage in the EB workflow.
 
 ---
 
+# Readiness Adjustment Layer (RAL)
+
+`eb-evaluation` also includes a **Readiness Adjustment Layer** that learns **multiplicative uplift factors** to convert statistical forecasts into readiness forecasts tuned to real operational cost asymmetry.
+
+RAL searches over a grid of uplift values (e.g., 1.00–1.15) and selects the factor that **minimizes CWSL**, while also reporting how FRS and underbuild rates change before vs. after uplift.
+
+Key behaviors:
+
+- Supports **global uplift** (single factor for all rows)
+- Supports **segment-specific uplift** via `segment_cols` (e.g., cluster, daypart)
+- Falls back to the **global uplift** when a segment was not seen during fit
+- Exposes a diagnostics table with CWSL/FRS/underbuild deltas per segment
+
+## Basic Usage
+
+```python
+from eb_evaluation.adjustment import ReadinessAdjustmentLayer
+
+ral = ReadinessAdjustmentLayer(
+    cu=2.0,
+    co=1.0,
+    uplift_min=1.0,
+    uplift_max=1.15,
+    grid_step=0.01,
+)
+
+# 1) Learn uplift factors on historical data
+ral.fit(
+    df,
+    forecast_col="forecast",
+    actual_col="actual",
+    segment_cols=["cluster"],  # optional; can be None for global-only
+)
+
+# Inspect learned uplifts and diagnostics
+print(ral.uplift_table_)   # per-segment uplift
+print(ral.diagnostics_)    # global + per-segment CWSL/FRS/underbuild deltas
+
+# 2) Apply uplift to future forecasts
+df_future = ral.transform(
+    df_future,
+    forecast_col="forecast",
+    output_col="readiness_forecast",
+)
+```
+
+This layer is designed to be the **last mile** between model output and operations:
+it minimally adjusts forecasts so they line up with store-level readiness,
+shortfall tolerance, and EB’s cost-weighted objectives.
+
+---
+
 # Model Selection Utilities (CWSL-Driven)
 
 `eb-evaluation` also provides a complete **model selection engine powered by CWSL**, allowing you to compare multiple forecasting models under asymmetric costs — the correct way to select models in operational environments such as QSR forecasting.
