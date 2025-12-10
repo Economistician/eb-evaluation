@@ -184,6 +184,81 @@ This enables:
 
 ---
 
+# Feature Engineering for Time-Series Forecasting (X, y, feature_names)
+
+`eb-evaluation` includes a modular, configurable feature-engineering layer that
+transforms raw panel time-series data into model-ready arrays for use in:
+
+- AutoEngine  
+- ElectricBarometer  
+- CWSLRegressor (sklearn-style)  
+- Any sklearn-compatible model  
+- Any forecasting workflow requiring fixed-width features  
+
+This system is frequency-agnostic (5-min, 30-min, hourly, daily) and generates:
+
+- **Lag features** (user-specified steps)
+- **Rolling window statistics** (mean, std, min, max, sum, median)
+- **Calendar/time features** (hour, day-of-week, month, weekend flag, etc.)
+- **Optional cyclical encodings** (sin/cos for hour & day-of-week)
+- **Static metadata** (store-level or entity-level attributes)
+- **External regressors** (promo flags, weather, prices, etc.)
+
+All features are computed **per entity**, respecting time ordering and panel structure.
+
+## Basic Usage
+
+```python
+from eb_evaluation.features import FeatureEngineer, FeatureConfig
+
+fe = FeatureEngineer(
+    entity_col="entity_id",
+    timestamp_col="timestamp",
+    target_col="target",
+)
+
+config = FeatureConfig(
+    lag_steps=[1, 2, 24],
+    rolling_windows=[3],
+    rolling_stats=["mean", "max"],
+    calendar_features=["hour", "dow", "month", "is_weekend"],
+    use_cyclical_time=True,
+    regressor_cols=["promo"],
+    static_cols=["store_type"],
+)
+
+X, y, feature_names = fe.transform(df, config)
+```
+
+The transformer returns:
+
+- `X`: numpy array of shape *(n_samples, n_features)*  
+- `y`: numpy vector *(n_samples,)*  
+- `feature_names`: ordered list of column names used in `X`
+
+## What the Feature Engineer Guarantees
+
+- Timestamps must be strictly increasing within each entity
+- Negative target values are disallowed (demand-like data)
+- NaNs introduced by lags/rolls are dropped if `dropna=True`
+- All returned features are numeric and dense (float32/float64)
+- Auto-detection of numeric regressors when `regressor_cols=None`
+- Fully deterministic, stateless operation
+
+## Example Integration with ElectricBarometer
+
+```python
+X, y, names = fe.transform(df, config)
+
+engine = AutoEngine(cu=2.0, co=1.0, speed="balanced")
+selector = engine.build_selector(X, y)
+selector.fit(X_train, y_train, X_val, y_val)
+```
+
+This makes feature engineering a clean, reusable stage in the EB workflow.
+
+---
+
 # Model Selection Utilities (CWSL-Driven)
 
 `eb-evaluation` also provides a complete **model selection engine powered by CWSL**, allowing you to compare multiple forecasting models under asymmetric costs — the correct way to select models in operational environments such as QSR forecasting.
