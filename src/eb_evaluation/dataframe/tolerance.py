@@ -1,20 +1,34 @@
 """
 eb_evaluation.dataframe.tolerance
 
-Data-driven tolerance (tau, τ) selection utilities for HR@τ (hit-rate within threshold).
+Data-driven tolerance (tau, τ) selection utilities for HR@τ
+(hit-rate within threshold).
 
 Theme:
 - Like cost_ratio.py estimates R = cu/co by balancing under- vs over-cost,
-  this module estimates τ from *historical residuals only* (no exogenous data).
-- Supports global τ and entity-level τ, with optional caps/guards.
+  this module estimates τ from *historical residuals only*
+  (no exogenous data, no model assumptions).
+- Supports global τ and entity-level τ, with optional caps and guards
+  to prevent tolerance inflation.
 
 Core idea:
-HR(τ) = mean( |y - yhat| <= τ )
+    HR(τ) = mean( |y - yhat| <= τ )
 
-We can choose τ automatically from residuals via:
-- target_hit_rate (quantile of abs errors)
-- knee (diminishing returns point on HR curve)
-- utility (maximize HR(τ) - λ * τ/τ_max)
+τ represents an *acceptability band*:
+the maximum error magnitude considered operationally acceptable.
+
+τ can be selected automatically from residuals via:
+- target_hit_rate:
+    τ = quantile(|e|, h), enforcing a readiness standard
+- knee:
+    τ at the point of diminishing returns in HR(τ)
+- utility:
+    τ maximizing HR(τ) − λ · (τ / τ_max), trading coverage against tolerance width
+
+Governance notes:
+- τ should be calibrated on a calibration window and reported on holdout data.
+- Entity-level τ should be capped (optionally) by a global tolerance to
+  avoid masking poor performance.
 
 All functions are deterministic given inputs.
 """

@@ -22,6 +22,7 @@ from .dataframe.tolerance import (
     estimate_tau,
     estimate_entity_tau,
     hr_auto_tau,
+    TauEstimate,
 )
 
 __all__ = [
@@ -37,4 +38,5 @@ __all__ = [
     "estimate_tau",
     "estimate_entity_tau",
     "hr_auto_tau",
+    "TauEstimate",
 ]
