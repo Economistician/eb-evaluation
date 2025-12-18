@@ -1,87 +1,105 @@
-# EB Evaluation  
-**Electric Barometer: Forecast Evaluation Toolkit**
+# eb-evaluation
+**Electric Barometer — Evaluation & Calibration Toolkit**
 
-`eb-evaluation` provides a unified, DataFrame-first interface for evaluating forecast performance across groups, hierarchies, and entities — all aligned with the Electric Barometer framework and cost-asymmetric forecasting philosophy.
+`eb-evaluation` is the **evaluation and calibration layer** of the Electric Barometer ecosystem.
+It extends the pure metric definitions in `ebmetrics` into **DataFrame-first, production-ready
+workflows** for forecast evaluation, governance, and readiness calibration.
 
-It is designed to work seamlessly with the `eb-metrics` library, extending raw metric functions (CWSL, NSL, UD, wMAPE, FRS, etc.) into higher-level evaluators used in production forecasting workflows.
+This package answers questions such as:
+- *How good is this forecast under asymmetric costs?*
+- *How should cost ratios (R) or tolerance bands (τ) be calibrated from data?*
+- *How do metrics behave across entities, hierarchies, and segments?*
+- *Which model should be selected when shortfalls are more expensive than overbuild?*
 
 ---
 
-## Key Features
+## Design Philosophy
 
-### DataFrame-based evaluation
-Simple, explicit APIs that operate directly on pandas DataFrames.
+Electric Barometer is intentionally layered:
 
-### Group-level metrics
-Evaluate CWSL and related diagnostics across any grouping dimensions.
+| Layer | Responsibility |
+|------|----------------|
+| **ebmetrics** | Canonical metric definitions (CWSL, NSL, UD, HR@τ, FRS) |
+| **eb-evaluation** | Calibration, governance, DataFrame workflows |
+| **Applications / Papers** | Forecast Readiness Framework (FRF), EB deployments |
 
-### Hierarchical evaluation
-Multi-level performance summaries (e.g., overall → store → item → store×item).
+`eb-evaluation` **does not redefine metrics**.  
+Instead, it *calibrates, applies, and governs* them.
 
-### Entity-aware evaluation using learned cost ratios
-Combine interval-level data with entity-level `R` (cost ratio) estimates to compute cost-aligned metrics.
+---
 
-### Cost Sensitivity Analysis (CWSL robustness evaluation)
-Evaluate how CWSL behaves across multiple candidate cost ratios  
-\( R = rac{c_u}{c_o} \), enabling:
-- robustness checks against cost assumptions  
-- identification of stable vs. sensitive forecast behaviors  
-- tuning of asymmetric cost parameters prior to model deployment  
+## Key Capabilities
 
-This is powered by `compute_cwsl_sensitivity_df`, which computes CWSL over any
-set of proposed R values and returns a tidy, analysis-ready DataFrame.
+### DataFrame-first evaluation
+All APIs operate directly on pandas DataFrames and return tidy, analysis-ready outputs.
 
-### Compatible with Electric Barometer & asymmetric forecasting
-Directly consumes metrics from `eb-metrics` for CWSL-based optimization.
+### Group & hierarchical evaluation
+Evaluate metrics across:
+- arbitrary groupings
+- multi-level hierarchies (overall → store → item → store×item)
 
-### Production-ready
-- `src/` layout  
-- Full test suite  
-- Type-annotated API  
-- Minimal, dependency-safe design  
+### Cost-aware evaluation (CWSL-driven)
+All evaluations support asymmetric cost structures using **Cost-Weighted Service Loss (CWSL)**.
+
+### Cost-ratio (R = cu / co) calibration
+Data-driven estimation of asymmetric cost ratios:
+- global R calibration
+- entity-level R calibration with diagnostics and safeguards
+
+### Tolerance (τ) calibration for HR@τ
+Automatic, data-driven selection of tolerance bands for **Hit Rate within Tolerance (HR@τ)**:
+- target hit-rate quantiles
+- knee-point detection
+- utility-based tradeoffs
+
+HR@τ itself is defined in `ebmetrics`; this package focuses on **choosing τ responsibly**.
+
+### Feature engineering for forecasting
+A modular, entity-aware feature engineering system for panel time-series data:
+- lags, rolling stats, calendar features
+- cyclical encodings
+- static metadata
+- external regressors
+
+### Readiness Adjustment Layer (RAL)
+A post-model calibration layer that learns **multiplicative uplifts** to minimize CWSL
+and improve operational readiness.
+
+### CWSL-driven model selection
+Model comparison and selection utilities that choose models based on **economic impact**,
+not symmetric error metrics.
 
 ---
 
 ## Installation
 
-### Editable (development) install
+```bash
+pip install eb-evaluation
+```
+
+For development:
 
 ```bash
 pip install -e .
-```
-
-If developing alongside eb-metrics:
-
-```bash
 pip install -e ../eb-metrics
 ```
 
 ---
 
-## Quick Start
+## Quick Examples
 
-1. Group-level evaluation
+### Group-level evaluation
 
 ```python
-import pandas as pd
 from eb_evaluation import evaluate_groups_df
-
-df = pd.DataFrame({
-    "store_id": [1,1,2,2],
-    "item_id": ["A","A","A","A"],
-    "actual_qty": [10, 12, 9, 11],
-    "forecast_qty": [11, 13, 8, 10],
-})
 
 summary = evaluate_groups_df(
     df=df,
     group_cols=["store_id", "item_id"],
 )
-
-print(summary)
 ```
 
-2. Hierarchical evaluation
+### Hierarchical evaluation
 
 ```python
 from eb_evaluation import evaluate_hierarchy_df
@@ -92,7 +110,7 @@ levels = {
     "by_item": ["item_id"],
 }
 
-hier = evaluate_hierarchy_df(
+out = evaluate_hierarchy_df(
     df,
     levels=levels,
     actual_col="actual_qty",
@@ -102,59 +120,12 @@ hier = evaluate_hierarchy_df(
 )
 ```
 
-3. Entity-level cost-ratio evaluation
-
-```python
-from eb_evaluation import evaluate_panel_with_entity_R
-
-entity_R = pd.DataFrame({
-    "entity": ["A", "B"],
-    "R": [2.0, 3.0],
-    "co": [1.0, 1.0],
-})
-
-result = evaluate_panel_with_entity_R(
-    df=df,
-    entity_R=entity_R,
-    entity_col="entity",
-)
-```
-
-4. Cost-Ratio Estimation (R = cu/co) Utilities
-
-Electric Barometer workflows often require setting or tuning the cost ratio R=cu/co, which determines the asymmetry between shortfall cost and overbuild cost in CWSL.
-
-The evaluation package now includes **data-driven estimators** for R, based on cost balance:
-
-- **Global R estimation** for a single forecast series
-- **Entity-level R estimation** across a panel (e.g., item, store, SKU)
-
-**Global Cost-Ratio Estimation**
-
-```python
-from eb_evaluation.dataframe import estimate_R_from_cost_balance
-
-R_star = estimate_R_from_cost_balance(
-    y_true=y_true,
-    y_pred=y_pred,
-    ratios=[0.5, 1.0, 2.0, 4.0],
-    co=1.0,
-)
-```
-
-`R_star` is the value in the grid that minimizes the absolute imbalance: | underbuild cost (R) - overbuild cost (R) |
-
-This is useful for:
-
-- selecting a reasonable global R for CWSL
-- probing how sensitive model selection is to cost assumptions
-
-**Entity-Level Cost-Ratio Estimation**
+### Entity-level cost ratio calibration
 
 ```python
 from eb_evaluation.dataframe import estimate_entity_R_from_balance
 
-result = estimate_entity_R_from_balance(
+entity_R = estimate_entity_R_from_balance(
     df=df,
     entity_col="item_id",
     y_true_col="actual_qty",
@@ -164,49 +135,22 @@ result = estimate_entity_R_from_balance(
 )
 ```
 
-Output columns include:
+### Automatic τ calibration for HR@τ
 
-| Column        | Meaning                                 |
-| ------------- | --------------------------------------- |
-| `entity`      | Entity identifier                       |
-| `R`           | Chosen cost ratio                       |
-| `cu`          | Computed shortfall cost (cu = R * co)   |
-| `co`          | Overbuild cost (input)                  |
-| `under_cost`  | Total ∑ cu * shortfall                  |
-| `over_cost`   | Total ∑ co * overbuild                  |
-| `diff`        | Absolute imbalance at chosen R          |
+```python
+from eb_evaluation.dataframe.tolerance import hr_auto_tau
 
-This enables:
-
-- entity-specific tuning of asymmetry
-- understanding which products/stores are shortfall-leaning or overbuild-leaning
-- advanced operational diagnostics inside EB
+hr, tau, diagnostics = hr_auto_tau(
+    y=y_true,
+    yhat=y_pred,
+    method="target_hit_rate",
+    target_hit_rate=0.9,
+)
+```
 
 ---
 
-# Feature Engineering for Time-Series Forecasting (X, y, feature_names)
-
-`eb-evaluation` includes a modular, configurable feature-engineering layer that
-transforms raw panel time-series data into model-ready arrays for use in:
-
-- AutoEngine  
-- ElectricBarometer  
-- CWSLRegressor (sklearn-style)  
-- Any sklearn-compatible model  
-- Any forecasting workflow requiring fixed-width features  
-
-This system is frequency-agnostic (5-min, 30-min, hourly, daily) and generates:
-
-- **Lag features** (user-specified steps)
-- **Rolling window statistics** (mean, std, min, max, sum, median)
-- **Calendar/time features** (hour, day-of-week, month, weekend flag, etc.)
-- **Optional cyclical encodings** (sin/cos for hour & day-of-week)
-- **Static metadata** (store-level or entity-level attributes)
-- **External regressors** (promo flags, weather, prices, etc.)
-
-All features are computed **per entity**, respecting time ordering and panel structure.
-
-## Basic Usage
+## Feature Engineering
 
 ```python
 from eb_evaluation.features import FeatureEngineer, FeatureConfig
@@ -230,74 +174,28 @@ config = FeatureConfig(
 X, y, feature_names = fe.transform(df, config)
 ```
 
-The transformer returns:
-
-- `X`: numpy array of shape *(n_samples, n_features)*  
-- `y`: numpy vector *(n_samples,)*  
-- `feature_names`: ordered list of column names used in `X`
-
-## What the Feature Engineer Guarantees
-
-- Timestamps must be strictly increasing within each entity
-- Negative target values are disallowed (demand-like data)
-- NaNs introduced by lags/rolls are dropped if `dropna=True`
-- All returned features are numeric and dense (float32/float64)
-- Auto-detection of numeric regressors when `regressor_cols=None`
-- Fully deterministic, stateless operation
-
-## Example Integration with ElectricBarometer
-
-```python
-X, y, names = fe.transform(df, config)
-
-engine = AutoEngine(cu=2.0, co=1.0, speed="balanced")
-selector = engine.build_selector(X, y)
-selector.fit(X_train, y_train, X_val, y_val)
-```
-
-This makes feature engineering a clean, reusable stage in the EB workflow.
+Guarantees:
+- strict time ordering per entity
+- no negative targets
+- deterministic outputs
+- sklearn-compatible arrays
 
 ---
 
-# Readiness Adjustment Layer (RAL)
-
-`eb-evaluation` also includes a **Readiness Adjustment Layer** that learns **multiplicative uplift factors** to convert statistical forecasts into readiness forecasts tuned to real operational cost asymmetry.
-
-RAL searches over a grid of uplift values (e.g., 1.00–1.15) and selects the factor that **minimizes CWSL**, while also reporting how FRS and underbuild rates change before vs. after uplift.
-
-Key behaviors:
-
-- Supports **global uplift** (single factor for all rows)
-- Supports **segment-specific uplift** via `segment_cols` (e.g., cluster, daypart)
-- Falls back to the **global uplift** when a segment was not seen during fit
-- Exposes a diagnostics table with CWSL/FRS/underbuild deltas per segment
-
-## Basic Usage
+## Readiness Adjustment Layer (RAL)
 
 ```python
 from eb_evaluation.adjustment import ReadinessAdjustmentLayer
 
-ral = ReadinessAdjustmentLayer(
-    cu=2.0,
-    co=1.0,
-    uplift_min=1.0,
-    uplift_max=1.15,
-    grid_step=0.01,
-)
+ral = ReadinessAdjustmentLayer(cu=2.0, co=1.0)
 
-# 1) Learn uplift factors on historical data
 ral.fit(
     df,
     forecast_col="forecast",
     actual_col="actual",
-    segment_cols=["cluster"],  # optional; can be None for global-only
+    segment_cols=["cluster"],
 )
 
-# Inspect learned uplifts and diagnostics
-print(ral.uplift_table_)   # per-segment uplift
-print(ral.diagnostics_)    # global + per-segment CWSL/FRS/underbuild deltas
-
-# 2) Apply uplift to future forecasts
 df_future = ral.transform(
     df_future,
     forecast_col="forecast",
@@ -305,24 +203,16 @@ df_future = ral.transform(
 )
 ```
 
-This layer is designed to be the **last mile** between model output and operations:
-it minimally adjusts forecasts so they line up with store-level readiness,
-shortfall tolerance, and EB’s cost-weighted objectives.
+RAL is the **final mile** between statistical forecasts and operations.
 
 ---
 
-# Model Selection Utilities (CWSL-Driven)
-
-`eb-evaluation` also provides a complete **model selection engine powered by CWSL**, allowing you to compare multiple forecasting models under asymmetric costs — the correct way to select models in operational environments such as QSR forecasting.
-
----
-
-## 1. Compare Multiple Forecast Outputs
+## Model Selection (CWSL-driven)
 
 ```python
 from eb_evaluation.model_selection import compare_forecasts
 
-df = compare_forecasts(
+leaderboard = compare_forecasts(
     y_true=y_true,
     forecasts={
         "model_a": y_pred_a,
@@ -333,146 +223,25 @@ df = compare_forecasts(
 )
 ```
 
-Returns a tidy leaderboard DataFrame with:
-
-- CWSL  
-- NSL  
-- UD  
-- wMAPE  
-- HR@τ  
-- FRS  
-- MAE  
-- RMSE  
-- MAPE  
-
----
-
-## 2. Select Best Model on a Validation Set (CWSL-optimized)
-
-```python
-from eb_evaluation.model_selection import select_model_by_cwsl
-
-best_name, best_model, results = select_model_by_cwsl(
-    models={
-        "xgboost": xgb_model,
-        "lightgbm": lgb_model,
-        "mean": MeanModel(),
-    },
-    X_train=X_train,
-    y_train=y_train,
-    X_val=X_val,
-    y_val=y_val,
-    cu=2.0,
-    co=1.0,
-)
-```
-
-This fits models normally but **selects** based on **minimizing CWSL**, ensuring decisions reflect real shortfall/overbuild economics.
-
-## Model Selection (ElectricBarometer & AutoEngine)
-
-`eb-evaluation` includes a full CWSL-driven model selection engine for operational forecasting.
-
-### ElectricBarometer (CWSL Model Selector)
-A high-level selector that:
-- trains multiple candidate models  
-- evaluates them with CWSL, RMSE, and wMAPE  
-- selects the best model based on **minimum CWSL**  
-- optionally refits the winner on full data  
-
-Example:
-```python
-from eb_evaluation.model_selection import ElectricBarometer
-
-eb = ElectricBarometer(
-    models={"lr": LinearRegression(), "rf": RandomForestRegressor()},
-    cu=2.0,
-    co=1.0,
-    selection_mode="holdout",
-)
-
-eb.fit(X_train, y_train, X_val, y_val)
-pred = eb.predict(X_test)
-```
-
-### AutoEngine (Preset Model Zoo)
-
-Convenience factory that assembles an ElectricBarometer with a curated model zoo.
-
-```python
-from eb_evaluation.model_selection import AutoEngine
-
-engine = AutoEngine(cu=2.0, co=1.0, speed="balanced")
-eb = engine.build_selector(X_train, y_train)
-eb.fit(X_train, y_train, X_val, y_val)
-```
-
-### CWSLRegressor (sklearn-style wrapper)
-
-A drop-in, scikit-learn–compatible estimator that wraps `ElectricBarometer` and exposes:
-
-- `.fit(X, y)`
-- `.predict(X)`
-- `.score(X, y)` → returns **negative CWSL**
-- `.get_params()` / `.set_params()` for pipeline compatibility
-- internal CV or holdout splitting
-
-This allows CWSL-driven model selection to be used seamlessly inside sklearn Pipelines and GridSearchCV.
-
-Example:
-
-```python
-from eb_evaluation.model_selection import CWSLRegressor
-from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor
-
-reg = CWSLRegressor(
-    models={
-        "lr": LinearRegression(),
-        "rf": RandomForestRegressor(),
-    },
-    cu=2.0,
-    co=1.0,
-    selection_mode="cv",
-    cv=3,
-)
-
-reg.fit(X_train, y_train)
-pred = reg.predict(X_test)
-score = reg.score(X_test, y_test)
-print(reg.best_name_, reg.results_)
-```
-
----
-
-## 3. Cross-Validated Model Selection (CWSL-CV)
+Cross-validated selection:
 
 ```python
 from eb_evaluation.model_selection import select_model_by_cwsl_cv
-
-best_name, best_model, results = select_model_by_cwsl_cv(
-    models={
-        "xgboost": xgb_model,
-        "zero": ZeroEstimator(),
-    },
-    X=X,
-    y=y,
-    cu=2.0,
-    co=1.0,
-    cv=5,
-)
 ```
 
-Returns:
+All selection is performed by **minimizing CWSL**.
 
-- mean CWSL, RMSE, wMAPE  
-- standard deviations  
-- final model refit on full data  
+---
 
-This is the recommended approach for **stable, robust, production-grade model selection**.
+## Status & Scope
+
+- Production-oriented
+- Deterministic and test-covered
+- No model training assumptions
+- Designed for QSR, retail, and operations-heavy forecasting
 
 ---
 
 ## License
 
-Released under the **BSD-3 License**, consistent with the rest of the Electric Barometer ecosystem.
+BSD-3-Clause © Economistician / Electric Barometer

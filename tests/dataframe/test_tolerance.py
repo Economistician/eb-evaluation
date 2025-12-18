@@ -24,6 +24,18 @@ def test_hr_at_tau_basic():
     assert hr_at_tau(y, yhat, tau=3) == 1.0
 
 
+def test_hr_at_tau_matches_ebmetrics_on_finite_data():
+    from ebmetrics.metrics.service import hr_at_tau as core
+
+    y = np.array([10, 10, 10, 10], dtype=float)
+    yhat = np.array([10, 11, 9, 13], dtype=float)
+
+    for tau in [0.0, 1.0, 3.0]:
+        assert hr_at_tau(y, yhat, tau=tau) == pytest.approx(
+            core(y_true=y, y_pred=yhat, tau=tau)
+        )
+
+
 def test_hr_at_tau_ignores_nans():
     y = np.array([10, np.nan, 10, 10], dtype=float)
     yhat = np.array([9, 10, np.nan, 11], dtype=float)
