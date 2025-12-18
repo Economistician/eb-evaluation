@@ -9,7 +9,7 @@ def _make_panel_df(
     n_entities: int = 2,
     n_steps: int = 16,
     start: str = "2024-01-01",
-    freq: str = "H",
+    freq: str = "h",  # pandas deprecates "H" in favor of "h"
 ) -> pd.DataFrame:
     """Helper to build a simple panel DataFrame."""
     frames = []
