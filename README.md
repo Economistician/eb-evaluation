@@ -99,17 +99,19 @@ eb-evaluation/
 
 ## Relationship to Other EB Repositories
 
-- **`eb-papers`**  
-  Source of truth for definitions, theory, and evaluation philosophy.
+- `eb-papers`  
+  Source of truth for conceptual definitions and evaluation philosophy.
 
-- **`eb-metrics`**  
-  Provides the underlying metric implementations used here.
+- `eb-metrics`  
+  Provides the metric implementations used during evaluation.
 
-- **`eb-evaluation`**  
-  Applies metrics and frameworks to datasets, models, and operational contexts.
+- `eb-evaluation`  
+  Orchestrates evaluation workflows using adapted models.
 
-When discrepancies arise, conceptual intent in `eb-papers` should be treated as
-authoritative.
+- `eb-adapters`  
+  Ensures heterogeneous models can be evaluated consistently.
+
+When discrepancies arise, conceptual intent in `eb-papers` should be treated as authoritative.
 
 ---
 
