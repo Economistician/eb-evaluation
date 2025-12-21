@@ -6,10 +6,10 @@ panel time-series data into model-ready inputs.
 
 It provides:
 
-- :class:`~eb_evaluation.features.feature_engineer.FeatureEngineer`:
+- `FeatureEngineer` (from `eb_evaluation.features.feature_engineer`):
   a stateless transformer that converts a long-form panel DataFrame into
-  ``(X, y, feature_names)``.
-- :class:`~eb_evaluation.features.feature_engineer.FeatureConfig`:
+  `(X, y, feature_names)`.
+- `FeatureConfig` (from `eb_evaluation.features.feature_engineer`):
   a configuration object describing lag steps, rolling windows, calendar features,
   external regressors, and static metadata.
 

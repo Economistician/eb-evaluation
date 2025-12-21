@@ -8,7 +8,7 @@ levels and returns a **long-form (tidy) panel** suitable for reporting, plotting
 downstream aggregation.
 
 The implementation delegates the core computation to
-:func:`eb_evaluation.dataframe.hierarchy.evaluate_hierarchy_df` and then reshapes the
+``eb_evaluation.dataframe.hierarchy.evaluate_hierarchy_df`` and then reshapes the
 wide per-level outputs into a single stacked table with:
 
 - a ``level`` column (which hierarchy level produced the row)
@@ -35,8 +35,8 @@ def evaluate_panel_df(
     """
     Evaluate metrics at multiple levels and return a long-form panel DataFrame.
 
-    This is a convenience wrapper around :func:`~eb_evaluation.dataframe.hierarchy.evaluate_hierarchy_df`
-    that:
+    This is a convenience wrapper around
+    ``eb_evaluation.dataframe.hierarchy.evaluate_hierarchy_df`` that:
 
     1. computes a wide metrics DataFrame per hierarchy level, then
     2. stacks them into a single table with a ``level`` column, and
@@ -84,7 +84,7 @@ def evaluate_panel_df(
     Notes
     -----
     - The set of metric columns is derived from the outputs of
-      :func:`~eb_evaluation.dataframe.hierarchy.evaluate_hierarchy_df`. Only metrics present
+      ``eb_evaluation.dataframe.hierarchy.evaluate_hierarchy_df``. Only metrics present
       in the combined wide table are melted.
     - Grouping key columns vary by level. The returned panel includes the union of all grouping
       key columns across levels; levels that do not use a given key will have NaN in that column.

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-"""
+r"""
 scikit-learn–style estimator wrapper for cost-aware model selection.
 
-This module defines :class:`~eb_evaluation.model_selection.cwsl_regressor.CWSLRegressor`,
-a lightweight wrapper around :class:`~eb_evaluation.model_selection.electric_barometer.ElectricBarometer`
+This module defines `CWSLRegressor`,
+a lightweight wrapper around `ElectricBarometer`
 that exposes a familiar ``fit / predict / score`` API.
 
 The estimator selects among a set of candidate models using Cost-Weighted Service Loss (CWSL)
@@ -34,7 +34,7 @@ class CWSLRegressor:
     r"""
     scikit-learn–style estimator that selects among candidate models using CWSL.
 
-    This class wraps :class:`~eb_evaluation.model_selection.electric_barometer.ElectricBarometer`
+    This class wraps `ElectricBarometer`
     and exposes:
 
     - ``fit(X, y)``: perform cost-aware model selection

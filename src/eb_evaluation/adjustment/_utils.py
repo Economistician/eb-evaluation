@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Internal utilities for the Readiness Adjustment Layer.
 
@@ -6,10 +8,8 @@ implementation. These utilities are **not** part of the public API and may chang
 notice.
 
 The intent is to keep the main algorithm (and its public surface area) in
-:mod:`eb_evaluation.adjustment.readiness_adjustment` clean and readable.
+`eb_evaluation.adjustment.readiness_adjustment` clean and readable.
 """
-
-from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from typing import Any, Union, overload
@@ -56,7 +56,6 @@ def validate_numeric_array(arr: ArrayLike, name: str = "array") -> np.ndarray:
       responsible for selecting appropriate columns before calling this helper).
     - This helper does *not* drop missing values. If you need filtering behavior, perform
       it upstream and call this only once the array should be clean.
-
     """
     if isinstance(arr, (pd.Series, pd.DataFrame)):
         arr = arr.to_numpy()
@@ -94,7 +93,6 @@ def safe_mean(values: np.ndarray) -> float:
     This is mainly used in group-level computations where a group may end up empty after
     filtering invalid rows. Returning ``0.0`` is a pragmatic default for diagnostics; it
     should not be used as a substitute for input validation in the primary metric pathway.
-
     """
     values = np.asarray(values, dtype=float)
     if values.size == 0:
@@ -148,7 +146,6 @@ def groupby_apply_values(
     >>> out = groupby_apply_values(df, ["cluster", "daypart"], "uplift", np.mean)
     >>> out.columns
     Index(['cluster', 'daypart', 'uplift_agg'], dtype='object')
-
     """
     if isinstance(group_cols, str):
         group_cols_seq: list[str] = [group_cols]

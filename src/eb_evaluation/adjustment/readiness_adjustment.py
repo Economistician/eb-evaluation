@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-"""
+r"""
 Readiness Adjustment Layer (RAL).
 
-This module implements the *Readiness Adjustment Layer* (RAL), a lightweight post-processing
-step that converts a baseline statistical forecast into an operationally conservative
-*readiness forecast* via a learned multiplicative uplift.
+This module implements the **Readiness Adjustment Layer (RAL)**: a lightweight, transparent
+post-processing step that converts a baseline statistical forecast into an operationally
+conservative *readiness forecast* via a learned multiplicative uplift.
 
 RAL learns uplift factors by searching over a user-defined grid of multipliers and selecting
 the value that minimizes **Cost-Weighted Service Loss (CWSL)** on historical data. It also
 tracks secondary diagnostics such as **Forecast Readiness Score (FRS)** and an
-underbuild-oriented service metric (via :func:`ebmetrics.metrics.nsl`).
+underbuild-oriented service metric via `ebmetrics.metrics.nsl`.
 
 Design notes
 ------------
 - This module lives in **eb-evaluation** because it is an evaluation/selection utility.
-  It *consumes* metric definitions from :mod:`ebmetrics.metrics` and does not re-define them.
+  It *consumes* metric definitions from `ebmetrics.metrics` and does not re-define them.
 - The learned uplift can be global or segmented by one or more categorical columns.
   Segment-level uplifts fall back to the global uplift for unseen segment combinations.
 
@@ -37,16 +37,16 @@ def _underbuild_rate(
     y_pred: np.ndarray,
     sample_weight: Optional[np.ndarray] = None,
 ) -> float:
-    """Compute the (optionally weighted) underbuild rate.
+    r"""Compute the (optionally weighted) underbuild rate.
 
     The *underbuild rate* is the fraction of intervals where the forecast is strictly below
     realized demand:
 
-    .. math::
+    $$
+    \mathrm{UB}(\hat{y}, y) = \frac{\sum_i w_i \,\mathbb{1}[\hat{y}_i < y_i]}{\sum_i w_i}
+    $$
 
-        \\mathrm{UB}(\\hat{y}, y) = \\frac{\\sum_i w_i\\,\\mathbb{1}[\\hat{y}_i < y_i]}{\\sum_i w_i}
-
-    where :math:`w_i` are optional non-negative sample weights.
+    where $w_i$ are optional non-negative sample weights.
 
     Parameters
     ----------
@@ -55,25 +55,24 @@ def _underbuild_rate(
     y_pred
         Array of baseline forecasts.
     sample_weight
-        Optional non-negative weights with the same shape as ``y_true``. If ``None``,
+        Optional non-negative weights with the same shape as `y_true`. If `None`,
         each interval is weighted equally.
 
     Returns
     -------
     float
-        Underbuild rate in ``[0, 1]``.
+        Underbuild rate in `[0, 1]`.
 
     Raises
     ------
     ValueError
-        If ``sample_weight`` is provided with a shape mismatch or with non-positive total weight.
+        If `sample_weight` is provided with a shape mismatch or with non-positive total weight.
 
     Notes
     -----
     This helper is primarily a reporting utility. In the RAL implementation, underbuild
-    behavior is also tracked via :func:`ebmetrics.metrics.nsl` and is commonly reported
-    as ``ub_rate = 1 - nsl(...)`` for consistency with EB service metrics.
-
+    behavior is also tracked via `ebmetrics.metrics.nsl` and is commonly reported
+    as `ub_rate = 1 - nsl(...)` for consistency with EB service metrics.
     """
     y_true_f = np.asarray(y_true, dtype=float)
     y_pred_f = np.asarray(y_pred, dtype=float)
@@ -96,9 +95,9 @@ def _make_grid(u_min: float, u_max: float, step: float) -> np.ndarray:
 
     The returned grid:
 
-    - starts at ``u_min``
-    - increments by ``step``
-    - includes ``u_max`` (to the extent permitted by floating point arithmetic)
+    - starts at `u_min`
+    - increments by `step`
+    - includes `u_max` (to the extent permitted by floating point arithmetic)
     - is clipped and de-duplicated for numerical robustness
 
     Parameters
@@ -106,7 +105,7 @@ def _make_grid(u_min: float, u_max: float, step: float) -> np.ndarray:
     u_min
         Lower bound for the uplift grid. Must be strictly positive.
     u_max
-        Upper bound for the uplift grid. Must be greater than or equal to ``u_min``.
+        Upper bound for the uplift grid. Must be greater than or equal to `u_min`.
     step
         Step size between candidates. Must be strictly positive.
 
@@ -118,8 +117,7 @@ def _make_grid(u_min: float, u_max: float, step: float) -> np.ndarray:
     Raises
     ------
     ValueError
-        If ``step`` is not strictly positive, or if bounds are invalid.
-
+        If `step` is not strictly positive, or if bounds are invalid.
     """
     if step <= 0:
         raise ValueError("grid_step must be strictly positive.")
@@ -146,8 +144,8 @@ class ReadinessAdjustmentResult:
     """Diagnostics for a fitted uplift (global or per-segment).
 
     This dataclass captures before/after metrics for a single uplift factor. It is returned
-    by :meth:`ReadinessAdjustmentLayer._fit_segment` and is summarized into
-    :attr:`ReadinessAdjustmentLayer.diagnostics_`.
+    by `ReadinessAdjustmentLayer._fit_segment` and is summarized into
+    `ReadinessAdjustmentLayer.diagnostics_`.
 
     Attributes
     ----------
@@ -159,8 +157,7 @@ class ReadinessAdjustmentResult:
         Forecast Readiness Score before/after applying the uplift. Higher is better.
     ub_rate_before, ub_rate_after
         Underbuild-oriented rate before/after applying the uplift. Lower is better.
-        In this implementation it is computed as ``1 - nsl(...)`` for alignment with EB service metrics.
-
+        In this implementation it is computed as `1 - nsl(...)` for alignment with EB service metrics.
     """
 
     uplift: float
@@ -178,7 +175,7 @@ class ReadinessAdjustmentResult:
         Returns
         -------
         float
-            ``cwsl_after - cwsl_before``. Negative values indicate improvement (cost reduction).
+            `cwsl_after - cwsl_before`. Negative values indicate improvement (cost reduction).
         """
         return self.cwsl_after - self.cwsl_before
 
@@ -189,7 +186,7 @@ class ReadinessAdjustmentResult:
         Returns
         -------
         float
-            ``frs_after - frs_before``. Positive values indicate improvement.
+            `frs_after - frs_before`. Positive values indicate improvement.
         """
         return self.frs_after - self.frs_before
 
@@ -200,29 +197,29 @@ class ReadinessAdjustmentResult:
         Returns
         -------
         float
-            ``ub_rate_after - ub_rate_before``. Negative values indicate fewer underbuild intervals.
+            `ub_rate_after - ub_rate_before`. Negative values indicate fewer underbuild intervals.
         """
         return self.ub_rate_after - self.ub_rate_before
 
 
 class ReadinessAdjustmentLayer:
-    """Readiness Adjustment Layer (RAL) for operational forecast uplift.
+    r"""Readiness Adjustment Layer (RAL) for operational forecast uplift.
 
     The Readiness Adjustment Layer (RAL) is a transparent post-processing step that learns a
-    multiplicative uplift :math:`u` and produces a *readiness forecast*:
+    multiplicative uplift $u$ and produces a *readiness forecast*:
 
-    .. math::
+    $$
+    \hat{y}^{(r)} = u \cdot \hat{y}
+    $$
 
-        \\hat{y}^{(r)} = u \\cdot \\hat{y}
-
-    where :math:`\\hat{y}` is a baseline statistical forecast and :math:`\\hat{y}^{(r)}`
-    is the uplifted readiness forecast.
+    where $\hat{y}$ is a baseline statistical forecast and $\hat{y}^{(r)}$ is the uplifted
+    readiness forecast.
 
     The uplift is selected via a grid search to minimize **Cost-Weighted Service Loss (CWSL)**:
 
-    .. math::
-
-        u^* = \\arg\\min_{u \\in \\mathcal{U}} \\mathrm{CWSL}(u \\cdot \\hat{y}, y)
+    $$
+    u^* = \arg\min_{u \in \mathcal{U}} \mathrm{CWSL}(u \cdot \hat{y}, y)
+    $$
 
     Optionally, uplift can be learned per segment (e.g., store cluster × daypart). Segment-level
     uplifts fall back to a global uplift when an unseen segment combination appears at transform time.
@@ -230,29 +227,29 @@ class ReadinessAdjustmentLayer:
     Parameters
     ----------
     cu
-        Underbuild cost coefficient passed to :func:`ebmetrics.metrics.cwsl` and
-        :func:`ebmetrics.metrics.frs`. Must be strictly positive.
+        Underbuild cost coefficient passed to `ebmetrics.metrics.cwsl` and
+        `ebmetrics.metrics.frs`. Must be strictly positive.
     co
-        Overbuild cost coefficient passed to :func:`ebmetrics.metrics.cwsl` and
-        :func:`ebmetrics.metrics.frs`. Must be strictly positive.
+        Overbuild cost coefficient passed to `ebmetrics.metrics.cwsl` and
+        `ebmetrics.metrics.frs`. Must be strictly positive.
     uplift_min
         Minimum candidate uplift multiplier (inclusive). Must be strictly positive.
     uplift_max
-        Maximum candidate uplift multiplier (inclusive). Must be greater than or equal to ``uplift_min``.
+        Maximum candidate uplift multiplier (inclusive). Must be greater than or equal to `uplift_min`.
     grid_step
         Step size for candidate uplifts. Must be strictly positive.
     default_segment_cols
-        Optional default segmentation columns used when ``segment_cols`` is not provided
-        to :meth:`fit` / :meth:`transform`.
+        Optional default segmentation columns used when `segment_cols` is not provided
+        to `fit()` / `transform()`.
 
     Attributes
     ----------
     global_uplift_
         Learned global uplift factor (fit-time fallback).
     segment_cols_
-        Segmentation columns used during :meth:`fit`.
+        Segmentation columns used during `fit()`.
     uplift_table_
-        DataFrame of per-segment uplift factors with a final ``uplift`` column. Empty when fit globally.
+        DataFrame of per-segment uplift factors with a final `uplift` column. Empty when fit globally.
     diagnostics_
         DataFrame of global and per-segment diagnostics including before/after metrics and deltas.
 
@@ -268,7 +265,6 @@ class ReadinessAdjustmentLayer:
     - RAL does not generate forecasts; it adjusts an existing forecast for operational readiness.
     - The uplift search is intentionally discrete and bounded to prioritize interpretability and
       deployability over continuous optimization.
-
     """
 
     def __init__(
@@ -289,7 +285,9 @@ class ReadinessAdjustmentLayer:
         self.uplift_max = float(uplift_max)
         self.grid_step = float(grid_step)
 
-        self.default_segment_cols: List[str] = list(default_segment_cols) if default_segment_cols else []
+        self.default_segment_cols: List[str] = (
+            list(default_segment_cols) if default_segment_cols else []
+        )
 
         # Learned artifacts (set during fit)
         self.global_uplift_: float = 1.0
@@ -316,11 +314,11 @@ class ReadinessAdjustmentLayer:
         This method learns:
 
         1. A **global uplift** (always), used both as a diagnostic baseline and as a fallback.
-        2. Optional **segment-level** uplifts when ``segment_cols`` is provided.
+        2. Optional **segment-level** uplifts when `segment_cols` is provided.
 
         For each scope, the uplift is chosen by grid-searching candidates in
-        ``[uplift_min, uplift_max]`` with increment ``grid_step`` and selecting the candidate
-        that minimizes :func:`ebmetrics.metrics.cwsl`.
+        `[uplift_min, uplift_max]` with increment `grid_step` and selecting the candidate
+        that minimizes `ebmetrics.metrics.cwsl`.
 
         Parameters
         ----------
@@ -331,7 +329,7 @@ class ReadinessAdjustmentLayer:
         actual_col
             Column containing realized demand / actual values.
         segment_cols
-            Optional segmentation columns. If ``None``, only a global uplift is learned.
+            Optional segmentation columns. If `None`, only a global uplift is learned.
             If provided, one uplift is learned per unique segment combination.
         sample_weight_col
             Optional column containing non-negative sample weights. Weights are passed through to the
@@ -341,20 +339,19 @@ class ReadinessAdjustmentLayer:
         Returns
         -------
         ReadinessAdjustmentLayer
-            The fitted instance (``self``).
+            The fitted instance (`self`).
 
         Raises
         ------
         KeyError
-            If required columns are missing from ``df``.
+            If required columns are missing from `df`.
         ValueError
-            If ``df`` is empty after validation or if invalid hyperparameters are supplied.
+            If `df` is empty after validation or if invalid hyperparameters are supplied.
 
         See Also
         --------
         transform
             Apply the learned uplift factors to new forecasts.
-
         """
         if df.empty:
             raise ValueError("Input DataFrame is empty.")
@@ -482,38 +479,39 @@ class ReadinessAdjustmentLayer:
         Parameters
         ----------
         df
-            New data containing ``forecast_col`` and, when segmented, the segmentation columns.
+            New data containing `forecast_col` and, when segmented, the segmentation columns.
         forecast_col
             Name of the baseline forecast column to uplift.
         output_col
             Name of the output column that will contain the readiness forecast.
         segment_cols
-            Optional segmentation columns. If not provided, the segmentation used during :meth:`fit`
+            Optional segmentation columns. If not provided, the segmentation used during `fit()`
             is used. If the layer was fit globally, this parameter is ignored.
 
         Returns
         -------
         pandas.DataFrame
-            A copy of ``df`` with ``output_col`` added.
+            A copy of `df` with `output_col` added.
 
         Raises
         ------
         KeyError
             If required columns are missing.
         RuntimeError
-            If the layer has not been fit prior to calling :meth:`transform`.
+            If the layer has not been fit prior to calling `transform()`.
 
         Notes
         -----
-        When segmented, rows whose segment combination was not seen during :meth:`fit` will use
-        :attr:`global_uplift_` as a fallback.
-
+        When segmented, rows whose segment combination was not seen during `fit()` will use
+        `global_uplift_` as a fallback.
         """
         if forecast_col not in df.columns:
             raise KeyError(f"Column {forecast_col!r} not found in DataFrame.")
 
         if self.uplift_table_ is None or self.diagnostics_.empty:
-            raise RuntimeError("ReadinessAdjustmentLayer must be fit() before transform().")
+            raise RuntimeError(
+                "ReadinessAdjustmentLayer must be fit() before transform()."
+            )
 
         seg_cols = list(segment_cols) if segment_cols is not None else self.segment_cols_
 
@@ -563,7 +561,7 @@ class ReadinessAdjustmentLayer:
         y_pred
             Baseline forecast array for the scope.
         sample_weight
-            Optional sample weights aligned to ``y_true`` / ``y_pred``.
+            Optional sample weights aligned to `y_true` / `y_pred`.
 
         Returns
         -------
@@ -574,7 +572,6 @@ class ReadinessAdjustmentLayer:
         -----
         The optimization objective is CWSL. FRS and the underbuild-oriented rate are tracked
         as secondary diagnostics.
-
         """
         y_true_f = np.asarray(y_true, dtype=float)
         y_pred_f = np.asarray(y_pred, dtype=float)

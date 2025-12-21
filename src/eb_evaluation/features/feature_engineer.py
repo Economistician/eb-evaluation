@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-"""
+r"""
 Feature engineering for panel time series.
 
 This module provides a lightweight, frequency-agnostic feature engineering utility for
 panel time-series data (entity × timestamp). It is intentionally *stateless*: each call
-to :meth:`FeatureEngineer.transform` constructs features from the provided input DataFrame
-and configuration.
+to [`FeatureEngineer.transform`][eb_evaluation.features.feature_engineer.FeatureEngineer.transform]
+constructs features from the provided input DataFrame and configuration.
 
 The feature set is designed for classical supervised learning pipelines (e.g., tree models,
 linear models, shallow neural nets) that expect a fixed-width design matrix ``X`` and target
@@ -17,11 +17,13 @@ Features
 Given an entity identifier column ``e`` and a target series ``y_t`` (per entity):
 
 1) Lag features:
+
 $$
     \mathrm{lag}_k(t) = y_{t-k}
 $$
 
 2) Rolling window statistics over the last ``w`` observations:
+
 $$
     \mathrm{roll\_mean}_w(t) = \frac{1}{w}\sum_{j=1}^{w} y_{t-j}
 $$
@@ -32,6 +34,7 @@ $$
 hour, day-of-week, day-of-month, month, and weekend indicator.
 
 4) Optional cyclical encodings for periodic calendar features:
+
 $$
     \sin\left(2\pi \frac{\mathrm{hour}}{24}\right), \quad
     \cos\left(2\pi \frac{\mathrm{hour}}{24}\right)
@@ -56,7 +59,7 @@ from pandas.api.types import is_numeric_dtype
 
 @dataclass
 class FeatureConfig:
-    """
+    r"""
     Configuration for panel time-series feature engineering.
 
     Notes
@@ -100,9 +103,13 @@ class FeatureConfig:
     lag_steps: Optional[Sequence[int]] = field(default_factory=lambda: [1, 2, 24])
 
     rolling_windows: Optional[Sequence[int]] = field(default_factory=lambda: [3, 24])
-    rolling_stats: Sequence[str] = field(default_factory=lambda: ["mean", "std", "min", "max", "sum"])
+    rolling_stats: Sequence[str] = field(
+        default_factory=lambda: ["mean", "std", "min", "max", "sum"]
+    )
 
-    calendar_features: Sequence[str] = field(default_factory=lambda: ["hour", "dow", "month", "is_weekend"])
+    calendar_features: Sequence[str] = field(
+        default_factory=lambda: ["hour", "dow", "month", "is_weekend"]
+    )
     use_cyclical_time: bool = True
 
     regressor_cols: Optional[Sequence[str]] = None
@@ -112,7 +119,7 @@ class FeatureConfig:
 
 
 class FeatureEngineer:
-    """
+    r"""
     Transform panel time-series data into a model-ready (X, y, feature_names) triple.
 
     The input is expected to be a long-form DataFrame with at least:
@@ -327,7 +334,9 @@ class FeatureEngineer:
         # Encode non-numeric features as categorical codes.
         for col in feature_frame.columns:
             if not is_numeric_dtype(feature_frame[col]):
-                feature_frame[col] = feature_frame[col].astype("category").cat.codes.astype("float64")
+                feature_frame[col] = (
+                    feature_frame[col].astype("category").cat.codes.astype("float64")
+                )
 
         X_values = feature_frame.to_numpy(dtype=float)
         y_values = df[self.target_col].to_numpy(dtype=float)
@@ -347,7 +356,7 @@ class FeatureEngineer:
             raise KeyError(f"Input DataFrame missing required columns: {sorted(missing)}.")
 
     def _validate_monotonic(self, df: pd.DataFrame) -> None:
-        """
+        r"""
         Ensure timestamps are strictly increasing within each entity.
 
         Raises

@@ -3,9 +3,9 @@ from __future__ import annotations
 """
 Auto model-zoo builder for Electric Barometer selection.
 
-This module provides :class:`~eb_evaluation.model_selection.auto_engine.AutoEngine`, a
-convenience factory that constructs an :class:`~eb_evaluation.model_selection.electric_barometer.ElectricBarometer`
-instance with a curated set of candidate regressors ("model zoo") and cost parameters.
+This module provides `AutoEngine`, a convenience factory that constructs an
+`ElectricBarometer` instance with a curated set of candidate regressors ("model zoo")
+and cost parameters.
 
 The intent is to offer a simple, batteries-included entry point:
 
@@ -34,7 +34,7 @@ SpeedType = Literal["fast", "balanced", "slow"]
 
 class AutoEngine:
     r"""
-    Convenience factory for :class:`~eb_evaluation.model_selection.electric_barometer.ElectricBarometer`.
+    Convenience factory for `ElectricBarometer` (from `eb_evaluation.model_selection.electric_barometer`).
 
     AutoEngine builds an ElectricBarometer with a curated set of candidate models chosen
     by a simple ``speed`` preset:

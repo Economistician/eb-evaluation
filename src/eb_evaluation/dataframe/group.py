@@ -5,9 +5,9 @@ Group-level evaluation (DataFrame utilities).
 
 This module provides helpers for evaluating forecasts on grouped subsets of a DataFrame
 (e.g., by store, item, daypart, region). It orchestrates grouping, parameter handling,
-and tabular output, while delegating metric *definitions* to :mod:`ebmetrics.metrics`.
+and tabular output, while delegating metric *definitions* to ``ebmetrics.metrics``.
 
-The primary entry point is :func:`evaluate_groups_df`, which computes the Electric Barometer
+The primary entry point is ``evaluate_groups_df``, which computes the Electric Barometer
 metric suite (CWSL, NSL, UD, HR@τ, FRS) plus common symmetric diagnostics (wMAPE, MAE, RMSE, MAPE)
 for each group.
 """
@@ -116,7 +116,7 @@ def evaluate_groups_df(
 
     Notes
     -----
-    - ``wmape`` in :mod:`ebmetrics.metrics` does not take a ``sample_weight`` argument, so it is
+    - ``wmape`` in ``ebmetrics.metrics`` does not take a ``sample_weight`` argument, so it is
       computed unweighted here (consistent with the ebmetrics API).
     - Symmetric diagnostics (MAE, RMSE, MAPE) are computed unweighted to match the current
       ebmetrics signatures.
@@ -175,31 +175,31 @@ def evaluate_groups_df(
 
         row["CWSL"] = _safe_metric(
             lambda: cwsl(
-                y_true,
-                y_pred,
+                y_true=y_true,
+                y_pred=y_pred,
                 cu=cu_value,
                 co=co_value,
                 sample_weight=sample_weight,
             )
         )
-        row["NSL"] = _safe_metric(lambda: nsl(y_true, y_pred, sample_weight=sample_weight))
-        row["UD"] = _safe_metric(lambda: ud(y_true, y_pred, sample_weight=sample_weight))
+        row["NSL"] = _safe_metric(lambda: nsl(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight))
+        row["UD"] = _safe_metric(lambda: ud(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight))
 
         # wMAPE in ebmetrics does not take sample_weight, so call unweighted.
-        row["wMAPE"] = _safe_metric(lambda: wmape(y_true, y_pred))
+        row["wMAPE"] = _safe_metric(lambda: wmape(y_true=y_true, y_pred=y_pred))
 
         row["HR@tau"] = _safe_metric(
             lambda: hr_at_tau(
-                y_true,
-                y_pred,
+                y_true=y_true,
+                y_pred=y_pred,
                 tau=tau,
                 sample_weight=sample_weight,
             )
         )
         row["FRS"] = _safe_metric(
             lambda: frs(
-                y_true,
-                y_pred,
+                y_true=y_true,
+                y_pred=y_pred,
                 cu=cu_value,
                 co=co_value,
                 sample_weight=sample_weight,
@@ -207,9 +207,9 @@ def evaluate_groups_df(
         )
 
         # Baseline symmetric metrics: current ebmetrics versions do not accept sample weights.
-        row["MAE"] = _safe_metric(lambda: mae(y_true, y_pred))
-        row["RMSE"] = _safe_metric(lambda: rmse(y_true, y_pred))
-        row["MAPE"] = _safe_metric(lambda: mape(y_true, y_pred))
+        row["MAE"] = _safe_metric(lambda: mae(y_true=y_true, y_pred=y_pred))
+        row["RMSE"] = _safe_metric(lambda: rmse(y_true=y_true, y_pred=y_pred))
+        row["MAPE"] = _safe_metric(lambda: mape(y_true=y_true, y_pred=y_pred))
 
         results.append(row)
 

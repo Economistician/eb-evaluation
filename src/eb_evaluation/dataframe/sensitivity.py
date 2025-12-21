@@ -4,12 +4,12 @@ from __future__ import annotations
 CWSL cost-ratio sensitivity (DataFrame utilities).
 
 This module provides a DataFrame-oriented wrapper around
-:func:`ebmetrics.metrics.cwsl_sensitivity`.
+``ebmetrics.metrics.cwsl_sensitivity``.
 
 The primary helper computes a CWSL sensitivity curve across a grid of cost ratios
 
 $$
-    R = \frac{c_u}{c_o}
+R = \frac{c_u}{c_o}
 $$
 
 optionally per group, and returns a tidy long-form table suitable for plotting and
@@ -41,11 +41,11 @@ def compute_cwsl_sensitivity_df(
     r"""
     Compute CWSL sensitivity curves from a DataFrame.
 
-    This is a DataFrame-level wrapper around :func:`ebmetrics.metrics.cwsl_sensitivity`.
+    This is a DataFrame-level wrapper around ``ebmetrics.metrics.cwsl_sensitivity``.
     It evaluates Cost-Weighted Service Loss (CWSL) over a grid of cost ratios
 
     $$
-        R = \frac{c_u}{c_o}
+    R = \frac{c_u}{c_o}
     $$
 
     and returns results in tidy long form.
@@ -53,7 +53,7 @@ def compute_cwsl_sensitivity_df(
     For each ratio value $R$ in ``R_list``, the underlying computation uses:
 
     $$
-        c_u = R \cdot c_o
+    c_u = R \cdot c_o
     $$
 
     where ``co`` may be a scalar (global overbuild cost) or a per-row column.
@@ -107,7 +107,7 @@ def compute_cwsl_sensitivity_df(
     -----
     - This function preserves backwards-compatible parameter aliases (``y_true_col``, ``y_pred_col``)
       to avoid breaking older tests or scripts.
-    - CWSL values are returned exactly as computed by :func:`ebmetrics.metrics.cwsl_sensitivity`.
+    - CWSL values are returned exactly as computed by ``ebmetrics.metrics.cwsl_sensitivity``.
 
     """
     # Resolve backwards-compatible aliases
@@ -160,7 +160,9 @@ def compute_cwsl_sensitivity_df(
 
         # Optional sample weights
         sample_weight = (
-            g[sample_weight_col].to_numpy(dtype=float) if sample_weight_col is not None else None
+            g[sample_weight_col].to_numpy(dtype=float)
+            if sample_weight_col is not None
+            else None
         )
 
         sensitivity_map = cwsl_sensitivity(

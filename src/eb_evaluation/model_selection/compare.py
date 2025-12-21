@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-"""
+r"""
 Forecast comparison and cost-aware model selection helpers.
 
 This module provides small, evaluation-oriented utilities built on top of
-:mod:`ebmetrics.metrics`:
+`ebmetrics.metrics`:
 
-- :func:`compare_forecasts` computes CWSL and related diagnostics for multiple forecast
+- `compare_forecasts` computes CWSL and related diagnostics for multiple forecast
   vectors against a common target series.
-- :func:`select_model_by_cwsl` fits a set of candidate estimators (using their native
+- `select_model_by_cwsl` fits a set of candidate estimators (using their native
   training objective) and selects the model with the lowest validation CWSL.
-- :func:`select_model_by_cwsl_cv` performs K-fold cross-validation, selecting the model
+- `select_model_by_cwsl_cv` performs K-fold cross-validation, selecting the model
   with the lowest mean CWSL and refitting it on the full dataset.
 
 CWSL is evaluated with asymmetric costs for underbuild and overbuild, typically summarized
@@ -79,7 +79,7 @@ def compare_forecasts(
     sample_weight : array-like of shape (n_samples,), optional
         Optional non-negative weights per interval. Passed to metrics that support
         ``sample_weight`` (CWSL, NSL, UD, HR@τ, FRS). Metrics that are currently unweighted
-        in :mod:`ebmetrics` (e.g., wMAPE, MAE, RMSE, MAPE) are computed without weights.
+        in `ebmetrics` (e.g., wMAPE, MAE, RMSE, MAPE) are computed without weights.
     tau : float or array-like, default=2.0
         Tolerance parameter for HR@τ. May be scalar or per-interval.
 
@@ -126,13 +126,36 @@ def compare_forecasts(
             )
 
         metrics_row = {
-            "CWSL": float(cwsl(y_true_arr, y_pred_arr, cu=cu, co=co, sample_weight=sample_weight_val)),
+            "CWSL": float(
+                cwsl(
+                    y_true_arr,
+                    y_pred_arr,
+                    cu=cu,
+                    co=co,
+                    sample_weight=sample_weight_val,
+                )
+            ),
             "NSL": float(nsl(y_true_arr, y_pred_arr, sample_weight=sample_weight_val)),
             "UD": float(ud(y_true_arr, y_pred_arr, sample_weight=sample_weight_val)),
             # wMAPE in ebmetrics is unweighted
             "wMAPE": float(wmape(y_true_arr, y_pred_arr)),
-            "HR@tau": float(hr_at_tau(y_true_arr, y_pred_arr, tau=tau, sample_weight=sample_weight_val)),
-            "FRS": float(frs(y_true_arr, y_pred_arr, cu=cu, co=co, sample_weight=sample_weight_val)),
+            "HR@tau": float(
+                hr_at_tau(
+                    y_true_arr,
+                    y_pred_arr,
+                    tau=tau,
+                    sample_weight=sample_weight_val,
+                )
+            ),
+            "FRS": float(
+                frs(
+                    y_true_arr,
+                    y_pred_arr,
+                    cu=cu,
+                    co=co,
+                    sample_weight=sample_weight_val,
+                )
+            ),
             # Symmetric metrics are currently unweighted in ebmetrics
             "MAE": float(mae(y_true_arr, y_pred_arr)),
             "RMSE": float(rmse(y_true_arr, y_pred_arr)),
@@ -310,7 +333,7 @@ def select_model_by_cwsl_cv(
     Notes
     -----
     This function uses a naive split of indices into contiguous folds via
-    :func:`numpy.array_split`. For time-series problems, callers should prefer
+    ``numpy.array_split``. For time-series problems, callers should prefer
     time-aware splitting outside this helper.
 
     """

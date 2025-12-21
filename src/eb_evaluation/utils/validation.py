@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""
+r"""
 Lightweight DataFrame validation utilities.
 
 This module provides small, explicit validation helpers for pandas DataFrames
@@ -21,7 +21,7 @@ import pandas as pd
 
 
 class DataFrameValidationError(ValueError):
-    """
+    r"""
     Error raised when a pandas DataFrame fails a validation check.
 
     This is a thin subclass of :class:`ValueError` that allows callers to

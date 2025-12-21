@@ -4,7 +4,7 @@ from __future__ import annotations
 Single-slice CWSL evaluation (DataFrame utilities).
 
 This module provides a lightweight DataFrame wrapper around
-:func:`ebmetrics.metrics.cwsl` for computing Cost-Weighted Service Loss (CWSL) on a single
+``ebmetrics.metrics.cwsl`` for computing Cost-Weighted Service Loss (CWSL) on a single
 slice of data (i.e., the entire DataFrame provided).
 
 It supports both scalar costs and per-row cost columns for asymmetric cost evaluation.
@@ -28,13 +28,13 @@ def compute_cwsl_df(
     r"""
     Compute CWSL from a DataFrame.
 
-    This is a convenience wrapper around :func:`ebmetrics.metrics.cwsl` that accepts a
+    This is a convenience wrapper around ``ebmetrics.metrics.cwsl`` that accepts a
     pandas DataFrame and column names.
 
     Costs can be specified either as scalars or as per-row columns. The cost ratio is:
 
     $$
-        R = \frac{c_u}{c_o}
+    R = \frac{c_u}{c_o}
     $$
 
     Parameters
@@ -70,13 +70,12 @@ def compute_cwsl_df(
     KeyError
         If any required columns are missing.
     ValueError
-        If the underlying :func:`ebmetrics.metrics.cwsl` raises due to invalid values.
+        If the underlying ``ebmetrics.metrics.cwsl`` raises due to invalid values.
 
     Notes
     -----
     This function performs minimal validation and delegates metric validation to
-    :func:`ebmetrics.metrics.cwsl`.
-
+    ``ebmetrics.metrics.cwsl``.
     """
     required_cols = [y_true_col, y_pred_col]
     if isinstance(cu, str):
@@ -97,7 +96,9 @@ def compute_cwsl_df(
     co_value = df[co].to_numpy(dtype=float) if isinstance(co, str) else co
 
     sample_weight = (
-        df[sample_weight_col].to_numpy(dtype=float) if sample_weight_col is not None else None
+        df[sample_weight_col].to_numpy(dtype=float)
+        if sample_weight_col is not None
+        else None
     )
 
     return cwsl(

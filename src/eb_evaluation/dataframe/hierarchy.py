@@ -7,7 +7,7 @@ This module provides a convenience helper for evaluating forecasts at multiple l
 grouping hierarchy (e.g., overall, by store, by item, by store×item).
 
 It returns a dictionary mapping each hierarchy level name to a DataFrame of metrics for that
-level. Metric *definitions* are delegated to :mod:`ebmetrics.metrics`; this module focuses on
+level. Metric *definitions* are delegated to ``ebmetrics.metrics``; this module focuses on
 grouping orchestration and tabular output suitable for reporting.
 
 The EB metric suite here includes CWSL and related service/readiness diagnostics (NSL, UD,
@@ -74,12 +74,12 @@ def evaluate_hierarchy_df(
     forecast_col : str
         Column name for forecast values.
     cu : float or array-like
-        Underbuild (shortfall) cost coefficient passed through to :func:`ebmetrics.metrics.cwsl`
-        and :func:`ebmetrics.metrics.frs`. This can be a scalar or an array-like aligned with
+        Underbuild (shortfall) cost coefficient passed through to ``ebmetrics.metrics.cwsl``
+        and ``ebmetrics.metrics.frs``. This can be a scalar or an array-like aligned with
         ``df`` (depending on ebmetrics metric signatures).
     co : float or array-like
-        Overbuild (excess) cost coefficient passed through to :func:`ebmetrics.metrics.cwsl`
-        and :func:`ebmetrics.metrics.frs`. This can be a scalar or an array-like aligned with
+        Overbuild (excess) cost coefficient passed through to ``ebmetrics.metrics.cwsl``
+        and ``ebmetrics.metrics.frs``. This can be a scalar or an array-like aligned with
         ``df`` (depending on ebmetrics metric signatures).
     tau : float | None, default=None
         Tolerance parameter for HR@τ. If ``None``, HR@τ is omitted from outputs.
@@ -113,7 +113,7 @@ def evaluate_hierarchy_df(
     -----
     - This function does not catch per-group metric exceptions. If ebmetrics raises a ``ValueError``
       for a specific group (e.g., invalid inputs), that error will propagate. If you want "best effort"
-      reporting (NaN on failure), wrap metric calls similarly to :func:`evaluate_groups_df`.
+      reporting (NaN on failure), wrap metric calls similarly to ``evaluate_groups_df``.
     - ``groupby(..., dropna=False)`` is used so that missing values in grouping keys form explicit groups,
       which is often desirable in operational reporting.
 

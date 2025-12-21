@@ -1,13 +1,13 @@
 """
 Adjustment utilities for Electric Barometer evaluation.
 
-The :mod:`eb_evaluation.adjustment` package contains the **Readiness Adjustment Layer (RAL)**,
+The `eb_evaluation.adjustment` package contains the **Readiness Adjustment Layer (RAL)**,
 a lightweight post-processing component that converts a baseline statistical forecast into an
 operationally conservative *readiness forecast* via a learned multiplicative uplift.
 
 Key ideas
 ---------
-- **Metrics live in** :mod:`ebmetrics.metrics` (definitions only).
+- **Metrics live in** `ebmetrics.metrics` (definitions only).
 - **Adjustments live here** (evaluation / selection utilities that *consume* metrics).
 - RAL learns an uplift by grid-searching multipliers and selecting the value that minimizes
   **Cost-Weighted Service Loss (CWSL)** on historical data.
@@ -15,8 +15,7 @@ Key ideas
 
 Public API
 ----------
-- :class:`~eb_evaluation.adjustment.readiness_adjustment.ReadinessAdjustmentLayer`
-
+- `ReadinessAdjustmentLayer`
 """
 
 from .readiness_adjustment import ReadinessAdjustmentLayer

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-"""
+r"""
 Cost-aware model selection using the Electric Barometer workflow.
 
-This module defines :class:`~eb_evaluation.model_selection.electric_barometer.ElectricBarometer`,
+This module defines `ElectricBarometer`,
 a lightweight selector that evaluates a *set of candidate regressors* using
 Cost-Weighted Service Loss (CWSL) as the primary objective and selects the model
 that minimizes expected operational cost.
@@ -104,7 +104,7 @@ class ElectricBarometer:
     results_ : pandas.DataFrame | None
         Per-model comparison table.
 
-        - In holdout mode: output of :func:`~eb_evaluation.model_selection.compare.select_model_by_cwsl`
+        - In holdout mode: output of `select_model_by_cwsl`
           (typically includes CWSL, RMSE, wMAPE).
         - In CV mode: mean scores across folds with columns ``["CWSL", "RMSE", "wMAPE"]``.
     validation_cwsl_ : float | None
@@ -383,7 +383,9 @@ class ElectricBarometer:
             best_model_refit = best_model
             if refit_flag and hasattr(best_model_refit, "fit"):
                 X_full = np.concatenate([np.asarray(X_train), np.asarray(X_val)], axis=0)
-                y_full = np.concatenate([np.asarray(y_train, dtype=float), np.asarray(y_val, dtype=float)], axis=0)
+                y_full = np.concatenate(
+                    [np.asarray(y_train, dtype=float), np.asarray(y_val, dtype=float)], axis=0
+                )
 
                 best_model_refit = _clone_model(best_model_refit)
                 best_model_refit.fit(X_full, y_full)

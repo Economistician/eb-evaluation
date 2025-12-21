@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 """
 DataFrame utilities for Electric Barometer evaluation.
 
 This subpackage contains pandas-oriented helpers that orchestrate grouping, reshaping,
 and tabular outputs for forecast evaluation. Metric *definitions* live in
-:mod:`ebmetrics.metrics`; this package focuses on DataFrame workflows such as:
+``ebmetrics.metrics``; this package focuses on DataFrame workflows such as:
 
 - computing CWSL on a single DataFrame slice
 - evaluating per-group metric tables
