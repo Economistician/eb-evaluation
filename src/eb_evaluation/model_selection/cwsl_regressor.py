@@ -1,98 +1,104 @@
 from __future__ import annotations
 
+"""
+scikit-learn–style estimator wrapper for cost-aware model selection.
+
+This module defines :class:`~eb_evaluation.model_selection.cwsl_regressor.CWSLRegressor`,
+a lightweight wrapper around :class:`~eb_evaluation.model_selection.electric_barometer.ElectricBarometer`
+that exposes a familiar ``fit / predict / score`` API.
+
+The estimator selects among a set of candidate models using Cost-Weighted Service Loss (CWSL)
+as the selection criterion. Candidate models are trained using their native objectives
+(e.g., squared error), but selection is performed using asymmetric operational costs.
+
+The primary cost preference can be summarized by the cost ratio:
+
+$$
+    R = \frac{c_u}{c_o}
+$$
+
+where $c_u$ is the underbuild (shortfall) cost per unit and $c_o$ is the overbuild (excess)
+cost per unit.
+"""
+
 from typing import Any, Dict, Optional
 
 import numpy as np
 
-from .electric_barometer import ElectricBarometer
 from ebmetrics.metrics import cwsl
+
+from .electric_barometer import ElectricBarometer
 
 
 class CWSLRegressor:
-    """
-    CWSLRegressor: scikit-learn-style estimator that selects among multiple
-    candidate models using Cost-Weighted Service Loss (CWSL).
+    r"""
+    scikit-learn–style estimator that selects among candidate models using CWSL.
 
-    It wraps ElectricBarometer and exposes a familiar fit / predict / score API.
+    This class wraps :class:`~eb_evaluation.model_selection.electric_barometer.ElectricBarometer`
+    and exposes:
+
+    - ``fit(X, y)``: perform cost-aware model selection
+    - ``predict(X)``: predict using the selected best estimator
+    - ``score(X, y)``: return a sklearn-style score based on **negative CWSL**
 
     Parameters
     ----------
     models : dict[str, Any]
-        Dictionary of candidate models or pipelines. Keys are model names,
-        values are estimators or adapters implementing:
+        Mapping of candidate model name to an **unfitted** estimator implementing:
 
-            fit(X, y)
-            predict(X)
+        - ``fit(X, y)``
+        - ``predict(X)``
 
-        This can be any mix of:
-        - scikit-learn regressors (LinearRegression, RandomForest, etc.)
-        - Pipelines
-        - XGBoost / LightGBM via their sklearn APIs
-        - Adapters like ProphetAdapter, SarimaxAdapter, etc.
+        Models may be scikit-learn regressors, pipelines, or EB adapters.
+    cu : float, default=2.0
+        Underbuild (shortfall) cost per unit. Must be strictly positive.
+    co : float, default=1.0
+        Overbuild (excess) cost per unit. Must be strictly positive.
+    tau : float, default=2.0
+        Tolerance parameter forwarded to ElectricBarometer for optional diagnostics (e.g., HR@τ).
+    training_mode : {"selection_only"}, default="selection_only"
+        Training behavior; currently ElectricBarometer supports selection-only mode.
+    refit_on_full : bool, default=True
+        Refit behavior after selection.
 
-    cu : float, default 2.0
-        Underbuild (shortfall) cost per unit.
+        - In holdout mode: if True, refit the winning model on train ∪ validation.
+        - In CV mode: the winning model is refit on the full dataset.
+    selection_mode : {"holdout", "cv"}, default="cv"
+        How selection is performed:
 
-    co : float, default 1.0
-        Overbuild (excess) cost per unit.
-
-    tau : float, default 2.0
-        Reserved for downstream diagnostics; mirrored into ElectricBarometer.
-
-    training_mode : {"selection_only"}, default "selection_only"
-        Currently only "selection_only" is supported by ElectricBarometer.
-
-    refit_on_full : bool, default True
-        In **holdout** mode:
-            If True, after picking the best model on the validation set,
-            the winner is refit on all data (train ∪ val) before being
-            exposed via best_estimator_ and predict().
-        In **cv** mode:
-            Entire dataset is always used to refit the winning model.
-
-    selection_mode : {"holdout", "cv"}, default "cv"
-        - "holdout": CWSLRegressor will internally split (X, y) into
-          train / validation using `validation_fraction` and call
-          ElectricBarometer in holdout mode.
-        - "cv": CWSLRegressor will pass the full (X, y) into ElectricBarometer
-          in CV mode and let it handle K-fold splitting.
-
-    cv : int, default 3
-        Number of folds for CV when selection_mode="cv".
-
-    validation_fraction : float, default 0.2
-        Fraction of samples to use as validation when selection_mode="holdout".
-        Must be in (0, 1). At least 1 sample (and at least 1 train sample)
-        is always enforced.
-
-    random_state : int or None, default None
-        Seed for internal shuffling and CV splitting.
+        - ``"holdout"``: split internally using ``validation_fraction``.
+        - ``"cv"``: perform K-fold selection inside ElectricBarometer.
+    cv : int, default=3
+        Number of folds when ``selection_mode="cv"``.
+    validation_fraction : float, default=0.2
+        Fraction of samples used for validation when ``selection_mode="holdout"``.
+        Must be in (0, 1).
+    random_state : int | None, default=None
+        Seed used for internal shuffling and CV splitting.
 
     Attributes
     ----------
-    selector_ : ElectricBarometer
-        The underlying selector instance used for this fit() call.
-
-    best_name_ : str or None
-        Name of the winning model among the candidates.
-
-    best_estimator_ : Any or None
-        The fitted winning model (or pipeline / adapter).
-
-    results_ : pandas.DataFrame or None
-        Comparison table from ElectricBarometer (CWSL / RMSE / wMAPE scores).
-
-    validation_cwsl_ : float or None
+    selector_ : ElectricBarometer | None
+        Underlying selector instance used in the most recent fit.
+    best_name_ : str | None
+        Name of the winning model.
+    best_estimator_ : Any | None
+        Fitted winning estimator.
+    results_ : Any
+        Comparison table produced by ElectricBarometer (typically a pandas DataFrame).
+    validation_cwsl_ : float | None
         CWSL score of the winning model on validation (holdout) or mean CV.
-
-    validation_rmse_ : float or None
+    validation_rmse_ : float | None
         RMSE score of the winning model on validation or mean CV.
-
-    validation_wmape_ : float or None
+    validation_wmape_ : float | None
         wMAPE score of the winning model on validation or mean CV.
+    n_features_in_ : int | None
+        Number of features observed during fit.
 
-    n_features_in_ : int
-        Number of features seen during fit().
+    Notes
+    -----
+    ``score`` returns **negative CWSL** to align with sklearn conventions (higher is better).
+
     """
 
     def __init__(
@@ -123,6 +129,12 @@ class CWSLRegressor:
                     f"got {validation_fraction!r}."
                 )
 
+        if cu <= 0 or co <= 0:
+            raise ValueError("cu and co must be strictly positive.")
+
+        if cv < 2 and selection_mode == "cv":
+            raise ValueError(f"cv must be >= 2 when selection_mode='cv'; got {cv}.")
+
         self.models: Dict[str, Any] = models
         self.cu: float = float(cu)
         self.co: float = float(co)
@@ -134,7 +146,7 @@ class CWSLRegressor:
         self.validation_fraction: float = float(validation_fraction)
         self.random_state: Optional[int] = random_state
 
-        # Fitted attributes (populated during fit)
+        # Fitted attributes
         self.selector_: Optional[ElectricBarometer] = None
         self.best_name_: Optional[str] = None
         self.best_estimator_: Any = None
@@ -145,9 +157,6 @@ class CWSLRegressor:
         self.validation_wmape_: Optional[float] = None
         self.n_features_in_: Optional[int] = None
 
-    # ------------------------------------------------------------------
-    # Core estimator API
-    # ------------------------------------------------------------------
     def fit(
         self,
         X,
@@ -155,20 +164,29 @@ class CWSLRegressor:
         sample_weight: Optional[np.ndarray] = None,
     ) -> "CWSLRegressor":
         """
-        Fit CWSLRegressor on (X, y) by internally using ElectricBarometer.
+        Fit CWSLRegressor on (X, y) by delegating selection to ElectricBarometer.
 
         Parameters
         ----------
         X : array-like of shape (n_samples, n_features)
+            Feature matrix.
         y : array-like of shape (n_samples,)
-        sample_weight : array-like of shape (n_samples,), optional
-            Optional per-sample weights. In CV mode they are passed through
-            to ElectricBarometer so each validation fold is cost-weighted.
-            In holdout mode they are currently ignored (matching EB behavior).
+            Target vector.
+        sample_weight : numpy.ndarray of shape (n_samples,), optional
+            Optional per-sample weights. In CV mode these are passed through to
+            ElectricBarometer so validation folds are cost-weighted. In holdout mode,
+            they are passed through to ElectricBarometer (behavior depends on EB).
 
         Returns
         -------
-        self : CWSLRegressor
+        CWSLRegressor
+            Fitted instance.
+
+        Raises
+        ------
+        ValueError
+            If X/y shapes are incompatible or sample_weight length mismatches.
+
         """
         X_arr = np.asarray(X)
         y_arr = np.asarray(y, dtype=float)
@@ -179,22 +197,19 @@ class CWSLRegressor:
         n_samples = X_arr.shape[0]
         if y_arr.shape[0] != n_samples:
             raise ValueError(
-                f"X and y have incompatible shapes: "
-                f"X.shape[0]={n_samples}, y.shape[0]={y_arr.shape[0]}."
+                f"X and y have incompatible shapes: X.shape[0]={n_samples}, y.shape[0]={y_arr.shape[0]}."
             )
 
-        self.n_features_in_ = X_arr.shape[1]
+        self.n_features_in_ = int(X_arr.shape[1])
 
         sw_arr: Optional[np.ndarray] = None
         if sample_weight is not None:
             sw_arr = np.asarray(sample_weight, dtype=float)
             if sw_arr.shape[0] != n_samples:
                 raise ValueError(
-                    f"sample_weight has length {sw_arr.shape[0]}, "
-                    f"but X has {n_samples} rows."
+                    f"sample_weight has length {sw_arr.shape[0]}, but X has {n_samples} rows."
                 )
 
-        # Create the underlying ElectricBarometer selector
         selector = ElectricBarometer(
             models=self.models,
             cu=self.cu,
@@ -208,12 +223,8 @@ class CWSLRegressor:
         )
 
         if self.selection_mode == "holdout":
-            # Manual train/validation split using validation_fraction
             n_val = int(round(self.validation_fraction * n_samples))
-            if n_val <= 0:
-                n_val = 1
-            if n_val >= n_samples:
-                n_val = n_samples - 1
+            n_val = max(1, min(n_val, n_samples - 1))
 
             rng = np.random.default_rng(self.random_state)
             indices = np.arange(n_samples)
@@ -237,7 +248,6 @@ class CWSLRegressor:
                 sample_weight_val=sw_val,
             )
         else:
-            # CV mode: ElectricBarometer handles its own K-fold splitting.
             selector.fit(
                 X_train=X_arr,
                 y_train=y_arr,
@@ -260,7 +270,7 @@ class CWSLRegressor:
 
     def predict(self, X) -> np.ndarray:
         """
-        Generate predictions from the selected best model.
+        Generate predictions from the selected best estimator.
 
         Parameters
         ----------
@@ -268,12 +278,17 @@ class CWSLRegressor:
 
         Returns
         -------
-        y_pred : ndarray of shape (n_samples,)
+        numpy.ndarray of shape (n_samples,)
+            Predicted values.
+
+        Raises
+        ------
+        RuntimeError
+            If called before ``fit``.
+
         """
         if self.best_estimator_ is None:
-            raise RuntimeError(
-                "CWSLRegressor has not been fit yet. Call .fit(X, y) first."
-            )
+            raise RuntimeError("CWSLRegressor has not been fit yet. Call .fit(X, y) first.")
 
         X_arr = np.asarray(X)
         if X_arr.ndim == 1:
@@ -289,28 +304,29 @@ class CWSLRegressor:
         sample_weight: Optional[np.ndarray] = None,
     ) -> float:
         """
-        Return a sklearn-style score using **negative CWSL**.
-
-        Higher is better (less cost), consistent with sklearn conventions.
+        Compute a sklearn-style score using **negative CWSL**.
 
         Parameters
         ----------
         X : array-like of shape (n_samples, n_features)
+            Feature matrix.
         y : array-like of shape (n_samples,)
-        sample_weight : array-like, optional
+            Target vector.
+        sample_weight : numpy.ndarray of shape (n_samples,), optional
+            Optional per-sample weights passed to CWSL.
 
         Returns
         -------
-        score : float
-            Negative CWSL on the provided data.
+        float
+            Negative CWSL on the provided data (higher is better).
+
         """
         y_true = np.asarray(y, dtype=float)
         y_pred = self.predict(X)
 
         if y_true.shape != y_pred.shape:
             raise ValueError(
-                f"Shapes of y_true {y_true.shape} and y_pred {y_pred.shape} "
-                "are not compatible."
+                f"Shapes of y_true {y_true.shape} and y_pred {y_pred.shape} are not compatible."
             )
 
         sw_arr: Optional[np.ndarray] = None
@@ -326,16 +342,36 @@ class CWSLRegressor:
         )
         return -float(cost)
 
-    # ------------------------------------------------------------------
-    # Convenience properties & parameter API
-    # ------------------------------------------------------------------
     @property
     def r_(self) -> float:
-        """Cost ratio R = cu / co."""
+        """
+        Cost ratio.
+
+        Returns
+        -------
+        float
+            The ratio $R = c_u / c_o$.
+
+        """
         return self.cu / self.co
 
     def get_params(self, deep: bool = True) -> Dict[str, Any]:
-        """Minimal sklearn-compatible get_params implementation."""
+        """
+        Minimal sklearn-compatible ``get_params`` implementation.
+
+        Parameters
+        ----------
+        deep : bool, default=True
+            Included for sklearn compatibility. Nested parameter extraction is not
+            performed in this lightweight implementation.
+
+        Returns
+        -------
+        dict[str, Any]
+            Parameter mapping.
+
+        """
+        _ = deep
         return {
             "models": self.models,
             "cu": self.cu,
@@ -350,12 +386,30 @@ class CWSLRegressor:
         }
 
     def set_params(self, **params) -> "CWSLRegressor":
-        """Minimal sklearn-compatible set_params implementation."""
+        """
+        Minimal sklearn-compatible ``set_params`` implementation.
+
+        Parameters
+        ----------
+        **params
+            Parameters to set on this instance.
+
+        Returns
+        -------
+        CWSLRegressor
+            Updated instance.
+
+        Raises
+        ------
+        ValueError
+            If an invalid parameter name is provided.
+
+        """
+        valid = set(self.get_params().keys())
         for key, value in params.items():
-            if not hasattr(self, key):
+            if key not in valid:
                 raise ValueError(
-                    f"Invalid parameter {key!r} for CWSLRegressor. "
-                    f"Valid parameters are: {list(self.get_params().keys())}"
+                    f"Invalid parameter {key!r} for CWSLRegressor. Valid parameters are: {sorted(valid)}"
                 )
             setattr(self, key, value)
         return self

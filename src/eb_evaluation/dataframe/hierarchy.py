@@ -1,10 +1,24 @@
 from __future__ import annotations
 
-from typing import Dict, Sequence, List
+"""
+Hierarchy-level evaluation (DataFrame utilities).
+
+This module provides a convenience helper for evaluating forecasts at multiple levels of a
+grouping hierarchy (e.g., overall, by store, by item, by store×item).
+
+It returns a dictionary mapping each hierarchy level name to a DataFrame of metrics for that
+level. Metric *definitions* are delegated to :mod:`ebmetrics.metrics`; this module focuses on
+grouping orchestration and tabular output suitable for reporting.
+
+The EB metric suite here includes CWSL and related service/readiness diagnostics (NSL, UD,
+HR@τ, FRS) as well as wMAPE.
+"""
+
+from typing import Dict, List, Sequence
 
 import pandas as pd
 
-from ebmetrics.metrics import cwsl, nsl, ud, wmape, hr_at_tau, frs
+from ebmetrics.metrics import cwsl, frs, hr_at_tau, nsl, ud, wmape
 
 
 def evaluate_hierarchy_df(
@@ -16,70 +30,112 @@ def evaluate_hierarchy_df(
     co,
     tau: float | None = None,
 ) -> Dict[str, pd.DataFrame]:
-    """
-    Evaluate CWSL and related diagnostics at multiple grouping levels.
+    r"""
+    Evaluate EB metrics at multiple hierarchy levels.
+
+    This helper evaluates forecast performance across several grouping levels, each defined
+    by a list of column names. For each level, it computes:
+
+    - CWSL
+    - NSL
+    - UD
+    - wMAPE
+    - HR@τ (optional)
+    - FRS
+
+    where each metric is computed over the subset (group) implied by that level.
+
+    The ``levels`` mapping accepts an empty list to represent the overall aggregate:
+
+    $$
+        \texttt{"overall"}: []
+    $$
 
     Parameters
     ----------
     df : pandas.DataFrame
-        Input DataFrame with at least the actual and forecast columns,
-        plus any grouping columns referenced in ``levels``.
-
+        Input DataFrame containing at minimum ``actual_col`` and ``forecast_col`` plus any
+        grouping columns referenced by ``levels``.
     levels : dict[str, Sequence[str]]
-        Mapping of level name -> list/tuple of column names to group by.
+        Mapping from level name to the column names used to group at that level.
 
-        Examples
-        --------
-        levels = {
-            "overall": [],
-            "by_store": ["store_id"],
-            "by_item": ["item_id"],
-            "by_store_item": ["store_id", "item_id"],
-        }
+        Example:
 
-        An empty list means "treat the entire DataFrame as one group".
+        >>> levels = {
+        ...     "overall": [],
+        ...     "by_store": ["store_id"],
+        ...     "by_item": ["item_id"],
+        ...     "by_store_item": ["store_id", "item_id"],
+        ... }
 
+        An empty sequence means evaluate the entire DataFrame as a single group.
     actual_col : str
-        Column name for actual demand.
-
+        Column name for actual demand / realized values.
     forecast_col : str
-        Column name for forecasted demand.
-
+        Column name for forecast values.
     cu : float or array-like
-        Underbuild cost parameter passed to ``cwsl``.
-
+        Underbuild (shortfall) cost coefficient passed through to :func:`ebmetrics.metrics.cwsl`
+        and :func:`ebmetrics.metrics.frs`. This can be a scalar or an array-like aligned with
+        ``df`` (depending on ebmetrics metric signatures).
     co : float or array-like
-        Overbuild cost parameter passed to ``cwsl``.
-
-    tau : float, optional
-        Tolerance passed to ``hr_at_tau``. If None, HR@τ is omitted.
+        Overbuild (excess) cost coefficient passed through to :func:`ebmetrics.metrics.cwsl`
+        and :func:`ebmetrics.metrics.frs`. This can be a scalar or an array-like aligned with
+        ``df`` (depending on ebmetrics metric signatures).
+    tau : float | None, default=None
+        Tolerance parameter for HR@τ. If ``None``, HR@τ is omitted from outputs.
 
     Returns
     -------
     dict[str, pandas.DataFrame]
-        Dictionary mapping level name -> DataFrame of metrics for that level.
+        Dictionary mapping level name to a DataFrame of metrics for that level.
 
         Each DataFrame includes:
-            - any grouping columns for that level
-            - n_intervals
-            - total_demand
-            - cwsl
-            - nsl
-            - ud
-            - wmape
-            - hr_at_tau (if tau is not None)
-            - frs
-    """
-    results: Dict[str, pd.DataFrame] = {}
 
-    # Ensure required columns exist up front
+        - the level's grouping columns (if any), first
+        - ``n_intervals`` : number of rows evaluated in that group
+        - ``total_demand`` : sum of ``actual_col`` for that group
+        - ``cwsl`` : cost-weighted service loss
+        - ``nsl`` : no-shortage level
+        - ``ud`` : underbuild deviation
+        - ``wmape`` : weighted mean absolute percentage error (per ebmetrics definition)
+        - ``hr_at_tau`` : hit rate within tolerance τ (only if ``tau`` is provided)
+        - ``frs`` : forecast readiness score
+
+    Raises
+    ------
+    KeyError
+        If required columns are missing from ``df`` (actual/forecast and any columns referenced in
+        ``levels``).
+    ValueError
+        If ``df`` is empty, or if ``levels`` is empty.
+
+    Notes
+    -----
+    - This function does not catch per-group metric exceptions. If ebmetrics raises a ``ValueError``
+      for a specific group (e.g., invalid inputs), that error will propagate. If you want "best effort"
+      reporting (NaN on failure), wrap metric calls similarly to :func:`evaluate_groups_df`.
+    - ``groupby(..., dropna=False)`` is used so that missing values in grouping keys form explicit groups,
+      which is often desirable in operational reporting.
+
+    """
+    if df.empty:
+        raise ValueError("df is empty.")
+    if not levels:
+        raise ValueError("levels must be a non-empty mapping of level name -> group columns.")
+
+    # Validate required columns (actual/forecast + all referenced group columns)
     required_cols = {actual_col, forecast_col}
+    for cols in levels.values():
+        required_cols.update(cols)
+
     missing = required_cols - set(df.columns)
     if missing:
-        raise ValueError(f"DataFrame is missing required columns: {missing}")
+        raise KeyError(f"DataFrame is missing required columns: {sorted(missing)}")
+
+    results: Dict[str, pd.DataFrame] = {}
 
     for level_name, group_cols in levels.items():
-        group_cols = list(group_cols)  # normalize
+        group_cols = list(group_cols)  # normalize to list[str]
 
         if len(group_cols) == 0:
             # Single overall group
@@ -95,66 +151,48 @@ def evaluate_hierarchy_df(
                 "wmape": wmape(y_true=y_true, y_pred=y_pred),
             }
             if tau is not None:
-                metrics_row["hr_at_tau"] = hr_at_tau(
-                    y_true=y_true,
-                    y_pred=y_pred,
-                    tau=tau,
-                )
-            metrics_row["frs"] = frs(
-                y_true=y_true,
-                y_pred=y_pred,
-                cu=cu,
-                co=co,
-            )
+                metrics_row["hr_at_tau"] = hr_at_tau(y_true=y_true, y_pred=y_pred, tau=tau)
 
-            overall_df = pd.DataFrame([metrics_row])
-            results[level_name] = overall_df
+            metrics_row["frs"] = frs(y_true=y_true, y_pred=y_pred, cu=cu, co=co)
 
-        else:
-            # Grouped evaluation
-            group_rows: List[dict] = []
+            results[level_name] = pd.DataFrame([metrics_row])
+            continue
 
-            grouped = df.groupby(group_cols, dropna=False, sort=False)
-            for keys, df_g in grouped:
-                # keys is a scalar or tuple of scalars depending on number of group_cols
-                if not isinstance(keys, tuple):
-                    keys = (keys,)
+        # Grouped evaluation
+        group_rows: List[dict] = []
 
-                y_true = df_g[actual_col].to_numpy(dtype=float)
-                y_pred = df_g[forecast_col].to_numpy(dtype=float)
+        grouped = df.groupby(group_cols, dropna=False, sort=False)
+        for keys, df_g in grouped:
+            if not isinstance(keys, tuple):
+                keys = (keys,)
 
-                row = {
-                    "n_intervals": len(df_g),
-                    "total_demand": float(df_g[actual_col].sum()),
-                    "cwsl": cwsl(y_true=y_true, y_pred=y_pred, cu=cu, co=co),
-                    "nsl": nsl(y_true=y_true, y_pred=y_pred),
-                    "ud": ud(y_true=y_true, y_pred=y_pred),
-                    "wmape": wmape(y_true=y_true, y_pred=y_pred),
-                }
-                if tau is not None:
-                    row["hr_at_tau"] = hr_at_tau(
-                        y_true=y_true,
-                        y_pred=y_pred,
-                        tau=tau,
-                    )
-                row["frs"] = frs(
-                    y_true=y_true,
-                    y_pred=y_pred,
-                    cu=cu,
-                    co=co,
-                )
+            y_true = df_g[actual_col].to_numpy(dtype=float)
+            y_pred = df_g[forecast_col].to_numpy(dtype=float)
 
-                # Attach grouping keys
-                for col, value in zip(group_cols, keys):
-                    row[col] = value
+            row = {
+                "n_intervals": len(df_g),
+                "total_demand": float(df_g[actual_col].sum()),
+                "cwsl": cwsl(y_true=y_true, y_pred=y_pred, cu=cu, co=co),
+                "nsl": nsl(y_true=y_true, y_pred=y_pred),
+                "ud": ud(y_true=y_true, y_pred=y_pred),
+                "wmape": wmape(y_true=y_true, y_pred=y_pred),
+            }
+            if tau is not None:
+                row["hr_at_tau"] = hr_at_tau(y_true=y_true, y_pred=y_pred, tau=tau)
 
-                group_rows.append(row)
+            row["frs"] = frs(y_true=y_true, y_pred=y_pred, cu=cu, co=co)
 
-            level_df = pd.DataFrame(group_rows)
-            # Put group columns first
-            results[level_name] = level_df[
-                list(group_cols)
-                + [c for c in level_df.columns if c not in group_cols]
-            ]
+            # Attach grouping keys
+            for col, value in zip(group_cols, keys):
+                row[col] = value
+
+            group_rows.append(row)
+
+        level_df = pd.DataFrame(group_rows)
+
+        # Put group columns first for readability
+        results[level_name] = level_df[
+            list(group_cols) + [c for c in level_df.columns if c not in group_cols]
+        ]
 
     return results

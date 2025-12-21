@@ -1,120 +1,119 @@
 from __future__ import annotations
 
+"""
+Cost-aware model selection using the Electric Barometer workflow.
+
+This module defines :class:`~eb_evaluation.model_selection.electric_barometer.ElectricBarometer`,
+a lightweight selector that evaluates a *set of candidate regressors* using
+Cost-Weighted Service Loss (CWSL) as the primary objective and selects the model
+that minimizes expected operational cost.
+
+The selection preference is governed by asymmetric unit costs:
+
+- $c_u$: underbuild (shortfall) cost per unit
+- $c_o$: overbuild (excess) cost per unit
+
+A convenient summary is the cost ratio:
+
+$$
+    R = \frac{c_u}{c_o}
+$$
+
+Notes
+-----
+ElectricBarometer is intentionally a *selector*, not a trainer that optimizes CWSL directly.
+Candidate models are trained using their native objectives (e.g., squared error), and are
+*selected* using CWSL on validation data (holdout) or across folds (CV).
+"""
+
 from typing import Any, Dict, Optional
 
 import numpy as np
 import pandas as pd
 
-from ebmetrics.metrics import cwsl, rmse, wmape
 from eb_adapters import clone_model as _clone_model
+from ebmetrics.metrics import cwsl, rmse, wmape
 
 from .compare import select_model_by_cwsl
 
 
 class ElectricBarometer:
-    """
-    ElectricBarometer: cost-aware model selector built on CWSL.
+    r"""
+    Cost-aware selector that chooses the best model by minimizing CWSL.
 
-    This is a high-level wrapper that:
+    ElectricBarometer evaluates each candidate model on either:
 
-      * Takes a dictionary of candidate forecast models (typically scikit-learn
-        regressors with .fit() / .predict() methods, or adapters that follow
-        the same interface).
-      * Trains all candidates either:
-          - on a holdout split (train/validation), or
-          - via simple K-fold cross-validation (CV).
-      * Evaluates them using:
-          - CWSL (with your cu/co),
-          - plus reference metrics (RMSE, wMAPE).
-      * Selects the winner by **minimizing CWSL**.
-      * Optionally refits the winning model on all available data
-        (train ∪ validation) in holdout mode.
-      * Exposes a clean .fit() / .predict() API and a results_ DataFrame.
+    - a provided train/validation split (``selection_mode="holdout"``), or
+    - K-fold cross-validation on the provided dataset (``selection_mode="cv"``),
+
+    and selects the model with the lowest Cost-Weighted Service Loss (CWSL).
+    For interpretability, it also reports reference symmetric diagnostics (RMSE, wMAPE).
+
+    Operational preference is captured by asymmetric costs and the induced ratio:
+
+    $$
+        R = \frac{c_u}{c_o}
+    $$
 
     Parameters
     ----------
     models : dict[str, Any]
-        Dictionary of candidate models. Keys are model names, values are
-        estimator objects with scikit-learn style API:
+        Mapping of candidate model name to an **unfitted** estimator implementing:
 
-            model.fit(X_train, y_train)
-            model.predict(X_val)
+        - ``fit(X, y)``
+        - ``predict(X)``
 
-        You can also pass custom adapters from `eb-adapters` that implement
-        the same .fit/.predict interface.
-
-    cu : float, default 2.0
+        Models can be scikit-learn regressors/pipelines or EB adapters implementing
+        the same interface.
+    cu : float, default=2.0
         Underbuild (shortfall) cost per unit. Must be strictly positive.
-
-    co : float, default 1.0
+    co : float, default=1.0
         Overbuild (excess) cost per unit. Must be strictly positive.
+    tau : float, default=2.0
+        Reserved for downstream diagnostics (e.g., HR@τ) that may be integrated
+        into selection reporting. Currently not used in the selection criterion.
+    training_mode : {"selection_only"}, default="selection_only"
+        Training behavior. In the current implementation, candidate models are trained
+        using their native objectives and only *selection* is cost-aware.
+    refit_on_full : bool, default=False
+        Refit behavior in holdout mode:
 
-    tau : float, default 2.0
-        Reserved for future diagnostics (e.g., HR@τ) that may be attached
-        to the ElectricBarometer workflow.
+        - If True, after selecting the best model by validation CWSL, refit a fresh clone
+          of the winning model on train ∪ validation.
+        - If False, keep the fitted winning model as trained on the training split
+          (and selected on the validation split).
 
-    training_mode : {"selection_only"}, default "selection_only"
-        Reserved for future extension. In v0.3.x, only "selection_only"
-        is supported (models train with their own objective; CWSL is used
-        only for validation-time selection).
+        In CV mode, the selected model is always refit on the full dataset provided to
+        ``fit`` (i.e., ``X_train, y_train``).
+    selection_mode : {"holdout", "cv"}, default="holdout"
+        Selection strategy:
 
-    refit_on_full : bool, default False
-        In **holdout** mode:
-            If True, after selecting the best model by CWSL on the validation
-            set, refit that winning model on the concatenated (train ∪ val)
-            data before exposing it via .best_model_ and .predict().
-
-        In **cv** mode:
-            X_train is treated as the full dataset; the winner is always
-            refit on X_train, so this flag has no additional effect.
-
-    selection_mode : {"holdout", "cv"}, default "holdout"
-        - "holdout": use the provided (X_train, y_train, X_val, y_val) split
-          and call `select_model_by_cwsl`.
-        - "cv": ignore X_val / y_val and perform K-fold cross-validation on
-          X_train / y_train to select the best model by mean CWSL.
-
-    cv : int, default 3
-        Number of folds to use when selection_mode="cv".
-        Must be at least 2 in CV mode.
-
-    random_state : int or None, default None
-        Seed for the random number generator used in CV splitting.
+        - ``"holdout"``: use the provided ``(X_train, y_train, X_val, y_val)``.
+        - ``"cv"``: ignore ``X_val, y_val`` and run K-fold selection on ``X_train, y_train``.
+    cv : int, default=3
+        Number of folds when ``selection_mode="cv"``. Must be at least 2.
+    random_state : int | None, default=None
+        Seed used for CV shuffling/splitting.
 
     Attributes
     ----------
-    best_name_ : str or None
-        Name of the selected best model after .fit().
+    best_name_ : str | None
+        Name of the winning model after calling ``fit``.
+    best_model_ : Any | None
+        Fitted estimator corresponding to ``best_name_``.
+    results_ : pandas.DataFrame | None
+        Per-model comparison table.
 
-    best_model_ : Any or None
-        The selected model object itself (fitted). In holdout mode, this may
-        be either the model fitted on the validation split or a refit on
-        (train ∪ val), depending on refit_on_full. In cv mode, it is the
-        winner refit on all of X_train.
+        - In holdout mode: output of :func:`~eb_evaluation.model_selection.compare.select_model_by_cwsl`
+          (typically includes CWSL, RMSE, wMAPE).
+        - In CV mode: mean scores across folds with columns ``["CWSL", "RMSE", "wMAPE"]``.
+    validation_cwsl_ : float | None
+        CWSL of the winning model on validation (holdout) or mean across folds (CV).
+    validation_rmse_ : float | None
+        RMSE of the winning model on validation (holdout) or mean across folds (CV).
+    validation_wmape_ : float | None
+        wMAPE of the winning model on validation (holdout) or mean across folds (CV).
 
-    results_ : pandas.DataFrame or None
-        - In holdout mode: comparison table returned by `select_model_by_cwsl`,
-          with one row per candidate model (index = model name).
-        - In cv mode: table of mean CV scores per model (index = model name),
-          with columns CWSL, RMSE, wMAPE.
-
-    validation_cwsl_ : float or None
-        Validation CWSL of the winning model:
-        - In holdout mode: CWSL on the validation set.
-        - In cv mode: mean CWSL across CV folds.
-
-    validation_rmse_ : float or None
-        RMSE value of the winning model on validation:
-        - In holdout mode: from `select_model_by_cwsl`, if available.
-        - In cv mode: mean CV RMSE.
-
-    validation_wmape_ : float or None
-        wMAPE value of the winning model on validation:
-        - In holdout mode: from `select_model_by_cwsl`, if available.
-        - In cv mode: mean CV wMAPE.
-
-    r_ : float
-        Cost ratio R = cu / co used for selection.
     """
 
     def __init__(
@@ -134,8 +133,7 @@ class ElectricBarometer:
 
         if training_mode != "selection_only":
             raise ValueError(
-                "In v0.3.x, ElectricBarometer only supports "
-                "training_mode='selection_only'."
+                "ElectricBarometer currently supports only training_mode='selection_only'."
             )
 
         if cu <= 0 or co <= 0:
@@ -147,7 +145,7 @@ class ElectricBarometer:
                 f"got {selection_mode!r}."
             )
 
-        if selection_mode == "cv" and (cv is None or cv < 2):
+        if selection_mode == "cv" and cv < 2:
             raise ValueError(f"In CV mode, cv must be at least 2; got {cv!r}.")
 
         self.models: Dict[str, Any] = models
@@ -165,22 +163,27 @@ class ElectricBarometer:
         self.best_model_: Optional[Any] = None
         self.results_: Optional[pd.DataFrame] = None
 
-        # Validation metrics for the winning model
         self.validation_cwsl_: Optional[float] = None
         self.validation_rmse_: Optional[float] = None
         self.validation_wmape_: Optional[float] = None
 
-    # ------------------------------------------------------------------
-    # Convenience properties
-    # ------------------------------------------------------------------
     @property
     def r_(self) -> float:
-        """Return the cost ratio R = cu / co."""
+        r"""
+        Cost ratio.
+
+        Returns
+        -------
+        float
+            The ratio:
+
+            $$
+                R = \frac{c_u}{c_o}
+            $$
+
+        """
         return self.cu / self.co
 
-    # ------------------------------------------------------------------
-    # Internal: K-fold CV evaluation
-    # ------------------------------------------------------------------
     def _cv_evaluate_models(
         self,
         X: np.ndarray,
@@ -188,89 +191,106 @@ class ElectricBarometer:
         sample_weight: Optional[np.ndarray] = None,
     ) -> pd.DataFrame:
         """
-        Perform simple K-fold CV over the candidate models and return
-        a DataFrame with mean scores per model.
+        Evaluate candidate models via simple K-fold CV and return mean scores.
 
         Parameters
         ----------
-        X : ndarray of shape (n_samples, n_features)
-        y : ndarray of shape (n_samples,)
-        sample_weight : ndarray of shape (n_samples,), optional
-            Optional per-sample weights. If provided, they are subset
-            to each fold's validation indices and passed to CWSL.
+        X : numpy.ndarray of shape (n_samples, n_features)
+            Feature matrix.
+        y : numpy.ndarray of shape (n_samples,)
+            Target vector.
+        sample_weight : numpy.ndarray of shape (n_samples,), optional
+            Optional non-negative weights. When provided, weights are subset to each
+            fold's validation indices and passed to CWSL. RMSE and wMAPE remain
+            unweighted in the current eb-metrics implementation.
 
         Returns
         -------
-        results : DataFrame
-            Index: model (model name)
-            Columns: ["CWSL", "RMSE", "wMAPE"]
-        """
-        n_samples = X.shape[0]
-        k = self.cv
+        pandas.DataFrame
+            DataFrame indexed by model name with columns:
 
-        if k < 2 or k > n_samples:
+            - ``"CWSL"``: mean CWSL across folds
+            - ``"RMSE"``: mean RMSE across folds
+            - ``"wMAPE"``: mean wMAPE across folds
+
+        Raises
+        ------
+        ValueError
+            If ``cv`` is invalid for the number of samples, or if sample_weight has
+            an incompatible length.
+
+        """
+        X_arr = np.asarray(X)
+        y_arr = np.asarray(y, dtype=float)
+
+        if X_arr.ndim == 1:
+            X_arr = X_arr.reshape(-1, 1)
+
+        n_samples = X_arr.shape[0]
+        if y_arr.shape[0] != n_samples:
             raise ValueError(
-                f"Invalid number of folds cv={k} for n_samples={n_samples}."
+                f"X and y must have the same number of rows; got {n_samples} and {y_arr.shape[0]}."
             )
+
+        k = int(self.cv)
+        if k < 2 or k > n_samples:
+            raise ValueError(f"Invalid number of folds cv={k} for n_samples={n_samples}.")
+
+        sw_arr: Optional[np.ndarray] = None
+        if sample_weight is not None:
+            sw_arr = np.asarray(sample_weight, dtype=float)
+            if sw_arr.shape[0] != n_samples:
+                raise ValueError(
+                    f"sample_weight must have length {n_samples}; got {sw_arr.shape[0]}."
+                )
 
         rng = np.random.default_rng(self.random_state)
         indices = np.arange(n_samples)
         rng.shuffle(indices)
 
-        # Compute fold sizes (as evenly as possible)
+        # Fold sizes as evenly as possible
         fold_sizes = np.full(k, n_samples // k, dtype=int)
         fold_sizes[: n_samples % k] += 1
 
-        folds = []
+        folds: list[tuple[np.ndarray, np.ndarray]] = []
         current = 0
         for fold_size in fold_sizes:
-            start, stop = current, current + fold_size
+            start, stop = current, current + int(fold_size)
             val_idx = indices[start:stop]
             train_idx = np.concatenate([indices[:start], indices[stop:]])
             folds.append((train_idx, val_idx))
             current = stop
 
-        rows = []
+        rows: list[dict[str, float | str]] = []
 
         for model_name, base_model in self.models.items():
-            cwsl_scores = []
-            rmse_scores = []
-            wmape_scores = []
+            cwsl_scores: list[float] = []
+            rmse_scores: list[float] = []
+            wmape_scores: list[float] = []
 
             for train_idx, val_idx in folds:
-                X_tr, X_va = X[train_idx], X[val_idx]
-                y_tr, y_va = y[train_idx], y[val_idx]
+                X_tr, X_va = X_arr[train_idx], X_arr[val_idx]
+                y_tr, y_va = y_arr[train_idx], y_arr[val_idx]
 
                 model = _clone_model(base_model)
                 model.fit(X_tr, y_tr)
-                y_pred = model.predict(X_va)
+                y_pred = np.asarray(model.predict(X_va), dtype=float)
 
-                sw_va = None
-                if sample_weight is not None:
-                    sw_va = np.asarray(sample_weight, dtype=float)[val_idx]
+                sw_va = sw_arr[val_idx] if sw_arr is not None else None
 
-                # Metrics for this fold
                 cwsl_scores.append(
-                    cwsl(
-                        y_true=y_va,
-                        y_pred=y_pred,
-                        cu=self.cu,
-                        co=self.co,
-                        sample_weight=sw_va,
+                    float(
+                        cwsl(
+                            y_true=y_va,
+                            y_pred=y_pred,
+                            cu=self.cu,
+                            co=self.co,
+                            sample_weight=sw_va,
+                        )
                     )
                 )
-                rmse_scores.append(
-                    rmse(
-                        y_true=y_va,
-                        y_pred=y_pred,
-                    )
-                )
-                wmape_scores.append(
-                    wmape(
-                        y_true=y_va,
-                        y_pred=y_pred,
-                    )
-                )
+                rmse_scores.append(float(rmse(y_true=y_va, y_pred=y_pred)))
+                wmape_scores.append(float(wmape(y_true=y_va, y_pred=y_pred)))
 
             rows.append(
                 {
@@ -281,12 +301,8 @@ class ElectricBarometer:
                 }
             )
 
-        results = pd.DataFrame(rows).set_index("model")
-        return results
+        return pd.DataFrame(rows).set_index("model")
 
-    # ------------------------------------------------------------------
-    # Core workflow
-    # ------------------------------------------------------------------
     def fit(
         self,
         X_train: np.ndarray,
@@ -298,49 +314,42 @@ class ElectricBarometer:
         refit_on_full: Optional[bool] = None,
     ) -> "ElectricBarometer":
         """
-        Fit all candidate models and select the best one using CWSL.
+        Fit candidate models and select the best one by minimizing CWSL.
 
         Parameters
         ----------
-        X_train : array-like of shape (n_samples_train, n_features)
-            - In holdout mode: the training subset.
-            - In cv mode: the full dataset over which CV will be run.
-
-        y_train : array-like of shape (n_samples_train,)
-            Targets corresponding to X_train.
-
-        X_val : array-like of shape (n_samples_val, n_features)
-            - In holdout mode: the validation subset.
-            - In cv mode: ignored (you may pass X_train again or any placeholder).
-
-        y_val : array-like of shape (n_samples_val,)
+        X_train : numpy.ndarray of shape (n_samples_train, n_features)
+            - In holdout mode: training features.
+            - In CV mode: full feature matrix used for cross-validation.
+        y_train : numpy.ndarray of shape (n_samples_train,)
+            Targets corresponding to ``X_train``.
+        X_val : numpy.ndarray of shape (n_samples_val, n_features)
+            - In holdout mode: validation features.
+            - In CV mode: ignored.
+        y_val : numpy.ndarray of shape (n_samples_val,)
             - In holdout mode: validation targets.
-            - In cv mode: ignored.
-
-        sample_weight_train : array-like of shape (n_samples_train,), optional
-            - In holdout mode: currently ignored (reserved for future use).
-            - In cv mode: treated as sample weights for the full dataset and
-              used in the CWSL calculations for each validation fold.
-
-        sample_weight_val : array-like of shape (n_samples_val,), optional
-            (Currently ignored in v0.3.x; reserved for future use.)
-
+            - In CV mode: ignored.
+        sample_weight_train : numpy.ndarray of shape (n_samples_train,), optional
+            - In CV mode: treated as per-sample weights for the full dataset and
+              used in CWSL calculations on each validation fold.
+            - In holdout mode: reserved (behavior depends on downstream helpers).
+        sample_weight_val : numpy.ndarray of shape (n_samples_val,), optional
+            Reserved for future use.
         refit_on_full : bool, optional
-            In holdout mode, if provided, overrides the instance-level
-            refit_on_full flag for this .fit() call only. If None, uses
-            self.refit_on_full. Ignored in cv mode.
+            Holdout-only override of the instance-level ``refit_on_full`` flag.
 
         Returns
         -------
-        self : ElectricBarometer
-            The fitted selector, with best_model_ and results_ populated.
+        ElectricBarometer
+            Fitted selector with ``best_name_``, ``best_model_``, and ``results_`` populated.
+
         """
-        # Decide whether to refit on full data for this call (holdout mode only)
+        _ = sample_weight_val  # reserved for future use
+
         refit_flag = self.refit_on_full if refit_on_full is None else bool(refit_on_full)
 
         if self.selection_mode == "holdout":
-            # NOTE: select_model_by_cwsl currently does NOT accept sample_weight args,
-            # so we ignore sample_weight_train/sample_weight_val here in v0.3.x.
+            # select_model_by_cwsl is the single point-of-truth for holdout selection in this repo.
             best_name, best_model, results = select_model_by_cwsl(
                 models=self.models,
                 X_train=X_train,
@@ -349,16 +358,17 @@ class ElectricBarometer:
                 y_val=y_val,
                 cu=self.cu,
                 co=self.co,
+                sample_weight_val=None,  # current holdout helper accepts this but may ignore
             )
 
             self.best_name_ = best_name
             self.results_ = results
 
-            # Extract validation metrics for the winner, if available
             self.validation_cwsl_ = None
             self.validation_rmse_ = None
             self.validation_wmape_ = None
 
+            # Best-effort extraction of winner row
             try:
                 row = results.loc[best_name]
                 if "CWSL" in row:
@@ -368,66 +378,64 @@ class ElectricBarometer:
                 if "wMAPE" in row:
                     self.validation_wmape_ = float(row["wMAPE"])
             except Exception:
-                # Be defensive if results is not in the expected shape.
                 pass
 
-            # Optionally refit the winning model on all available data
             best_model_refit = best_model
             if refit_flag and hasattr(best_model_refit, "fit"):
-                X_full = np.concatenate([X_train, X_val], axis=0)
-                y_full = np.concatenate([y_train, y_val], axis=0)
+                X_full = np.concatenate([np.asarray(X_train), np.asarray(X_val)], axis=0)
+                y_full = np.concatenate([np.asarray(y_train, dtype=float), np.asarray(y_val, dtype=float)], axis=0)
 
                 best_model_refit = _clone_model(best_model_refit)
                 best_model_refit.fit(X_full, y_full)
 
             self.best_model_ = best_model_refit
+            return self
 
-        else:  # selection_mode == "cv"
-            # Run K-fold CV on X_train / y_train only (X_val, y_val ignored)
-            results = self._cv_evaluate_models(
-                X=X_train,
-                y=y_train,
-                sample_weight=sample_weight_train,
-            )
-            self.results_ = results
+        # selection_mode == "cv"
+        results = self._cv_evaluate_models(
+            X=np.asarray(X_train),
+            y=np.asarray(y_train, dtype=float),
+            sample_weight=sample_weight_train,
+        )
+        self.results_ = results
 
-            # Pick the winner by lowest mean CWSL
-            best_name = results["CWSL"].idxmin()
-            self.best_name_ = best_name
+        best_name = results["CWSL"].idxmin()
+        self.best_name_ = str(best_name)
 
-            # Populate validation_* from mean CV scores
-            row = results.loc[best_name]
-            self.validation_cwsl_ = float(row["CWSL"])
-            self.validation_rmse_ = float(row["RMSE"])
-            self.validation_wmape_ = float(row["wMAPE"])
+        row = results.loc[best_name]
+        self.validation_cwsl_ = float(row["CWSL"])
+        self.validation_rmse_ = float(row["RMSE"])
+        self.validation_wmape_ = float(row["wMAPE"])
 
-            # Fit a fresh clone of the winning model on **all** X_train / y_train
-            base_model = self.models[best_name]
-            best_model_refit = _clone_model(base_model)
-            best_model_refit.fit(X_train, y_train)
-            self.best_model_ = best_model_refit
+        base_model = self.models[self.best_name_]
+        best_model_refit = _clone_model(base_model)
+        best_model_refit.fit(np.asarray(X_train), np.asarray(y_train, dtype=float))
+        self.best_model_ = best_model_refit
 
         return self
 
-    # ------------------------------------------------------------------
-    # Prediction + scoring helpers
-    # ------------------------------------------------------------------
     def predict(self, X: np.ndarray) -> np.ndarray:
         """
-        Generate predictions from the selected best model.
+        Predict using the selected best model.
 
         Parameters
         ----------
-        X : array-like of shape (n_samples, n_features)
+        X : numpy.ndarray of shape (n_samples, n_features)
 
         Returns
         -------
-        y_pred : ndarray of shape (n_samples,)
+        numpy.ndarray of shape (n_samples,)
+            Predicted values.
+
+        Raises
+        ------
+        RuntimeError
+            If called before ``fit``.
+
         """
         if self.best_model_ is None:
             raise RuntimeError(
-                "ElectricBarometer has not been fit yet. "
-                "Call .fit(...) first (holdout or cv mode)."
+                "ElectricBarometer has not been fit yet. Call .fit(...) first (holdout or cv mode)."
             )
 
         y_pred = self.best_model_.predict(X)
@@ -442,46 +450,40 @@ class ElectricBarometer:
         co: Optional[float] = None,
     ) -> float:
         """
-        Compute CWSL with this selector's cu/co (or overrides).
+        Compute CWSL using this selector's costs (or overrides).
 
         Parameters
         ----------
-        y_true : array-like
-            Actual demand.
-
-        y_pred : array-like
-            Forecasted demand.
-
-        sample_weight : array-like, optional
+        y_true : numpy.ndarray of shape (n_samples,)
+            Actual values.
+        y_pred : numpy.ndarray of shape (n_samples,)
+            Predicted values.
+        sample_weight : numpy.ndarray of shape (n_samples,), optional
             Optional non-negative weights per interval.
-
         cu : float, optional
-            Override for underbuild cost per unit. If None, uses self.cu.
-
+            Override for $c_u$. If None, uses ``self.cu``.
         co : float, optional
-            Override for overbuild cost per unit. If None, uses self.co.
+            Override for $c_o$. If None, uses ``self.co``.
 
         Returns
         -------
         float
-            CWSL value for the given series.
+            CWSL for the provided series.
+
         """
         cu_eff = float(self.cu if cu is None else cu)
         co_eff = float(self.co if co is None else co)
 
         return float(
             cwsl(
-                y_true=y_true,
-                y_pred=y_pred,
+                y_true=np.asarray(y_true, dtype=float),
+                y_pred=np.asarray(y_pred, dtype=float),
                 cu=cu_eff,
                 co=co_eff,
                 sample_weight=sample_weight,
             )
         )
 
-    # ------------------------------------------------------------------
-    # Representation helpers
-    # ------------------------------------------------------------------
     def __repr__(self) -> str:
         model_names = list(self.models.keys())
         best = self.best_name_ if self.best_name_ is not None else "None"

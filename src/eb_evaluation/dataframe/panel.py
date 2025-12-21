@@ -1,5 +1,21 @@
 from __future__ import annotations
 
+"""
+Panel-style evaluation output (DataFrame utilities).
+
+This module provides a convenience wrapper that evaluates a DataFrame at multiple hierarchy
+levels and returns a **long-form (tidy) panel** suitable for reporting, plotting, and
+downstream aggregation.
+
+The implementation delegates the core computation to
+:func:`eb_evaluation.dataframe.hierarchy.evaluate_hierarchy_df` and then reshapes the
+wide per-level outputs into a single stacked table with:
+
+- a ``level`` column (which hierarchy level produced the row)
+- optional grouping key columns (depending on the level)
+- ``metric`` / ``value`` columns for tidy analysis
+"""
+
 from typing import Dict, Sequence
 
 import pandas as pd
@@ -17,56 +33,63 @@ def evaluate_panel_df(
     tau: float | None = None,
 ) -> pd.DataFrame:
     """
-    Evaluate CWSL and related diagnostics at multiple levels and return
-    a long-form (tidy) panel DataFrame.
+    Evaluate metrics at multiple levels and return a long-form panel DataFrame.
 
-    This is a convenience wrapper around ``evaluate_hierarchy_df`` that
-    stacks all levels into a single table with a ``level`` column and
-    metric/value pairs.
+    This is a convenience wrapper around :func:`~eb_evaluation.dataframe.hierarchy.evaluate_hierarchy_df`
+    that:
+
+    1. computes a wide metrics DataFrame per hierarchy level, then
+    2. stacks them into a single table with a ``level`` column, and
+    3. melts metrics into ``metric`` / ``value`` pairs.
 
     Parameters
     ----------
     df : pandas.DataFrame
-        Input DataFrame with at least the actual and forecast columns,
-        plus any grouping columns referenced in ``levels``.
-
+        Input DataFrame containing at least ``actual_col`` and ``forecast_col`` plus any
+        grouping columns referenced in ``levels``.
     levels : dict[str, Sequence[str]]
-        Mapping of level name -> list/tuple of column names to group by.
+        Mapping of level name to the column names used to group at that level.
 
-        Examples
-        --------
-        levels = {
-            "overall": [],
-            "by_store": ["store_id"],
-            "by_item": ["item_id"],
-            "by_store_item": ["store_id", "item_id"],
-        }
+        Example:
 
+        >>> levels = {
+        ...     "overall": [],
+        ...     "by_store": ["store_id"],
+        ...     "by_item": ["item_id"],
+        ...     "by_store_item": ["store_id", "item_id"],
+        ... }
     actual_col : str
-        Column name for actual demand.
-
+        Column name for actual demand / realized values.
     forecast_col : str
-        Column name for forecasted demand.
-
+        Column name for forecast values.
     cu : float or array-like
-        Underbuild cost parameter passed through to ``cwsl``.
-
+        Underbuild (shortfall) cost coefficient passed through to CWSL/FRS evaluations.
     co : float or array-like
-        Overbuild cost parameter passed through to ``cwsl``.
-
-    tau : float, optional
-        Tolerance passed to ``hr_at_tau``. If None, HR@τ is omitted.
+        Overbuild (excess) cost coefficient passed through to CWSL/FRS evaluations.
+    tau : float | None, default=None
+        Tolerance parameter for HR@τ. If ``None``, HR@τ is omitted.
 
     Returns
     -------
     pandas.DataFrame
-        Long-form panel with columns like:
+        Long-form (tidy) panel with columns:
 
-            level | <group cols> | metric | value
+        - ``level`` : hierarchy level name
+        - ``<group cols>`` : the grouping keys for that level (may be empty for overall)
+        - ``metric`` : metric name
+        - ``value`` : metric value
 
-        where each row is a single metric at a specific level/group.
+        Each row corresponds to a single metric evaluated at a specific level/group.
+
+    Notes
+    -----
+    - The set of metric columns is derived from the outputs of
+      :func:`~eb_evaluation.dataframe.hierarchy.evaluate_hierarchy_df`. Only metrics present
+      in the combined wide table are melted.
+    - Grouping key columns vary by level. The returned panel includes the union of all grouping
+      key columns across levels; levels that do not use a given key will have NaN in that column.
+
     """
-    # First get wide DataFrames per level
     hier = evaluate_hierarchy_df(
         df=df,
         levels=levels,
@@ -77,7 +100,6 @@ def evaluate_panel_df(
         tau=tau,
     )
 
-    # Stack them with a 'level' column
     stacked_frames: list[pd.DataFrame] = []
     for level_name, level_df in hier.items():
         tmp = level_df.copy()
@@ -86,7 +108,7 @@ def evaluate_panel_df(
 
     combined = pd.concat(stacked_frames, ignore_index=True)
 
-    # Put 'level' first
+    # Put 'level' first for readability
     cols = ["level"] + [c for c in combined.columns if c != "level"]
     combined = combined[cols]
 
@@ -106,7 +128,6 @@ def evaluate_panel_df(
     # Everything else (besides 'level') is treated as a grouping key
     group_cols = [c for c in combined.columns if c not in metric_cols and c != "level"]
 
-    # Melt to long form: one row per level/group/metric
     panel = combined.melt(
         id_vars=["level"] + group_cols,
         value_vars=metric_cols,

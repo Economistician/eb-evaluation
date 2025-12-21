@@ -1,36 +1,51 @@
 """
-eb_evaluation.dataframe.tolerance
+Data-driven tolerance (τ) selection utilities for HR@τ.
 
-Data-driven tolerance (tau, τ) selection utilities for HR@τ
-(hit-rate within threshold).
+This module provides deterministic, residual-only methods for selecting the tolerance
+parameter τ used by the hit-rate metric HR@τ (hit rate within an absolute-error band).
 
-Theme:
-- Like cost_ratio.py estimates R = cu/co by balancing under- vs over-cost,
-  this module estimates τ from *historical residuals only*
-  (no exogenous data, no model assumptions).
-- Supports global τ and entity-level τ, with optional caps and guards
-  to prevent tolerance inflation.
+The hit-rate metric is:
 
-Core idea:
-    HR(τ) = mean( |y - yhat| <= τ )
+$$
+    \mathrm{HR}@\tau = \frac{1}{n}\sum_{i=1}^{n}\mathbf{1}\left(|y_i-\hat{y}_i|\le \tau\right)
+$$
 
-τ represents an *acceptability band*:
-the maximum error magnitude considered operationally acceptable.
+Here, τ defines an *acceptability band*: the maximum absolute error considered operationally
+acceptable.
 
-τ can be selected automatically from residuals via:
-- target_hit_rate:
-    τ = quantile(|e|, h), enforcing a readiness standard
-- knee:
-    τ at the point of diminishing returns in HR(τ)
-- utility:
-    τ maximizing HR(τ) − λ · (τ / τ_max), trading coverage against tolerance width
+Design notes
+------------
+- τ is estimated from historical residuals only (no exogenous data, no model assumptions).
+- The module supports global τ estimation and entity-level τ estimation.
+- Optional governance controls allow capping entity τ values by a global cap to prevent
+  tolerance inflation.
 
-Governance notes:
-- τ should be calibrated on a calibration window and reported on holdout data.
-- Entity-level τ should be capped (optionally) by a global tolerance to
-  avoid masking poor performance.
+Methods
+-------
+The global estimator supports three selection modes:
 
-All functions are deterministic given inputs.
+1. ``"target_hit_rate"``:
+   choose τ such that a target fraction of residual magnitudes is covered:
+
+   $$
+       \tau = Q_h\left(|e|\right), \quad e_i = y_i-\hat{y}_i
+   $$
+
+   where $Q_h(\cdot)$ is the quantile function at level $h$.
+
+2. ``"knee"``:
+   select τ at a diminishing-returns point on the monotone curve $\mathrm{HR}@\tau$.
+
+3. ``"utility"``:
+   maximize a simple tradeoff between coverage and tolerance width:
+
+   $$
+       \tau^\* = \arg\max_{\tau \in \mathcal{T}}
+       \left[\mathrm{HR}@\tau - \lambda\left(\frac{\tau}{\tau_{\max}}\right)\right]
+   $$
+
+The entity-level estimator runs the same procedure per entity, optionally capping each
+entity τ by a global cap derived from the full residual distribution.
 """
 
 from __future__ import annotations
@@ -47,10 +62,8 @@ from ebmetrics.metrics.service import hr_at_tau as _hr_at_tau_core
 TauMethod = Literal["target_hit_rate", "knee", "utility"]
 
 
-# ----------------------------
-# Small helpers
-# ----------------------------
 def _to_1d_float_array(x: Union[pd.Series, np.ndarray, Iterable[float]]) -> np.ndarray:
+    """Convert input to a 1D float NumPy array."""
     return np.asarray(x, dtype=float).reshape(-1)
 
 
@@ -58,6 +71,17 @@ def _nan_safe_abs_errors(
     y: Union[pd.Series, np.ndarray, Iterable[float]],
     yhat: Union[pd.Series, np.ndarray, Iterable[float]],
 ) -> np.ndarray:
+    """
+    Compute absolute errors with NaN/inf filtering.
+
+    Non-finite (y, yhat) pairs are dropped. The returned array contains:
+
+    $$
+        |e_i| = |y_i - \hat{y}_i|
+    $$
+
+    for finite pairs only.
+    """
     y_arr = _to_1d_float_array(y)
     yhat_arr = _to_1d_float_array(yhat)
     if y_arr.shape[0] != yhat_arr.shape[0]:
@@ -69,6 +93,7 @@ def _nan_safe_abs_errors(
 
 
 def _validate_tau(tau: float) -> float:
+    """Validate τ as finite and non-negative."""
     if not np.isfinite(tau):
         raise ValueError(f"tau must be finite. Got {tau}.")
     if tau < 0:
@@ -77,6 +102,7 @@ def _validate_tau(tau: float) -> float:
 
 
 def _quantile(x: np.ndarray, q: float) -> float:
+    """Compute a quantile with basic guards; returns NaN for empty input."""
     if not (0.0 <= q <= 1.0):
         raise ValueError(f"Quantile q must be in [0, 1]. Got {q}.")
     if x.size == 0:
@@ -90,6 +116,13 @@ def _make_tau_grid(
     grid_size: int = 101,
     grid_quantiles: Tuple[float, float] = (0.0, 0.99),
 ) -> np.ndarray:
+    """
+    Construct a non-negative τ grid.
+
+    If ``grid`` is provided, it is filtered to finite, unique, non-negative values.
+    Otherwise, a linear grid is constructed between quantiles of the absolute error
+    distribution.
+    """
     if abs_errors.size == 0:
         return np.array([], dtype=float)
 
@@ -126,16 +159,38 @@ def hr_at_tau(
     yhat: Union[pd.Series, np.ndarray, Iterable[float]],
     tau: float,
 ) -> float:
-    """
+    r"""
     Compute HR@τ: fraction of observations whose absolute error is within τ.
 
-    Notes
-    -----
-    This is an evaluation-friendly wrapper around the core metric
-    implementation in ebmetrics.metrics.service.hr_at_tau.
+    HR@τ is defined as:
 
-    We drop non-finite (y, yhat) pairs prior to delegating. If no finite
-    pairs remain, returns np.nan.
+    $$
+        \mathrm{HR}@\tau = \frac{1}{n}\sum_{i=1}^{n}\mathbf{1}\left(|y_i-\hat{y}_i|\le \tau\right)
+    $$
+
+    This is an evaluation-friendly wrapper around the core implementation in
+    :func:`ebmetrics.metrics.service.hr_at_tau`. Non-finite (y, yhat) pairs are dropped
+    prior to delegating. If no finite pairs remain, returns ``np.nan``.
+
+    Parameters
+    ----------
+    y : array-like
+        Actual values $y_i$.
+    yhat : array-like
+        Forecast values $\hat{y}_i$.
+    tau : float
+        Non-negative tolerance threshold τ.
+
+    Returns
+    -------
+    float
+        Hit rate within τ, or ``np.nan`` if no finite pairs remain.
+
+    Raises
+    ------
+    ValueError
+        If input lengths do not match or if ``tau`` is invalid.
+
     """
     tau = _validate_tau(tau)
 
@@ -154,11 +209,23 @@ def hr_at_tau(
     return float(_hr_at_tau_core(y_true=y_arr[mask], y_pred=yhat_arr[mask], tau=tau))
 
 
-# ----------------------------
-# τ estimation: global
-# ----------------------------
 @dataclass(frozen=True)
 class TauEstimate:
+    """
+    Result container for τ estimation.
+
+    Attributes
+    ----------
+    tau : float
+        Estimated tolerance τ (may be NaN if estimation failed).
+    method : str
+        Method identifier used to produce the estimate.
+    n : int
+        Number of finite (y, yhat) pairs used.
+    diagnostics : dict[str, Any]
+        Method-specific diagnostics intended for reporting and governance.
+
+    """
     tau: float
     method: str
     n: int
@@ -185,20 +252,68 @@ def estimate_tau(
     tau_floor: float = 0.0,
     tau_cap: Optional[float] = None,
 ) -> TauEstimate:
-    """
-    Estimate a global tolerance τ from residuals (no exogenous data).
+    r"""
+    Estimate a global tolerance τ from residuals.
+
+    Residuals are defined as:
+
+    $$
+        e_i = y_i - \hat{y}_i
+    $$
+
+    and the estimator uses the empirical distribution of $|e_i|$ after filtering
+    non-finite pairs.
 
     Parameters
     ----------
-    method:
-        - "target_hit_rate": τ = quantile(|e|, target_hit_rate)
-        - "knee": choose τ at diminishing returns point on HR(τ)
-        - "utility": maximize HR(τ) - λ * τ/τ_max
+    y : array-like
+        Actual values $y_i$.
+    yhat : array-like
+        Forecast values $\hat{y}_i$.
+    method : {"target_hit_rate", "knee", "utility"}, default="target_hit_rate"
+        Method used to select τ.
 
-    tau_floor:
-        Minimum allowed τ (>=0).
-    tau_cap:
-        Optional maximum allowed τ.
+        - ``"target_hit_rate"``: choose τ as a quantile of $|e|$ such that
+          $\mathrm{HR}@\tau \approx h$ on the calibration residuals.
+        - ``"knee"``: choose τ at a diminishing-returns point of the curve
+          $\mathrm{HR}@\tau$ evaluated on a τ grid.
+        - ``"utility"``: choose τ to maximize
+          $\mathrm{HR}@\tau - \lambda(\tau/\tau_{\max})$ on a τ grid.
+    target_hit_rate : float, default=0.90
+        Target coverage level $h$ used by the ``"target_hit_rate"`` method.
+        Must satisfy $0 < h \le 1$.
+    grid : array-like | None, default=None
+        Optional explicit τ grid for ``"knee"`` and ``"utility"``. If provided,
+        values are filtered to finite, unique, non-negative values.
+    grid_size : int, default=101
+        Grid size used when constructing an implicit τ grid.
+    grid_quantiles : tuple[float, float], default=(0.0, 0.99)
+        Quantile range used to construct an implicit τ grid from $|e|$.
+    knee_rule : {"slope_threshold", "max_distance"}, default="slope_threshold"
+        Knee detection rule used when ``method="knee"``.
+    slope_threshold : float, default=0.0025
+        Threshold used by the ``"slope_threshold"`` knee rule. Smaller values pick
+        earlier knees.
+    lambda_ : float, default=0.10
+        Tradeoff weight used by the ``"utility"`` method. Must be non-negative.
+    tau_max : float | None, default=None
+        Reference tolerance width used by the ``"utility"`` method. If ``None``,
+        it defaults to the 0.99 quantile of $|e|$.
+    tau_floor : float, default=0.0
+        Minimum allowed τ (must be non-negative).
+    tau_cap : float | None, default=None
+        Optional maximum allowed τ (must be non-negative if provided).
+
+    Returns
+    -------
+    TauEstimate
+        Estimated τ plus diagnostics describing the calibration behavior.
+
+    Raises
+    ------
+    ValueError
+        If parameters are invalid (e.g., negative τ bounds, invalid quantiles, etc.).
+
     """
     abs_errors = _nan_safe_abs_errors(y, yhat)
     n = int(abs_errors.size)
@@ -239,7 +354,6 @@ def estimate_tau(
         }
         return TauEstimate(tau=float(tau), method="target_hit_rate", n=n, diagnostics=diag)
 
-    # For knee / utility, we need a grid
     tau_grid = _make_tau_grid(
         abs_errors,
         grid=grid,
@@ -266,10 +380,7 @@ def estimate_tau(
             slope = np.where(d_tau > 0, d_hr / d_tau, np.inf)
 
             candidates = np.where(slope < slope_threshold)[0]
-            if candidates.size > 0:
-                pick_i = int(candidates[0] + 1)
-            else:
-                pick_i = int(len(tau_grid) - 1)
+            pick_i = int(candidates[0] + 1) if candidates.size > 0 else int(len(tau_grid) - 1)
 
             tau = float(tau_grid[pick_i])
             hr_pick = float(hr_curve[pick_i])
@@ -288,10 +399,7 @@ def estimate_tau(
 
         elif knee_rule == "max_distance":
             t0, t1 = float(tau_grid[0]), float(tau_grid[-1])
-            if t1 > t0:
-                t_norm = (tau_grid - t0) / (t1 - t0)
-            else:
-                t_norm = np.zeros_like(tau_grid)
+            t_norm = (tau_grid - t0) / (t1 - t0) if t1 > t0 else np.zeros_like(tau_grid)
 
             x = t_norm
             yv = hr_curve
@@ -302,9 +410,7 @@ def estimate_tau(
             if denom == 0:
                 pick_i = int(len(tau_grid) // 2)
             else:
-                dist = (
-                    np.abs((y1 - y0) * x - (x1 - x0) * yv + x1 * y0 - y1 * x0) / denom
-                )
+                dist = np.abs((y1 - y0) * x - (x1 - x0) * yv + x1 * y0 - y1 * x0) / denom
                 pick_i = int(np.argmax(dist))
 
             tau = float(tau_grid[pick_i])
@@ -373,9 +479,6 @@ def estimate_tau(
     raise ValueError(f"Unknown method: {method}")
 
 
-# ----------------------------
-# τ estimation: entity-level
-# ----------------------------
 def estimate_entity_tau(
     df: pd.DataFrame,
     *,
@@ -389,17 +492,69 @@ def estimate_entity_tau(
     global_cap_quantile: float = 0.99,
     include_diagnostics: bool = True,
 ) -> pd.DataFrame:
-    """
+    r"""
     Estimate τ per entity from residuals.
+
+    For each entity, residual magnitudes are:
+
+    $$
+        |e_i| = |y_i - \hat{y}_i|
+    $$
+
+    and τ is estimated using the same method as :func:`estimate_tau`, provided the entity has
+    at least ``min_n`` finite residual pairs.
+
+    If ``cap_with_global=True``, each entity τ is capped by a global cap derived from the full
+    residual distribution:
+
+    $$
+        \tau_{\mathrm{cap}} = Q_q\left(|e|\right)
+    $$
 
     Parameters
     ----------
-    min_n:
-        Minimum number of finite (y,yhat) pairs required to estimate entity τ.
-        Entities below min_n get tau = NaN.
-    cap_with_global:
-        If True, cap each entity τ by a global τ cap computed as
-        quantile(|e|, global_cap_quantile) over the entire dataframe.
+    df : pandas.DataFrame
+        Input DataFrame containing entity identifiers and (y, yhat) columns.
+    entity_col : str
+        Entity identifier column.
+    y_col : str
+        Actual values column.
+    yhat_col : str
+        Forecast values column.
+    method : {"target_hit_rate", "knee", "utility"}, default="target_hit_rate"
+        τ estimation method.
+    min_n : int, default=30
+        Minimum number of finite (y, yhat) pairs required to produce an entity τ.
+        Entities below this threshold return τ = NaN.
+    estimate_kwargs : Mapping[str, Any] | None, default=None
+        Additional keyword arguments forwarded to :func:`estimate_tau`.
+    cap_with_global : bool, default=False
+        If True, cap each entity τ by a global cap computed using ``global_cap_quantile`` over
+        the entire DataFrame residual distribution.
+    global_cap_quantile : float, default=0.99
+        Quantile used to compute the global τ cap. Must be in [0, 1].
+    include_diagnostics : bool, default=True
+        If True, include diagnostic fields derived from :class:`TauEstimate.diagnostics`.
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame with one row per entity including:
+
+        - ``entity_col``
+        - ``tau`` : estimated entity tolerance
+        - ``n`` : number of finite residual pairs used
+        - ``method`` : method identifier
+
+        If diagnostics are enabled, additional columns are appended.
+
+    Raises
+    ------
+    KeyError
+        If required columns are missing.
+    ValueError
+        If ``min_n < 1``.
+
     """
     if estimate_kwargs is None:
         estimate_kwargs = {}
@@ -485,19 +640,31 @@ def estimate_entity_tau(
     return out
 
 
-# ----------------------------
-# Convenience: compute HR@τ with auto τ
-# ----------------------------
 def hr_auto_tau(
     y: Union[pd.Series, np.ndarray, Iterable[float]],
     yhat: Union[pd.Series, np.ndarray, Iterable[float]],
     method: TauMethod = "target_hit_rate",
     **estimate_kwargs: Any,
 ) -> Tuple[float, float, Dict[str, Any]]:
-    """
-    Convenience wrapper: estimate τ from residuals, then compute HR@τ.
+    r"""
+    Estimate τ from residuals, then compute HR@τ.
 
-    Returns (hr, tau, diagnostics)
+    This is a convenience wrapper that performs:
+
+    1. τ estimation via :func:`estimate_tau`, then
+    2. HR@τ evaluation via :func:`hr_at_tau`.
+
+    Returns
+    -------
+    tuple[float, float, dict[str, Any]]
+        Tuple ``(hr, tau, diagnostics)`` where:
+
+        - ``hr`` is the computed HR@τ
+        - ``tau`` is the estimated τ
+        - ``diagnostics`` are method-specific details from the τ estimator
+
+        If τ cannot be estimated (e.g., no finite pairs), returns ``(nan, nan, diagnostics)``.
+
     """
     est = estimate_tau(y=y, yhat=yhat, method=method, **estimate_kwargs)
     if not np.isfinite(est.tau):

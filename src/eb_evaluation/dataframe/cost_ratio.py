@@ -1,5 +1,21 @@
 from __future__ import annotations
 
+"""
+Entity-level cost ratio estimation (DataFrame utilities).
+
+This module provides DataFrame-oriented utilities for estimating an entity-specific
+underbuild-to-overbuild cost ratio from historical forecast error patterns.
+
+The primary use case is to calibrate a per-entity ratio
+
+$$
+    R_e = \frac{c_{u,e}}{c_o}
+$$
+
+that can later be used in entity-aware evaluation workflows (e.g., computing cost-weighted
+metrics with entity-specific asymmetry parameters).
+"""
+
 from typing import Optional, Sequence
 
 import numpy as np
@@ -18,80 +34,96 @@ def estimate_entity_R_from_balance(
     co: float = 1.0,
     sample_weight_col: Optional[str] = None,
 ) -> pd.DataFrame:
-    """
-    Estimate an entity-level cost ratio R_e = cu_e / co for each entity,
-    using a simple "cost balance" method over a grid of candidate ratios.
+    r"""
+    Estimate an entity-level cost ratio via a cost-balance grid search.
 
-    For each entity:
-        1. Take all historical intervals for that entity.
-        2. For each candidate R in `ratios`:
-            - set cu = R * co
-            - compute total underbuild cost and overbuild cost:
-                  under_cost(R) = sum(w_i * cu * shortfall_i)
-                  over_cost(R)  = sum(w_i * co * overbuild_i)
-            - measure the imbalance:
-                  diff(R) = |under_cost(R) - over_cost(R)|
-        3. Choose the R that MINIMIZES diff(R).
-        4. Report R_e, cu_e = R_e * co, and the under/over costs at that R_e.
+    This function estimates a per-entity underbuild-to-overbuild cost ratio
 
-    This is a *data-driven helper* for cost-ratio tuning. It does NOT try to
-    infer economics (margin, food cost, etc.) directly. Instead, it uses the
-    historical error pattern for each entity under an assumed overbuild cost
-    profile `co`.
+    $$
+        R_e = \frac{c_{u,e}}{c_o}
+    $$
 
-    Typical usage:
-        - Use a small grid like (0.5, 1.0, 2.0, 3.0) for exploratory work.
-        - Use the resulting R_e as input into `evaluate_panel_with_entity_R`
-          to compute entity-aware CWSL / FRS.
+    by searching over a user-provided grid of candidate ratios. For each entity, define
+    shortfall and overbuild per interval $i$:
+
+    $$
+        s_i = \max(0, y_i - \hat{y}_i)
+    $$
+
+    $$
+        o_i = \max(0, \hat{y}_i - y_i)
+    $$
+
+    For each candidate ratio $R \in \mathcal{R}$, set the implied underbuild cost coefficient:
+
+    $$
+        c_u(R) = R \cdot c_o
+    $$
+
+    Then compute weighted total underbuild and overbuild costs:
+
+    $$
+        C_u(R) = \sum_i w_i \; c_u(R) \; s_i
+    $$
+
+    $$
+        C_o = \sum_i w_i \; c_o \; o_i
+    $$
+
+    The selected ratio is the value that minimizes the absolute imbalance between these totals:
+
+    $$
+        R_e = \arg\min_{R \in \mathcal{R}} \left| C_u(R) - C_o \right|
+    $$
 
     Parameters
     ----------
     df : pandas.DataFrame
-        Input table containing an entity identifier, actuals, and forecasts.
-
+        Input table containing an entity identifier, actuals, and forecasts (and optionally weights).
     entity_col : str
-        Column in `df` identifying the entity (e.g., "item", "sku",
-        "product", "line", "location").
-
+        Column in ``df`` identifying the entity (e.g., ``"item"``, ``"sku"``, ``"location"``).
     y_true_col : str
-        Column containing actual demand. Must be non-negative.
-
+        Column containing realized demand values $y_i$. Must be non-negative.
     y_pred_col : str
-        Column containing forecasted demand. Must be non-negative.
-
-    ratios : sequence of float, default (0.5, 1.0, 2.0, 3.0)
-        Candidate R values to search over for each entity. These must be
-        strictly positive. A typical starting grid is something like
-        (0.5, 1.0, 2.0, 3.0).
-
-    co : float, default 1.0
-        Overbuild (excess) cost per unit, assumed scalar and common
-        across entities for this estimation method. Must be > 0.
-
-    sample_weight_col : str or None, default None
-        Optional column of non-negative sample weights per row. If None,
-        all rows are equally weighted within each entity.
+        Column containing baseline forecast values $\hat{y}_i$. Must be non-negative.
+    ratios : Sequence[float], default=(0.5, 1.0, 2.0, 3.0)
+        Candidate ratio grid $\mathcal{R}$. Values must be strictly positive.
+    co : float, default=1.0
+        Overbuild (excess) cost coefficient $c_o$. Must be strictly positive.
+    sample_weight_col : str | None, default=None
+        Optional column containing non-negative sample weights $w_i$. If ``None``, all rows are
+        equally weighted within each entity.
 
     Returns
     -------
     pandas.DataFrame
         One row per entity with columns:
 
-            - entity_col   (entity identifier)
-            - R            (chosen cost ratio)
-            - cu           (shortfall cost = R * co)
-            - co           (overbuild cost, scalar input)
-            - under_cost   (total underbuild cost at chosen R)
-            - over_cost    (total overbuild cost at chosen R)
-            - diff         (|under_cost - over_cost| at chosen R)
+        - ``entity_col`` : entity identifier
+        - ``R`` : chosen ratio $R_e$
+        - ``cu`` : implied underbuild cost $c_{u,e} = R_e \cdot c_o$
+        - ``co`` : provided overbuild cost coefficient $c_o$
+        - ``under_cost`` : $C_u(R_e)$
+        - ``over_cost`` : $C_o$
+        - ``diff`` : $\left|C_u(R_e) - C_o\right|$
+
+    Raises
+    ------
+    KeyError
+        If required columns are missing from ``df``.
+    ValueError
+        If ``ratios`` is empty or contains non-positive values, if ``co <= 0``,
+        if any entity contains negative values, or if sample weights are negative.
 
     Notes
     -----
-    - If an entity has literally zero error (no shortfall and no overbuild)
-      across all its intervals, we pick the R in `ratios` that is closest to 1.0,
-      and under_cost = over_cost = diff = 0.
-    - Entities with strongly skewed error patterns (mostly short or mostly long)
-      will tend to land on the edges of the `ratios` grid.
+    - This is a calibration helper for cost-ratio tuning. It does not infer economics directly
+      (margin, food cost, labor, etc.); it uses the observed error pattern under an assumed $c_o$.
+    - If an entity has zero error across all intervals (no shortfall and no overbuild), the ratio
+      in ``ratios`` closest to 1.0 is selected and under/over costs are returned as zero.
+    - Entities with strongly skewed error patterns will often select ratios at the edges of the
+      provided grid; widen the grid if needed.
+
     """
     required = {entity_col, y_true_col, y_pred_col}
     missing = required - set(df.columns)
@@ -141,7 +173,6 @@ def estimate_entity_R_from_balance(
 
         # Degenerate case: no error at all for this entity
         if np.all(shortfall == 0.0) and np.all(overbuild == 0.0):
-            # Pick the R in the grid closest to 1.0
             idx = int(np.argmin(np.abs(ratios_arr - 1.0)))
             R_e = float(ratios_arr[idx])
             cu_e = R_e * co

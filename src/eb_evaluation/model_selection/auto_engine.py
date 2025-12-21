@@ -1,61 +1,85 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Literal
+"""
+Auto model-zoo builder for Electric Barometer selection.
+
+This module provides :class:`~eb_evaluation.model_selection.auto_engine.AutoEngine`, a
+convenience factory that constructs an :class:`~eb_evaluation.model_selection.electric_barometer.ElectricBarometer`
+instance with a curated set of candidate regressors ("model zoo") and cost parameters.
+
+The intent is to offer a simple, batteries-included entry point:
+
+- choose asymmetric costs (cu, co)
+- choose a speed preset (fast / balanced / slow)
+- optionally leverage additional engines (XGBoost / LightGBM / CatBoost) when installed
+- get back an *unfitted* ElectricBarometer selector ready for cost-aware selection
+
+The selector evaluates candidate models using CWSL-style, cost-aware criteria rather than
+traditional symmetric error alone, enabling operationally aligned model selection.
+"""
+
 import importlib.util
+from typing import Any, Dict, Literal, Optional
 
 import numpy as np
-
 from sklearn.dummy import DummyRegressor
-from sklearn.linear_model import LinearRegression, Ridge, Lasso
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+from sklearn.linear_model import Lasso, LinearRegression, Ridge
 
-from eb_adapters import LightGBMRegressorAdapter, CatBoostAdapter
+from eb_adapters import CatBoostAdapter, LightGBMRegressorAdapter
 from eb_evaluation.model_selection.electric_barometer import ElectricBarometer
 
 SpeedType = Literal["fast", "balanced", "slow"]
 
 
 class AutoEngine:
-    """
-    AutoEngine: convenience factory for ElectricBarometer with a curated
-    model zoo and CWSL settings.
+    r"""
+    Convenience factory for :class:`~eb_evaluation.model_selection.electric_barometer.ElectricBarometer`.
 
-    It builds an ElectricBarometer with a set of candidate models chosen
-    based on a simple `speed` preset:
+    AutoEngine builds an ElectricBarometer with a curated set of candidate models chosen
+    by a simple ``speed`` preset:
 
-    - speed="fast"
-        Small, cheap model zoo. Good for quick experiments or CI.
-    - speed="balanced" (default)
-        Solid all-rounder. Good trade-off between runtime and accuracy.
-    - speed="slow"
-        Heavier tree/boosting configs. Use when you really care about
-        squeezing out extra performance and can afford wall-clock time.
+    - ``speed="fast"``:
+      small, inexpensive model zoo; appropriate for quick experiments and CI.
+    - ``speed="balanced"`` (default):
+      reasonable trade-off between runtime and modeling power.
+    - ``speed="slow"``:
+      larger ensembles / heavier boosting; use when additional wall-clock time is acceptable.
+
+    Asymmetric costs define the primary selection objective via the cost ratio:
+
+    $$
+        R = \frac{c_u}{c_o}
+    $$
+
+    where $c_u$ is the underbuild (shortfall) cost per unit and $c_o$ is the overbuild (excess)
+    cost per unit. These costs are passed through to the ElectricBarometer instance and used
+    during selection.
 
     Parameters
     ----------
-    cu : float
-        Underbuild (shortfall) cost per unit.
-    co : float
-        Overbuild (excess) cost per unit.
-    tau : float, default 2.0
-        Reserved for future diagnostics; forwarded to ElectricBarometer.
-    selection_mode : {"holdout", "cv"}, default "holdout"
-        How ElectricBarometer should select models.
-    cv : int, default 3
-        Number of folds when selection_mode="cv".
-    random_state : int or None, default None
-        Seed used for tree/boosting models and CV.
-    speed : {"fast", "balanced", "slow"}, default "balanced"
-        Controls which models are included and how "heavy" they are
-        parametrized.
+    cu : float, default=2.0
+        Underbuild (shortfall) cost per unit. Must be strictly positive.
+    co : float, default=1.0
+        Overbuild (excess) cost per unit. Must be strictly positive.
+    tau : float, default=2.0
+        Tolerance parameter forwarded to ElectricBarometer for optional diagnostics (e.g., HR@τ).
+    selection_mode : {"holdout", "cv"}, default="holdout"
+        Selection strategy used by ElectricBarometer.
+    cv : int, default=3
+        Number of folds when ``selection_mode="cv"``.
+    random_state : int | None, default=None
+        Seed used for stochastic models and (when applicable) cross-validation.
+    speed : {"fast", "balanced", "slow"}, default="balanced"
+        Controls which models are included and their approximate complexity.
 
     Notes
     -----
-    - Optional engines (xgboost, lightgbm, catboost) are included only
-      if the corresponding packages are installed.
-    - build_selector() currently does *not* use X, y directly, but they
-      are accepted so that future heuristics (e.g. n_samples-based
-      decisions) can be added without breaking the API.
+    - Optional engines are included only when their packages are installed:
+      ``xgboost``, ``lightgbm``, ``catboost``.
+    - ``build_selector`` accepts ``X`` and ``y`` for future heuristics (e.g., adapting the zoo
+      to very small sample sizes), but does not currently use them.
+
     """
 
     def __init__(
@@ -92,12 +116,13 @@ class AutoEngine:
         self.random_state = random_state
         self.speed: SpeedType = speed
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
     @staticmethod
     def _has_package(name: str) -> bool:
-        """Return True if the given package can be imported."""
+        """
+        Return True if the given package can be imported.
+
+        This uses importlib's module discovery to avoid importing optional dependencies.
+        """
         return importlib.util.find_spec(name) is not None
 
     def _make_base_models(self) -> Dict[str, Any]:
@@ -106,8 +131,15 @@ class AutoEngine:
 
         Returns
         -------
-        models : dict[str, Any]
-            Keys are model names, values are estimator objects.
+        dict[str, Any]
+            Mapping ``{name: estimator}`` of candidate regressors.
+
+        Notes
+        -----
+        The zoo always includes inexpensive baselines, then adds heavier tree/boosting models
+        depending on ``speed``. Optional engines (XGBoost / LightGBM / CatBoost) are included
+        only if installed and importable.
+
         """
         models: Dict[str, Any] = {}
 
@@ -170,8 +202,7 @@ class AutoEngine:
                     random_state=self.random_state,
                 )
             except Exception:
-                # If xgboost is partially installed or misconfigured,
-                # we simply skip it rather than failing AutoEngine.
+                # If xgboost is partially installed or misconfigured, skip it.
                 pass
 
         # Optional: LightGBM via adapter
@@ -223,40 +254,34 @@ class AutoEngine:
 
         return models
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-    def build_selector(
-        self,
-        X: np.ndarray,
-        y: np.ndarray,
-    ) -> ElectricBarometer:
+    def build_selector(self, X: np.ndarray, y: np.ndarray) -> ElectricBarometer:
         """
-        Build an ElectricBarometer configured with a default model zoo.
+        Build an unfitted ElectricBarometer configured with the default model zoo.
 
         Parameters
         ----------
-        X : array-like of shape (n_samples, n_features)
-            Currently unused by the builder, but accepted for future
-            heuristics (e.g. auto-detect very small samples).
-        y : array-like of shape (n_samples,)
+        X : numpy.ndarray, shape (n_samples, n_features)
+            Currently unused by the builder, but accepted for future heuristics (e.g., adapting
+            the zoo based on sample size or feature dimensionality).
+        y : numpy.ndarray, shape (n_samples,)
             Currently unused by the builder.
 
         Returns
         -------
-        eb : ElectricBarometer
-            An *unfitted* ElectricBarometer instance. Call:
+        ElectricBarometer
+            Unfitted selector. Fit it with the appropriate API (e.g., holdout or CV mode).
 
-                eb.fit(X_train, y_train, X_val, y_val)
+        Notes
+        -----
+        This method only constructs the selector; it does not perform any fitting or model
+        selection.
 
-            to perform cost-aware model selection.
         """
-        # X, y are not used yet; they are passed to keep API future-proof.
-        _ = (X, y)
+        _ = (X, y)  # reserved for future use
 
         models = self._make_base_models()
 
-        eb = ElectricBarometer(
+        return ElectricBarometer(
             models=models,
             cu=self.cu,
             co=self.co,
@@ -265,7 +290,6 @@ class AutoEngine:
             cv=self.cv,
             random_state=self.random_state,
         )
-        return eb
 
     def __repr__(self) -> str:
         return (
