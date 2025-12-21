@@ -19,6 +19,20 @@ maintained in the companion research repository:
 
 ---
 
+## Naming convention
+
+Electric Barometer packages follow standard Python packaging conventions:
+
+- **Distribution names** (used with `pip install`) use hyphens  
+  e.g. `pip install eb-evaluation`
+- **Python import paths** use underscores  
+  e.g. `import eb_evaluation`
+
+This distinction is intentional and consistent across the Electric Barometer
+ecosystem.
+
+---
+
 ## Role Within Electric Barometer
 
 Within the Electric Barometer ecosystem:
