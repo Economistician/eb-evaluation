@@ -2,6 +2,7 @@
 
 ![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)
 ![Python Versions](https://img.shields.io/badge/Python-3.10%2B-blue)
+[![Docs](https://img.shields.io/badge/docs-electric--barometer-blue)](https://economistician.github.io/eb-docs/)
 ![Project Status](https://img.shields.io/badge/Status-Alpha-yellow)
 
 This repository contains the **evaluation and orchestration layer** of the
