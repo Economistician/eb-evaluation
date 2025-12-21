@@ -4,7 +4,7 @@ from __future__ import annotations
 CWSL cost-ratio sensitivity (DataFrame utilities).
 
 This module provides a DataFrame-oriented wrapper around
-``ebmetrics.metrics.cwsl_sensitivity``.
+``eb_metrics.metrics.cwsl_sensitivity``.
 
 The primary helper computes a CWSL sensitivity curve across a grid of cost ratios
 
@@ -21,7 +21,7 @@ from typing import Dict, List, Optional, Sequence, Union
 import numpy as np
 import pandas as pd
 
-from ebmetrics.metrics import cwsl_sensitivity
+from eb_metrics.metrics import cwsl_sensitivity
 
 
 def compute_cwsl_sensitivity_df(
@@ -41,7 +41,7 @@ def compute_cwsl_sensitivity_df(
     r"""
     Compute CWSL sensitivity curves from a DataFrame.
 
-    This is a DataFrame-level wrapper around ``ebmetrics.metrics.cwsl_sensitivity``.
+    This is a DataFrame-level wrapper around ``eb_metrics.metrics.cwsl_sensitivity``.
     It evaluates Cost-Weighted Service Loss (CWSL) over a grid of cost ratios
 
     $$
@@ -107,7 +107,7 @@ def compute_cwsl_sensitivity_df(
     -----
     - This function preserves backwards-compatible parameter aliases (``y_true_col``, ``y_pred_col``)
       to avoid breaking older tests or scripts.
-    - CWSL values are returned exactly as computed by ``ebmetrics.metrics.cwsl_sensitivity``.
+    - CWSL values are returned exactly as computed by ``eb_metrics.metrics.cwsl_sensitivity``.
 
     """
     # Resolve backwards-compatible aliases

@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from ebmetrics.metrics import cwsl
+from eb_metrics.metrics import cwsl
 from eb_evaluation.dataframe import compute_cwsl_df
 
 

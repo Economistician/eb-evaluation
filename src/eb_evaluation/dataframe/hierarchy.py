@@ -7,7 +7,7 @@ This module provides a convenience helper for evaluating forecasts at multiple l
 grouping hierarchy (e.g., overall, by store, by item, by store×item).
 
 It returns a dictionary mapping each hierarchy level name to a DataFrame of metrics for that
-level. Metric *definitions* are delegated to ``ebmetrics.metrics``; this module focuses on
+level. Metric *definitions* are delegated to ``eb_metrics.metrics``; this module focuses on
 grouping orchestration and tabular output suitable for reporting.
 
 The EB metric suite here includes CWSL and related service/readiness diagnostics (NSL, UD,
@@ -18,7 +18,7 @@ from typing import Dict, List, Sequence
 
 import pandas as pd
 
-from ebmetrics.metrics import cwsl, frs, hr_at_tau, nsl, ud, wmape
+from eb_metrics.metrics import cwsl, frs, hr_at_tau, nsl, ud, wmape
 
 
 def evaluate_hierarchy_df(
@@ -74,13 +74,13 @@ def evaluate_hierarchy_df(
     forecast_col : str
         Column name for forecast values.
     cu : float or array-like
-        Underbuild (shortfall) cost coefficient passed through to ``ebmetrics.metrics.cwsl``
-        and ``ebmetrics.metrics.frs``. This can be a scalar or an array-like aligned with
-        ``df`` (depending on ebmetrics metric signatures).
+        Underbuild (shortfall) cost coefficient passed through to ``eb_metrics.metrics.cwsl``
+        and ``eb_metrics.metrics.frs``. This can be a scalar or an array-like aligned with
+        ``df`` (depending on eb_metrics metric signatures).
     co : float or array-like
-        Overbuild (excess) cost coefficient passed through to ``ebmetrics.metrics.cwsl``
-        and ``ebmetrics.metrics.frs``. This can be a scalar or an array-like aligned with
-        ``df`` (depending on ebmetrics metric signatures).
+        Overbuild (excess) cost coefficient passed through to ``eb_metrics.metrics.cwsl``
+        and ``eb_metrics.metrics.frs``. This can be a scalar or an array-like aligned with
+        ``df`` (depending on eb_metrics metric signatures).
     tau : float | None, default=None
         Tolerance parameter for HR@τ. If ``None``, HR@τ is omitted from outputs.
 
@@ -97,7 +97,7 @@ def evaluate_hierarchy_df(
         - ``cwsl`` : cost-weighted service loss
         - ``nsl`` : no-shortage level
         - ``ud`` : underbuild deviation
-        - ``wmape`` : weighted mean absolute percentage error (per ebmetrics definition)
+        - ``wmape`` : weighted mean absolute percentage error (per eb_metrics definition)
         - ``hr_at_tau`` : hit rate within tolerance τ (only if ``tau`` is provided)
         - ``frs`` : forecast readiness score
 
@@ -111,7 +111,7 @@ def evaluate_hierarchy_df(
 
     Notes
     -----
-    - This function does not catch per-group metric exceptions. If ebmetrics raises a ``ValueError``
+    - This function does not catch per-group metric exceptions. If eb_metrics raises a ``ValueError``
       for a specific group (e.g., invalid inputs), that error will propagate. If you want "best effort"
       reporting (NaN on failure), wrap metric calls similarly to ``evaluate_groups_df``.
     - ``groupby(..., dropna=False)`` is used so that missing values in grouping keys form explicit groups,

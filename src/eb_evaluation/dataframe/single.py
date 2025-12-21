@@ -4,7 +4,7 @@ from __future__ import annotations
 Single-slice CWSL evaluation (DataFrame utilities).
 
 This module provides a lightweight DataFrame wrapper around
-``ebmetrics.metrics.cwsl`` for computing Cost-Weighted Service Loss (CWSL) on a single
+``eb_metrics.metrics.cwsl`` for computing Cost-Weighted Service Loss (CWSL) on a single
 slice of data (i.e., the entire DataFrame provided).
 
 It supports both scalar costs and per-row cost columns for asymmetric cost evaluation.
@@ -14,7 +14,7 @@ from typing import Optional, Union
 
 import pandas as pd
 
-from ebmetrics.metrics import cwsl
+from eb_metrics.metrics import cwsl
 
 
 def compute_cwsl_df(
@@ -28,7 +28,7 @@ def compute_cwsl_df(
     r"""
     Compute CWSL from a DataFrame.
 
-    This is a convenience wrapper around ``ebmetrics.metrics.cwsl`` that accepts a
+    This is a convenience wrapper around ``eb_metrics.metrics.cwsl`` that accepts a
     pandas DataFrame and column names.
 
     Costs can be specified either as scalars or as per-row columns. The cost ratio is:
@@ -70,12 +70,12 @@ def compute_cwsl_df(
     KeyError
         If any required columns are missing.
     ValueError
-        If the underlying ``ebmetrics.metrics.cwsl`` raises due to invalid values.
+        If the underlying ``eb_metrics.metrics.cwsl`` raises due to invalid values.
 
     Notes
     -----
     This function performs minimal validation and delegates metric validation to
-    ``ebmetrics.metrics.cwsl``.
+    ``eb_metrics.metrics.cwsl``.
     """
     required_cols = [y_true_col, y_pred_col]
     if isinstance(cu, str):

@@ -57,7 +57,7 @@ import numpy as np
 import pandas as pd
 
 # Single source of truth for the HR@τ metric math
-from ebmetrics.metrics.service import hr_at_tau as _hr_at_tau_core
+from eb_metrics.metrics.service import hr_at_tau as _hr_at_tau_core
 
 TauMethod = Literal["target_hit_rate", "knee", "utility"]
 
@@ -169,7 +169,7 @@ def hr_at_tau(
     $$
 
     This is an evaluation-friendly wrapper around the core implementation in
-    ``ebmetrics.metrics.service.hr_at_tau``. Non-finite (y, yhat) pairs are dropped
+    ``eb_metrics.metrics.service.hr_at_tau``. Non-finite (y, yhat) pairs are dropped
     prior to delegating. If no finite pairs remain, returns ``np.nan``.
 
     Parameters
@@ -204,7 +204,7 @@ def hr_at_tau(
     if not np.any(mask):
         return np.nan
 
-    # Delegate metric math to ebmetrics (single source of truth)
+    # Delegate metric math to eb_metrics (single source of truth)
     return float(_hr_at_tau_core(y_true=y_arr[mask], y_pred=yhat_arr[mask], tau=tau))
 
 

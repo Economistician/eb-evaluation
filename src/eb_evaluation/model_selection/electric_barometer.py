@@ -32,7 +32,7 @@ import numpy as np
 import pandas as pd
 
 from eb_adapters import clone_model as _clone_model
-from ebmetrics.metrics import cwsl, rmse, wmape
+from eb_metrics.metrics import cwsl, rmse, wmape
 
 from .compare import select_model_by_cwsl
 

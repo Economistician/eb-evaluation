@@ -18,7 +18,7 @@ from typing import Dict
 import numpy as np
 import pandas as pd
 
-from ebmetrics.metrics import (
+from eb_metrics.metrics import (
     cwsl,
     frs,
     hr_at_tau,
@@ -117,7 +117,7 @@ def evaluate_panel_with_entity_R(
         - ``CWSL`` : cost-weighted service loss
         - ``NSL`` : no-shortage level (service-oriented)
         - ``UD`` : underbuild deviation
-        - ``wMAPE`` : weighted mean absolute percentage error (per ebmetrics definition)
+        - ``wMAPE`` : weighted mean absolute percentage error (per eb_metrics definition)
         - ``HR@tau`` : hit rate within tolerance $\tau$
         - ``FRS`` : forecast readiness score (cost-weighted readiness metric)
         - ``MAE`` : mean absolute error
@@ -139,7 +139,7 @@ def evaluate_panel_with_entity_R(
     - The join uses an **inner merge** on ``entity_col``. Entities present in ``df`` but missing
       from ``entity_R`` are dropped. This is intentional: evaluation requires cost parameters.
     - Cost arrays are constructed per entity as constants, enabling vectorized evaluation calls.
-    - Some metrics in :mod:`ebmetrics.metrics` may not accept sample weights; this function
+    - Some metrics in :mod:`eb_metrics.metrics` may not accept sample weights; this function
       calls those metrics unweighted to match their signatures.
 
     """
@@ -219,7 +219,7 @@ def evaluate_panel_with_entity_R(
             lambda: ud(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight)
         )
 
-        # wMAPE: ebmetrics.wmape has no sample_weight parameter, so call unweighted.
+        # wMAPE: eb_metrics.wmape has no sample_weight parameter, so call unweighted.
         row["wMAPE"] = _safe_metric(lambda: wmape(y_true=y_true, y_pred=y_pred))
 
         row["HR@tau"] = _safe_metric(
@@ -240,7 +240,7 @@ def evaluate_panel_with_entity_R(
             )
         )
 
-        # Symmetric metrics: call unweighted to match ebmetrics signatures.
+        # Symmetric metrics: call unweighted to match eb_metrics signatures.
         row["MAE"] = _safe_metric(lambda: mae(y_true=y_true, y_pred=y_pred))
         row["RMSE"] = _safe_metric(lambda: rmse(y_true=y_true, y_pred=y_pred))
         row["MAPE"] = _safe_metric(lambda: mape(y_true=y_true, y_pred=y_pred))

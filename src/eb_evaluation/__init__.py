@@ -7,10 +7,10 @@ and related readiness metrics.
 
 Scope
 -----
-The eb-evaluation package sits *above* ``ebmetrics`` in the Electric Barometer
+The eb-evaluation package sits *above* ``eb_metrics`` in the Electric Barometer
 architecture:
 
-- ``ebmetrics`` defines **metric math** (CWSL, NSL, UD, HR@τ, FRS, etc.)
+- ``eb_metrics`` defines **metric math** (CWSL, NSL, UD, HR@τ, FRS, etc.)
 - ``eb-evaluation`` provides **tabular orchestration**, grouping logic,
   sensitivity analysis, tolerance calibration, and model selection
 
@@ -35,14 +35,14 @@ Model selection
 
 Design principles
 -----------------
-- **Separation of concerns**: metric definitions live in ``ebmetrics``,
+- **Separation of concerns**: metric definitions live in ``eb_metrics``,
   orchestration and evaluation live here.
 - **Operational alignment**: selection and diagnostics are driven by cost
   and readiness, not symmetric error alone.
 - **Deterministic & explicit**: no hidden heuristics; all behavior is
   controlled via parameters and documented outputs.
 
-This package is intended to be used alongside ``ebmetrics`` and
+This package is intended to be used alongside ``eb_metrics`` and
 ``eb-adapters`` as part of the broader Electric Barometer ecosystem.
 """
 

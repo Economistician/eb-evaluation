@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from eb_evaluation.adjustment import ReadinessAdjustmentLayer
-from ebmetrics.metrics import cwsl
+from eb_metrics.metrics import cwsl
 
 
 def _make_global_df(n: int = 20) -> pd.DataFrame:

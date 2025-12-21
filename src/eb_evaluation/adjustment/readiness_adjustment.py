@@ -10,12 +10,12 @@ conservative *readiness forecast* via a learned multiplicative uplift.
 RAL learns uplift factors by searching over a user-defined grid of multipliers and selecting
 the value that minimizes **Cost-Weighted Service Loss (CWSL)** on historical data. It also
 tracks secondary diagnostics such as **Forecast Readiness Score (FRS)** and an
-underbuild-oriented service metric via `ebmetrics.metrics.nsl`.
+underbuild-oriented service metric via `eb_metrics.metrics.nsl`.
 
 Design notes
 ------------
 - This module lives in **eb-evaluation** because it is an evaluation/selection utility.
-  It *consumes* metric definitions from `ebmetrics.metrics` and does not re-define them.
+  It *consumes* metric definitions from `eb_metrics.metrics` and does not re-define them.
 - The learned uplift can be global or segmented by one or more categorical columns.
   Segment-level uplifts fall back to the global uplift for unseen segment combinations.
 
@@ -29,7 +29,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-from ebmetrics.metrics import cwsl, frs, nsl
+from eb_metrics.metrics import cwsl, frs, nsl
 
 
 def _underbuild_rate(
@@ -71,7 +71,7 @@ def _underbuild_rate(
     Notes
     -----
     This helper is primarily a reporting utility. In the RAL implementation, underbuild
-    behavior is also tracked via `ebmetrics.metrics.nsl` and is commonly reported
+    behavior is also tracked via `eb_metrics.metrics.nsl` and is commonly reported
     as `ub_rate = 1 - nsl(...)` for consistency with EB service metrics.
     """
     y_true_f = np.asarray(y_true, dtype=float)
@@ -227,11 +227,11 @@ class ReadinessAdjustmentLayer:
     Parameters
     ----------
     cu
-        Underbuild cost coefficient passed to `ebmetrics.metrics.cwsl` and
-        `ebmetrics.metrics.frs`. Must be strictly positive.
+        Underbuild cost coefficient passed to `eb_metrics.metrics.cwsl` and
+        `eb_metrics.metrics.frs`. Must be strictly positive.
     co
-        Overbuild cost coefficient passed to `ebmetrics.metrics.cwsl` and
-        `ebmetrics.metrics.frs`. Must be strictly positive.
+        Overbuild cost coefficient passed to `eb_metrics.metrics.cwsl` and
+        `eb_metrics.metrics.frs`. Must be strictly positive.
     uplift_min
         Minimum candidate uplift multiplier (inclusive). Must be strictly positive.
     uplift_max
@@ -318,7 +318,7 @@ class ReadinessAdjustmentLayer:
 
         For each scope, the uplift is chosen by grid-searching candidates in
         `[uplift_min, uplift_max]` with increment `grid_step` and selecting the candidate
-        that minimizes `ebmetrics.metrics.cwsl`.
+        that minimizes `eb_metrics.metrics.cwsl`.
 
         Parameters
         ----------

@@ -3,7 +3,7 @@ import pytest
 from sklearn.dummy import DummyRegressor
 
 from eb_evaluation.model_selection import CWSLRegressor, ElectricBarometer
-from ebmetrics.metrics import cwsl
+from eb_metrics.metrics import cwsl
 
 
 def _make_simple_data(n: int = 20):

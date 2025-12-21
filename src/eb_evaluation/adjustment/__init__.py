@@ -7,7 +7,7 @@ operationally conservative *readiness forecast* via a learned multiplicative upl
 
 Key ideas
 ---------
-- **Metrics live in** `ebmetrics.metrics` (definitions only).
+- **Metrics live in** `eb_metrics.metrics` (definitions only).
 - **Adjustments live here** (evaluation / selection utilities that *consume* metrics).
 - RAL learns an uplift by grid-searching multipliers and selecting the value that minimizes
   **Cost-Weighted Service Loss (CWSL)** on historical data.

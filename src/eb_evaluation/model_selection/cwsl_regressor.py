@@ -25,7 +25,7 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 
-from ebmetrics.metrics import cwsl
+from eb_metrics.metrics import cwsl
 
 from .electric_barometer import ElectricBarometer
 

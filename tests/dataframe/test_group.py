@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from ebmetrics.metrics import (
+from eb_metrics.metrics import (
     cwsl,
     nsl,
     ud,
@@ -58,7 +58,7 @@ def test_evaluate_groups_df_produces_expected_columns():
 def test_evaluate_groups_df_matches_direct_calculation_for_one_group():
     """
     Deep correctness test:
-    For one specific group, compute all metrics directly using ebmetrics
+    For one specific group, compute all metrics directly using eb_metrics
     and ensure evaluate_groups_df returns identical values.
     """
     df = pd.DataFrame(

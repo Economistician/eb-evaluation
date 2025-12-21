@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from ebmetrics.metrics import (
+from eb_metrics.metrics import (
     cwsl,
     nsl,
     ud,
@@ -105,7 +105,7 @@ def test_evaluate_panel_with_entity_R_matches_direct_metrics_for_single_entity()
     """
     Correctness test:
     For a single entity, verify that the metrics computed by
-    evaluate_panel_with_entity_R match direct ebmetrics calls
+    evaluate_panel_with_entity_R match direct eb_metrics calls
     using per-row cu/co derived from entity-level R and co.
     """
     panel = _build_entity_panel()

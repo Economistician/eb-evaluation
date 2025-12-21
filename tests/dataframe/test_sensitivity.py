@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from ebmetrics.metrics import cwsl_sensitivity
+from eb_metrics.metrics import cwsl_sensitivity
 from eb_evaluation.dataframe import compute_cwsl_sensitivity_df
 
 
@@ -12,7 +12,7 @@ def test_compute_cwsl_sensitivity_df_matches_core_function():
     Basic correctness:
 
     Ensure that compute_cwsl_sensitivity_df returns the same CWSL values
-    as the core ebmetrics.metrics.cwsl_sensitivity helper when using:
+    as the core eb_metrics.metrics.cwsl_sensitivity helper when using:
 
         - scalar co
         - a simple R_list

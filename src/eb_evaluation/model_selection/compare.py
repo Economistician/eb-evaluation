@@ -4,7 +4,7 @@ r"""
 Forecast comparison and cost-aware model selection helpers.
 
 This module provides small, evaluation-oriented utilities built on top of
-`ebmetrics.metrics`:
+`eb_metrics.metrics`:
 
 - `compare_forecasts` computes CWSL and related diagnostics for multiple forecast
   vectors against a common target series.
@@ -28,7 +28,7 @@ from typing import Any, Dict, Iterable, Mapping, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 
-from ebmetrics.metrics import (
+from eb_metrics.metrics import (
     cwsl,
     frs,
     hr_at_tau,
@@ -79,7 +79,7 @@ def compare_forecasts(
     sample_weight : array-like of shape (n_samples,), optional
         Optional non-negative weights per interval. Passed to metrics that support
         ``sample_weight`` (CWSL, NSL, UD, HR@τ, FRS). Metrics that are currently unweighted
-        in `ebmetrics` (e.g., wMAPE, MAE, RMSE, MAPE) are computed without weights.
+        in `eb_metrics` (e.g., wMAPE, MAE, RMSE, MAPE) are computed without weights.
     tau : float or array-like, default=2.0
         Tolerance parameter for HR@τ. May be scalar or per-interval.
 
@@ -137,7 +137,7 @@ def compare_forecasts(
             ),
             "NSL": float(nsl(y_true_arr, y_pred_arr, sample_weight=sample_weight_val)),
             "UD": float(ud(y_true_arr, y_pred_arr, sample_weight=sample_weight_val)),
-            # wMAPE in ebmetrics is unweighted
+            # wMAPE in eb_metrics is unweighted
             "wMAPE": float(wmape(y_true_arr, y_pred_arr)),
             "HR@tau": float(
                 hr_at_tau(
@@ -156,7 +156,7 @@ def compare_forecasts(
                     sample_weight=sample_weight_val,
                 )
             ),
-            # Symmetric metrics are currently unweighted in ebmetrics
+            # Symmetric metrics are currently unweighted in eb_metrics
             "MAE": float(mae(y_true_arr, y_pred_arr)),
             "RMSE": float(rmse(y_true_arr, y_pred_arr)),
             "MAPE": float(mape(y_true_arr, y_pred_arr)),
@@ -225,7 +225,7 @@ def select_model_by_cwsl(
 
     Notes
     -----
-    - RMSE and wMAPE are computed unweighted (consistent with current ebmetrics behavior).
+    - RMSE and wMAPE are computed unweighted (consistent with current eb_metrics behavior).
     - This function is intentionally simple and does not handle time-series splitting; callers
       should ensure the split is appropriate.
 

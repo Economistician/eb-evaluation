@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from ebmetrics.metrics import (
+from eb_metrics.metrics import (
     cwsl,
     nsl,
     ud,
@@ -84,7 +84,7 @@ def test_evaluate_hierarchy_df_overall_level_matches_direct_metrics():
     """
     Correctness test:
     For the 'overall' level (no grouping), the metrics should match
-    direct calls to ebmetrics on the full DataFrame.
+    direct calls to eb_metrics on the full DataFrame.
     """
     df = _build_sample_df()
 
@@ -129,7 +129,7 @@ def test_evaluate_hierarchy_df_group_level_matches_direct_metrics_for_store():
     """
     Correctness test:
     For a specific group (e.g., store_id == 1), metrics at the 'by_store'
-    level should match direct ebmetrics calls computed on that slice.
+    level should match direct eb_metrics calls computed on that slice.
     """
     df = _build_sample_df()
 
