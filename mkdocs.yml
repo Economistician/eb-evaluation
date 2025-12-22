@@ -17,7 +17,6 @@ nav:
   - API Reference:
       - Adjustment: api/adjustment.md
       - DataFrame: api/dataframe.md
-      - Features: api/features.md
       - Model Selection: api/model_selection.md
       - Utilities: api/utils.md
 
