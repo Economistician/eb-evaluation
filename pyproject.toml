@@ -1,3 +1,6 @@
+######################################
+# Project metadata
+######################################
 [project]
 name = "eb-evaluation"
 version = "0.2.0"
@@ -11,31 +14,49 @@ authors = [
   { name = "Kyle Corrie (Economistician)", email = "kcorrie@economistician.com" }
 ]
 
+######################################
+# Core runtime dependencies
+######################################
 dependencies = [
   "numpy>=1.24",
   "pandas>=2.0",
   "eb-metrics>=0.1.1",
 ]
 
+######################################
+# Project URLs
+######################################
 [project.urls]
 Homepage = "https://github.com/Economistician/eb-evaluation"
 Repository = "https://github.com/Economistician/eb-evaluation"
 Issues = "https://github.com/Economistician/eb-evaluation/issues"
 Documentation = "https://github.com/Economistician/eb-docs"
 
+######################################
+# Optional dependencies (extras)
+######################################
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0",
   "pytest-cov>=5.0",
 ]
 
+######################################
+# Build system
+######################################
 [build-system]
 requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
+######################################
+# Package discovery
+######################################
 [tool.setuptools.packages.find]
 where = ["src"]
 
+######################################
+# Pytest configuration
+######################################
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 addopts = "-ra"
