@@ -3,7 +3,7 @@
 ######################################
 [project]
 name = "eb-evaluation"
-version = "0.2.0"
+version = "0.2.1"
 description = "Electric Barometer: DataFrame-based evaluation utilities for CWSL and related metrics."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,6 +12,25 @@ license-files = ["LICENSE*"]
 
 authors = [
   { name = "Kyle Corrie (Economistician)", email = "kcorrie@economistician.com" }
+]
+
+keywords = [
+  "electric-barometer",
+  "forecast-evaluation",
+  "asymmetric-loss",
+  "readiness",
+  "forecasting",
+  "pandas",
+]
+
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: OS Independent",
 ]
 
 ######################################
