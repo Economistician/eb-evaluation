@@ -1,5 +1,10 @@
 # Electric Barometer · Evaluation (`eb-evaluation`)
 
+[![CI](https://github.com/Economistician/eb-evaluation/actions/workflows/ci.yml/badge.svg)](https://github.com/Economistician/eb-evaluation/actions/workflows/ci.yml)
+![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)
+![Python Versions](https://img.shields.io/pypi/pyversions/eb-evaluation)
+![PyPI](https://img.shields.io/pypi/v/eb-evaluation)
+
 Evaluation and model selection utilities for applying Electric Barometer metrics across entities, groups, and operational contexts.
 
 ---
