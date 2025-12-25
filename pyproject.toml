@@ -3,7 +3,7 @@
 ######################################
 [project]
 name = "eb-evaluation"
-version = "0.2.1"
+version = "0.2.2"
 description = "Electric Barometer: DataFrame-based evaluation utilities for CWSL and related metrics."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -39,8 +39,10 @@ classifiers = [
 dependencies = [
   "numpy>=1.24",
   "pandas>=2.0",
-  "eb-metrics>=0.1.1",
-  "eb-adapters>=0.1.0",
+
+  # Electric Barometer compatibility band (0.2.x)
+  "eb-metrics>=0.2,<0.3",
+  "eb-adapters>=0.2,<0.3",
 ]
 
 ######################################
