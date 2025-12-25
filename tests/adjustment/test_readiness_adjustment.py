@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib.util
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -8,38 +10,43 @@ from eb_evaluation.adjustment import ReadinessAdjustmentLayer
 from eb_metrics.metrics import cwsl
 
 
+# ---------------------------------------------------------------------------
+# Test precondition: eb-optimization must be importable for .fit()
+# ---------------------------------------------------------------------------
+
+_HAS_EB_OPT = importlib.util.find_spec("eb_optimization") is not None
+
+pytestmark = pytest.mark.skipif(
+    not _HAS_EB_OPT,
+    reason="eb-optimization is required for ReadinessAdjustmentLayer.fit()",
+)
+
+
 def _make_global_df(n: int = 20) -> pd.DataFrame:
-    # Simple panel with systematic underforecast
+    """Create a simple dataset with systematic underforecast bias."""
     rng = np.random.default_rng(0)
     actual = rng.integers(80, 120, size=n)
     forecast = (actual * 0.8).astype(float)  # biased low
-
-    return pd.DataFrame(
-        {
-            "actual": actual,
-            "forecast": forecast,
-        }
-    )
+    return pd.DataFrame({"actual": actual, "forecast": forecast})
 
 
 def _make_segmented_df() -> pd.DataFrame:
-    # Two clusters with opposite bias
-    # cluster A: underforecast, cluster B: overforecast
+    """Create two segments with opposite bias (A under, B over)."""
     n_per = 10
+
     actual_a = np.full(n_per, 100.0)
     forecast_a = np.full(n_per, 80.0)  # underforecast
 
     actual_b = np.full(n_per, 100.0)
     forecast_b = np.full(n_per, 120.0)  # overforecast
 
-    df = pd.DataFrame(
+    return pd.DataFrame(
         {
             "cluster": ["A"] * n_per + ["B"] * n_per,
             "actual": np.concatenate([actual_a, actual_b]),
             "forecast": np.concatenate([forecast_a, forecast_b]),
         }
     )
-    return df
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +75,7 @@ def test_global_uplift_reduces_cwsl_and_adds_column():
     # Learned global uplift should be >= 1
     assert ral.global_uplift_ >= 1.0
 
-    # Diagnostics present
+    # Diagnostics present (and include the core fields)
     assert not ral.diagnostics_.empty
     assert {"scope", "uplift", "cwsl_before", "cwsl_after"}.issubset(
         ral.diagnostics_.columns
@@ -122,8 +129,8 @@ def test_segment_specific_uplift_and_fallback_to_global():
         segment_cols=["cluster"],
     )
 
-    # Segment table should contain both clusters
     uplift_table = ral.uplift_table_
+    assert uplift_table is not None
     assert set(uplift_table["cluster"].unique()) == {"A", "B"}
 
     # For cluster A (underforecast), best uplift should sit at upper bound (1.15)
@@ -168,7 +175,7 @@ def test_segment_specific_uplift_and_fallback_to_global():
 
 
 def test_sample_weight_changes_optimal_uplift():
-    # Construct a simple case where weights concentrate on underforecasted rows.
+    # Construct a case where weights concentrate on underforecasted rows.
     df = pd.DataFrame(
         {
             "actual": [100.0, 100.0],

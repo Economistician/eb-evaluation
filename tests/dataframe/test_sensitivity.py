@@ -2,21 +2,22 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from eb_metrics.metrics import cwsl_sensitivity
 from eb_evaluation.dataframe import compute_cwsl_sensitivity_df
 
 
+def _skip_if_no_eb_optimization():
+    try:
+        import eb_optimization  # noqa: F401
+    except Exception:
+        pytest.skip("eb-optimization is required for compute_cwsl_sensitivity_df()")
+
+
 def test_compute_cwsl_sensitivity_df_matches_core_function():
-    """
-    Basic correctness:
+    _skip_if_no_eb_optimization()
 
-    Ensure that compute_cwsl_sensitivity_df returns the same CWSL values
-    as the core eb_metrics.metrics.cwsl_sensitivity helper when using:
-
-        - scalar co
-        - a simple R_list
-    """
     df = pd.DataFrame(
         {
             "actual": [10.0, 12.0, 8.0],
@@ -46,23 +47,15 @@ def test_compute_cwsl_sensitivity_df_matches_core_function():
         sample_weight_col=None,
     )
 
-    # Same R values and in the same order
     assert list(out["R"].astype(float)) == [float(r) for r in core.keys()]
-
-    # CWSL values should match (within floating tolerance)
     for r, cwsl_val in core.items():
-        row = out.loc[out["R"] == float(r), "CWSL"].iloc[0]
-        assert np.isclose(row, cwsl_val)
+        row = float(out.loc[out["R"] == float(r), "CWSL"].iloc[0])
+        assert np.isclose(row, float(cwsl_val))
 
 
 def test_compute_cwsl_sensitivity_df_supports_per_row_co_and_weights():
-    """
-    Structural + behavioral:
+    _skip_if_no_eb_optimization()
 
-    - Supports co as a column name.
-    - Supports sample_weight via column.
-    - Still matches cwsl_sensitivity when we replicate the same logic.
-    """
     df = pd.DataFrame(
         {
             "actual": [10.0, 12.0, 8.0],
@@ -79,7 +72,6 @@ def test_compute_cwsl_sensitivity_df_supports_per_row_co_and_weights():
 
     R_list = [0.5, 1.0, 2.0]
 
-    # Core behavior with array co + weights
     core = cwsl_sensitivity(
         y_true=y_true,
         y_pred=y_pred,
@@ -97,20 +89,15 @@ def test_compute_cwsl_sensitivity_df_supports_per_row_co_and_weights():
         sample_weight_col="weight",
     )
 
-    # Same R values
-    assert set(out["R"].astype(float)) == set(float(r) for r in core.keys())
-
-    # Check each R's CWSL
+    assert set(out["R"].astype(float)) == {float(r) for r in core.keys()}
     for r, cwsl_val in core.items():
-        row = out.loc[out["R"] == float(r), "CWSL"].iloc[0]
-        assert np.isclose(row, cwsl_val)
+        row = float(out.loc[out["R"] == float(r), "CWSL"].iloc[0])
+        assert np.isclose(row, float(cwsl_val))
 
 
-def test_compute_cwsl_sensitivity_df_ignores_non_positive_R_and_raises_if_none_valid():
-    """
-    - Non-positive R values in R_list should be ignored.
-    - If all R values are non-positive, the helper should raise ValueError.
-    """
+def test_compute_cwsl_sensitivity_df_filters_non_positive_R_and_raises_if_none_valid():
+    _skip_if_no_eb_optimization()
+
     df = pd.DataFrame(
         {
             "actual": [10.0, 12.0],
@@ -118,7 +105,6 @@ def test_compute_cwsl_sensitivity_df_ignores_non_positive_R_and_raises_if_none_v
         }
     )
 
-    # Mixed valid and invalid R -> should work and drop non-positive ones
     out = compute_cwsl_sensitivity_df(
         df=df,
         y_true_col="actual",
@@ -128,11 +114,7 @@ def test_compute_cwsl_sensitivity_df_ignores_non_positive_R_and_raises_if_none_v
         sample_weight_col=None,
     )
 
-    # Only positive Rs should remain
     assert set(out["R"].astype(float)) == {1.0, 2.0}
-
-    # All invalid R -> should raise
-    import pytest
 
     with pytest.raises(ValueError):
         compute_cwsl_sensitivity_df(
