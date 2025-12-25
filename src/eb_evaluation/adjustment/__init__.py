@@ -18,7 +18,7 @@ Public API
 - `ReadinessAdjustmentLayer`
 """
 
-from .readiness_adjustment import ReadinessAdjustmentLayer
+from .ral import ReadinessAdjustmentLayer
 
 __all__ = [
     "ReadinessAdjustmentLayer",

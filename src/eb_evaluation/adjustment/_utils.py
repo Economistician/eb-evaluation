@@ -8,7 +8,7 @@ implementation. These utilities are **not** part of the public API and may chang
 notice.
 
 The intent is to keep the main algorithm (and its public surface area) in
-`eb_evaluation.adjustment.readiness_adjustment` clean and readable.
+`eb_evaluation.adjustment.ral` clean and readable.
 """
 
 from collections.abc import Callable, Sequence
