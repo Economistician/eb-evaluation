@@ -12,7 +12,7 @@ architecture:
 
 - ``eb_metrics`` defines **metric math** (CWSL, NSL, UD, HR@τ, FRS, etc.)
 - ``eb-evaluation`` provides **tabular orchestration**, grouping logic,
-  sensitivity analysis, tolerance calibration, and model selection
+  and model selection
 
 Primary capabilities include:
 
@@ -20,13 +20,7 @@ DataFrame evaluation
     - Single-slice and grouped CWSL computation
     - Hierarchical evaluation across multiple aggregation levels
     - Long-form (tidy) panel outputs for plotting and reporting
-    - Entity-aware evaluation with entity-specific cost ratios
-    - Cost-ratio (R = cu / co) sensitivity analysis
-
-Tolerance (τ) calibration
-    - Data-driven τ estimation from historical residuals
-    - Global and entity-level τ estimation with governance guards
-    - HR@τ computation with automatically selected tolerances
+    - Entity-aware evaluation using externally supplied entity-specific cost ratios
 
 Model selection
     - Cost-aware comparison of forecast models
@@ -42,6 +36,9 @@ Design principles
 - **Deterministic & explicit**: no hidden heuristics; all behavior is
   controlled via parameters and documented outputs.
 
+Optimization utilities such as tolerance (τ) calibration, cost-ratio estimation,
+and sensitivity sweeps live exclusively in ``eb-optimization``.
+
 This package is intended to be used alongside ``eb_metrics`` and
 ``eb-adapters`` as part of the broader Electric Barometer ecosystem.
 """
@@ -52,17 +49,6 @@ from .dataframe import (
     evaluate_hierarchy_df,
     evaluate_panel_df,
     evaluate_panel_with_entity_R,
-    compute_cwsl_sensitivity_df,
-    cwsl_sensitivity_df,
-    estimate_entity_R_from_balance,
-)
-
-from .dataframe.tolerance import (
-    hr_at_tau,
-    estimate_tau,
-    estimate_entity_tau,
-    hr_auto_tau,
-    TauEstimate,
 )
 
 __all__ = [
@@ -71,12 +57,4 @@ __all__ = [
     "evaluate_hierarchy_df",
     "evaluate_panel_df",
     "evaluate_panel_with_entity_R",
-    "compute_cwsl_sensitivity_df",
-    "cwsl_sensitivity_df",
-    "estimate_entity_R_from_balance",
-    "hr_at_tau",
-    "estimate_tau",
-    "estimate_entity_tau",
-    "hr_auto_tau",
-    "TauEstimate",
 ]
