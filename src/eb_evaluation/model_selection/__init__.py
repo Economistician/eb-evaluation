@@ -34,10 +34,10 @@ from .cwsl_regressor import CWSLRegressor
 from .electric_barometer import ElectricBarometer
 
 __all__ = [
+    "AutoEngine",
+    "CWSLRegressor",
+    "ElectricBarometer",
     "compare_forecasts",
     "select_model_by_cwsl",
     "select_model_by_cwsl_cv",
-    "ElectricBarometer",
-    "AutoEngine",
-    "CWSLRegressor",
 ]

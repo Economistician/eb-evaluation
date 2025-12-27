@@ -1,20 +1,20 @@
-from __future__ import annotations
-
 """
 Hierarchy-level evaluation (DataFrame utilities).
 
 This module provides a convenience helper for evaluating forecasts at multiple levels of a
-grouping hierarchy (e.g., overall, by store, by item, by store×item).
+grouping hierarchy (e.g., overall, by store, by item, by store x item).
 
 It returns a dictionary mapping each hierarchy level name to a DataFrame of metrics for that
-level. Metric *definitions* are delegated to ``eb_metrics.metrics``; this module focuses on
+level. Metric definitions are delegated to ``eb_metrics.metrics``; this module focuses on
 grouping orchestration and tabular output suitable for reporting.
 
 The EB metric suite here includes CWSL and related service/readiness diagnostics (NSL, UD,
-HR@τ, FRS) as well as wMAPE.
+HR@tau, FRS) as well as wMAPE.
 """
 
-from typing import Dict, List, Sequence
+from __future__ import annotations
+
+from collections.abc import Sequence
 
 import pandas as pd
 
@@ -23,15 +23,14 @@ from eb_metrics.metrics import cwsl, frs, hr_at_tau, nsl, ud, wmape
 
 def evaluate_hierarchy_df(
     df: pd.DataFrame,
-    levels: Dict[str, Sequence[str]],
+    levels: dict[str, Sequence[str]],
     actual_col: str,
     forecast_col: str,
     cu,
     co,
     tau: float | None = None,
-) -> Dict[str, pd.DataFrame]:
-    r"""
-    Evaluate EB metrics at multiple hierarchy levels.
+) -> dict[str, pd.DataFrame]:
+    """Evaluate EB metrics at multiple hierarchy levels.
 
     This helper evaluates forecast performance across several grouping levels, each defined
     by a list of column names. For each level, it computes:
@@ -40,16 +39,13 @@ def evaluate_hierarchy_df(
     - NSL
     - UD
     - wMAPE
-    - HR@τ (optional)
+    - HR@tau (optional)
     - FRS
 
     where each metric is computed over the subset (group) implied by that level.
 
-    The ``levels`` mapping accepts an empty list to represent the overall aggregate:
-
-    $$
-        \texttt{"overall"}: []
-    $$
+    The ``levels`` mapping accepts an empty list to represent the overall aggregate, e.g.
+    ``{"overall": []}``.
 
     Parameters
     ----------
@@ -73,16 +69,14 @@ def evaluate_hierarchy_df(
         Column name for actual demand / realized values.
     forecast_col : str
         Column name for forecast values.
-    cu : float or array-like
+    cu
         Underbuild (shortfall) cost coefficient passed through to ``eb_metrics.metrics.cwsl``
-        and ``eb_metrics.metrics.frs``. This can be a scalar or an array-like aligned with
-        ``df`` (depending on eb_metrics metric signatures).
-    co : float or array-like
+        and ``eb_metrics.metrics.frs``.
+    co
         Overbuild (excess) cost coefficient passed through to ``eb_metrics.metrics.cwsl``
-        and ``eb_metrics.metrics.frs``. This can be a scalar or an array-like aligned with
-        ``df`` (depending on eb_metrics metric signatures).
+        and ``eb_metrics.metrics.frs``.
     tau : float | None, default=None
-        Tolerance parameter for HR@τ. If ``None``, HR@τ is omitted from outputs.
+        Tolerance parameter for HR@tau. If ``None``, HR@tau is omitted from outputs.
 
     Returns
     -------
@@ -98,7 +92,7 @@ def evaluate_hierarchy_df(
         - ``nsl`` : no-shortage level
         - ``ud`` : underbuild deviation
         - ``wmape`` : weighted mean absolute percentage error (per eb_metrics definition)
-        - ``hr_at_tau`` : hit rate within tolerance τ (only if ``tau`` is provided)
+        - ``hr_at_tau`` : hit rate within tolerance tau (only if ``tau`` is provided)
         - ``frs`` : forecast readiness score
 
     Raises
@@ -111,12 +105,12 @@ def evaluate_hierarchy_df(
 
     Notes
     -----
-    - This function does not catch per-group metric exceptions. If eb_metrics raises a ``ValueError``
-      for a specific group (e.g., invalid inputs), that error will propagate. If you want "best effort"
-      reporting (NaN on failure), wrap metric calls similarly to ``evaluate_groups_df``.
-    - ``groupby(..., dropna=False)`` is used so that missing values in grouping keys form explicit groups,
-      which is often desirable in operational reporting.
-
+    - This function does not catch per-group metric exceptions. If eb_metrics raises a
+      ``ValueError`` for a specific group (e.g., invalid inputs), that error will propagate.
+      If you want best-effort reporting (NaN on failure), wrap metric calls similarly to
+      ``evaluate_groups_df``.
+    - ``groupby(..., dropna=False)`` is used so that missing values in grouping keys form explicit
+      groups, which is often desirable in operational reporting.
     """
     if df.empty:
         raise ValueError("df is empty.")
@@ -132,7 +126,7 @@ def evaluate_hierarchy_df(
     if missing:
         raise KeyError(f"DataFrame is missing required columns: {sorted(missing)}")
 
-    results: Dict[str, pd.DataFrame] = {}
+    results: dict[str, pd.DataFrame] = {}
 
     for level_name, group_cols in levels.items():
         group_cols = list(group_cols)  # normalize to list[str]
@@ -159,7 +153,7 @@ def evaluate_hierarchy_df(
             continue
 
         # Grouped evaluation
-        group_rows: List[dict] = []
+        group_rows: list[dict] = []
 
         grouped = df.groupby(group_cols, dropna=False, sort=False)
         for keys, df_g in grouped:
@@ -183,7 +177,7 @@ def evaluate_hierarchy_df(
             row["frs"] = frs(y_true=y_true, y_pred=y_pred, cu=cu, co=co)
 
             # Attach grouping keys
-            for col, value in zip(group_cols, keys):
+            for col, value in zip(group_cols, keys, strict=False):
                 row[col] = value
 
             group_rows.append(row)

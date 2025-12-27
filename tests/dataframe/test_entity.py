@@ -3,18 +3,18 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from eb_evaluation.dataframe import evaluate_panel_with_entity_R
 from eb_metrics.metrics import (
     cwsl,
+    frs,
+    hr_at_tau,
+    mae,
+    mape,
     nsl,
+    rmse,
     ud,
     wmape,
-    hr_at_tau,
-    frs,
-    mae,
-    rmse,
-    mape,
 )
-from eb_evaluation.dataframe import evaluate_panel_with_entity_R
 
 
 def _build_entity_panel() -> pd.DataFrame:
@@ -168,7 +168,7 @@ def test_evaluate_panel_with_entity_R_respects_R_cost_ratio_behavior():
     """
     # Build a panel where both entities have shortfalls, but one has higher R
     rows = []
-    for entity, R in [("A", 1.5), ("B", 3.0)]:
+    for entity, _R in [("A", 1.5), ("B", 3.0)]:
         for t, y in enumerate([10, 12, 15], start=1):
             rows.append(
                 {

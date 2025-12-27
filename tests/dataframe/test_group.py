@@ -3,18 +3,18 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from eb_evaluation.dataframe import evaluate_groups_df
 from eb_metrics.metrics import (
     cwsl,
+    frs,
+    hr_at_tau,
+    mae,
+    mape,
     nsl,
+    rmse,
     ud,
     wmape,
-    hr_at_tau,
-    frs,
-    mae,
-    rmse,
-    mape,
 )
-from eb_evaluation.dataframe import evaluate_groups_df
 
 
 def test_evaluate_groups_df_produces_expected_columns():
@@ -117,7 +117,7 @@ def test_evaluate_groups_df_supports_per_row_cu_co_and_changes_results():
     rows = []
 
     # Entity A: only overbuild, cheap shortfall
-    for t, y in enumerate([10, 12, 15], start=1):
+    for _t, y in enumerate([10, 12, 15], start=1):
         rows.append(
             {
                 "entity": "A",
@@ -129,7 +129,7 @@ def test_evaluate_groups_df_supports_per_row_cu_co_and_changes_results():
         )
 
     # Entity B: only shortfall, expensive shortfall
-    for t, y in enumerate([10, 12, 15], start=1):
+    for _t, y in enumerate([10, 12, 15], start=1):
         rows.append(
             {
                 "entity": "B",

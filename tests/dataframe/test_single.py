@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from eb_metrics.metrics import cwsl
 from eb_evaluation.dataframe import compute_cwsl_df
+from eb_metrics.metrics import cwsl
 
 
 def test_compute_cwsl_df_scalar_cu_co_matches_core():

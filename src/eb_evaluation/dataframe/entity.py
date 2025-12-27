@@ -1,34 +1,23 @@
-from __future__ import annotations
-
 """
 Entity-level evaluation utilities (DataFrame helpers).
 
-This module contains DataFrame-oriented evaluation helpers that operate on *panel* data:
-entity × interval observations containing actuals and forecasts.
+This module contains DataFrame-oriented evaluation helpers that operate on panel data:
+entity-by-interval observations containing actuals and forecasts.
 
-The primary helper in this module evaluates each entity using **entity-specific**
-cost asymmetry parameters (cost ratios) that are typically estimated upstream (e.g., via a
-balance-based estimator). The result is one row per entity containing cost-weighted and
-service-oriented EB metrics, plus familiar symmetric error metrics.
+The primary helper evaluates each entity using entity-specific cost asymmetry parameters
+(cost ratios) that are typically estimated upstream (for example, via a balance-based
+estimator). The result is one row per entity containing cost-weighted and service-oriented
+Electric Barometer metrics, plus familiar symmetric error metrics.
 """
 
+from __future__ import annotations
+
 from collections.abc import Callable
-from typing import Dict
 
 import numpy as np
 import pandas as pd
 
-from eb_metrics.metrics import (
-    cwsl,
-    frs,
-    hr_at_tau,
-    mae,
-    mape,
-    nsl,
-    rmse,
-    ud,
-    wmape,
-)
+from eb_metrics.metrics import cwsl, frs, hr_at_tau, mae, mape, nsl, rmse, ud, wmape
 
 __all__ = ["evaluate_panel_with_entity_R"]
 
@@ -46,9 +35,9 @@ def evaluate_panel_with_entity_R(
     sample_weight_col: str | None = None,
 ) -> pd.DataFrame:
     r"""
-    Evaluate an entity–interval panel using entity-level cost ratios.
+    Evaluate an entity-interval panel using entity-level cost ratios.
 
-    This helper evaluates each entity slice of a panel using **entity-specific** cost
+    This helper evaluates each entity slice of a panel using entity-specific cost
     asymmetry parameters. It is designed to pair naturally with a table that provides,
     for each entity, a cost ratio:
 
@@ -89,9 +78,10 @@ def evaluate_panel_with_entity_R(
         - ``R_col`` (cost ratio $R_e$)
         - ``co_col`` (overbuild cost coefficient $c_o$)
 
-        Typically produced by an upstream calibration step (e.g., an entity ratio estimator).
+        Typically produced by an upstream calibration step (for example, an entity ratio
+        estimator).
     entity_col : str, default="entity"
-        Column identifying the entity (e.g., ``"store_id"``, ``"sku"``, ``"location"``).
+        Column identifying the entity (for example, ``"store_id"``, ``"sku"``, ``"location"``).
     y_true_col : str, default="actual_qty"
         Column containing realized demand / actual values.
     y_pred_col : str, default="forecast_qty"
@@ -115,16 +105,16 @@ def evaluate_panel_with_entity_R(
         - ``cu`` : implied underbuild cost coefficient $c_{u,e} = R_e \cdot c_o$
         - ``co`` : overbuild cost coefficient $c_o$
         - ``CWSL`` : cost-weighted service loss
-        - ``NSL`` : no-shortage level (service-oriented)
-        - ``UD`` : underbuild deviation
+        - ``NSL`` : no-shortfall level (service-oriented)
+        - ``UD`` : underbuild depth
         - ``wMAPE`` : weighted mean absolute percentage error (per eb_metrics definition)
         - ``HR@tau`` : hit rate within tolerance $\tau$
-        - ``FRS`` : forecast readiness score (cost-weighted readiness metric)
+        - ``FRS`` : forecast readiness score
         - ``MAE`` : mean absolute error
         - ``RMSE`` : root mean squared error
         - ``MAPE`` : mean absolute percentage error
 
-        If a metric is undefined for a given entity slice (e.g., due to a metric-specific
+        If a metric is undefined for a given entity slice (for example, due to a metric-specific
         validation failure), that metric value is returned as NaN for that entity.
 
     Raises
@@ -136,12 +126,11 @@ def evaluate_panel_with_entity_R(
 
     Notes
     -----
-    - The join uses an **inner merge** on ``entity_col``. Entities present in ``df`` but missing
+    - The join uses an inner merge on ``entity_col``. Entities present in ``df`` but missing
       from ``entity_R`` are dropped. This is intentional: evaluation requires cost parameters.
     - Cost arrays are constructed per entity as constants, enabling vectorized evaluation calls.
     - Some metrics in :mod:`eb_metrics.metrics` may not accept sample weights; this function
       calls those metrics unweighted to match their signatures.
-
     """
     # Validate required columns in df
     required_df = {entity_col, y_true_col, y_pred_col}
@@ -196,7 +185,7 @@ def evaluate_panel_with_entity_R(
         cu_arr = np.full_like(y_true, fill_value=R_e * co_e, dtype=float)
         co_arr = np.full_like(y_true, fill_value=co_e, dtype=float)
 
-        row: Dict[str, float] = {
+        row: dict[str, float] = {
             entity_col: entity_id,
             "R": R_e,
             "cu": R_e * co_e,
@@ -204,7 +193,11 @@ def evaluate_panel_with_entity_R(
         }
 
         row["CWSL"] = _safe_metric(
-            lambda: cwsl(
+            lambda y_true=y_true,
+            y_pred=y_pred,
+            cu_arr=cu_arr,
+            co_arr=co_arr,
+            sample_weight=sample_weight: cwsl(
                 y_true=y_true,
                 y_pred=y_pred,
                 cu=cu_arr,
@@ -213,17 +206,23 @@ def evaluate_panel_with_entity_R(
             )
         )
         row["NSL"] = _safe_metric(
-            lambda: nsl(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight)
+            lambda y_true=y_true, y_pred=y_pred, sample_weight=sample_weight: nsl(
+                y_true=y_true, y_pred=y_pred, sample_weight=sample_weight
+            )
         )
         row["UD"] = _safe_metric(
-            lambda: ud(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight)
+            lambda y_true=y_true, y_pred=y_pred, sample_weight=sample_weight: ud(
+                y_true=y_true, y_pred=y_pred, sample_weight=sample_weight
+            )
         )
 
         # wMAPE: eb_metrics.wmape has no sample_weight parameter, so call unweighted.
-        row["wMAPE"] = _safe_metric(lambda: wmape(y_true=y_true, y_pred=y_pred))
+        row["wMAPE"] = _safe_metric(
+            lambda y_true=y_true, y_pred=y_pred: wmape(y_true=y_true, y_pred=y_pred)
+        )
 
         row["HR@tau"] = _safe_metric(
-            lambda: hr_at_tau(
+            lambda y_true=y_true, y_pred=y_pred, tau=tau, sample_weight=sample_weight: hr_at_tau(
                 y_true=y_true,
                 y_pred=y_pred,
                 tau=tau,
@@ -231,7 +230,11 @@ def evaluate_panel_with_entity_R(
             )
         )
         row["FRS"] = _safe_metric(
-            lambda: frs(
+            lambda y_true=y_true,
+            y_pred=y_pred,
+            cu_arr=cu_arr,
+            co_arr=co_arr,
+            sample_weight=sample_weight: frs(
                 y_true=y_true,
                 y_pred=y_pred,
                 cu=cu_arr,
@@ -241,9 +244,15 @@ def evaluate_panel_with_entity_R(
         )
 
         # Symmetric metrics: call unweighted to match eb_metrics signatures.
-        row["MAE"] = _safe_metric(lambda: mae(y_true=y_true, y_pred=y_pred))
-        row["RMSE"] = _safe_metric(lambda: rmse(y_true=y_true, y_pred=y_pred))
-        row["MAPE"] = _safe_metric(lambda: mape(y_true=y_true, y_pred=y_pred))
+        row["MAE"] = _safe_metric(
+            lambda y_true=y_true, y_pred=y_pred: mae(y_true=y_true, y_pred=y_pred)
+        )
+        row["RMSE"] = _safe_metric(
+            lambda y_true=y_true, y_pred=y_pred: rmse(y_true=y_true, y_pred=y_pred)
+        )
+        row["MAPE"] = _safe_metric(
+            lambda y_true=y_true, y_pred=y_pred: mape(y_true=y_true, y_pred=y_pred)
+        )
 
         results.append(row)
 

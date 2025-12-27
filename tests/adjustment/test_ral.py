@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+
 from eb_evaluation.adjustment import ReadinessAdjustmentLayer
 from eb_metrics.metrics import cwsl
 
@@ -47,9 +48,7 @@ def test_global_uplift_reduces_cwsl_and_adds_column():
     # Assertions
     assert ral.global_uplift_ >= 1.0
     assert not ral.diagnostics_.empty
-    assert {"scope", "uplift", "cwsl_before", "cwsl_after"}.issubset(
-        ral.diagnostics_.columns
-    )
+    assert {"scope", "uplift", "cwsl_before", "cwsl_after"}.issubset(ral.diagnostics_.columns)
 
     # Applying uplift should reduce CWSL relative to baseline
     y_true = df["actual"].to_numpy(dtype=float)
@@ -161,7 +160,7 @@ def test_segment_specific_uplift_and_fallback_to_global():
     )
 
     # Extract applied uplift per row
-    applied_uplift = df_adj["readiness_forecast"].to_numpy(dtype=float) / df_adj[ 
+    applied_uplift = df_adj["readiness_forecast"].to_numpy(dtype=float) / df_adj[
         "forecast"
     ].to_numpy(dtype=float)
 

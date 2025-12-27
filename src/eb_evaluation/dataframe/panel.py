@@ -1,22 +1,22 @@
-from __future__ import annotations
-
 """
 Panel-style evaluation output (DataFrame utilities).
 
 This module provides a convenience wrapper that evaluates a DataFrame at multiple hierarchy
-levels and returns a **long-form (tidy) panel** suitable for reporting, plotting, and
-downstream aggregation.
+levels and returns a long-form (tidy) panel suitable for reporting, plotting, and downstream
+aggregation.
 
 The implementation delegates the core computation to
-``eb_evaluation.dataframe.hierarchy.evaluate_hierarchy_df`` and then reshapes the
-wide per-level outputs into a single stacked table with:
+``eb_evaluation.dataframe.hierarchy.evaluate_hierarchy_df`` and then reshapes the wide
+per-level outputs into a single stacked table with:
 
 - a ``level`` column (which hierarchy level produced the row)
 - optional grouping key columns (depending on the level)
 - ``metric`` / ``value`` columns for tidy analysis
 """
 
-from typing import Dict, Sequence
+from __future__ import annotations
+
+from collections.abc import Sequence
 
 import pandas as pd
 
@@ -25,22 +25,21 @@ from .hierarchy import evaluate_hierarchy_df
 
 def evaluate_panel_df(
     df: pd.DataFrame,
-    levels: Dict[str, Sequence[str]],
+    levels: dict[str, Sequence[str]],
     actual_col: str,
     forecast_col: str,
     cu,
     co,
     tau: float | None = None,
 ) -> pd.DataFrame:
-    """
-    Evaluate metrics at multiple levels and return a long-form panel DataFrame.
+    """Evaluate metrics at multiple levels and return a long-form panel DataFrame.
 
     This is a convenience wrapper around
     ``eb_evaluation.dataframe.hierarchy.evaluate_hierarchy_df`` that:
 
-    1. computes a wide metrics DataFrame per hierarchy level, then
-    2. stacks them into a single table with a ``level`` column, and
-    3. melts metrics into ``metric`` / ``value`` pairs.
+    1. Computes a wide metrics DataFrame per hierarchy level.
+    2. Stacks them into a single table with a ``level`` column.
+    3. Melts metrics into ``metric`` / ``value`` pairs.
 
     Parameters
     ----------
@@ -62,12 +61,12 @@ def evaluate_panel_df(
         Column name for actual demand / realized values.
     forecast_col : str
         Column name for forecast values.
-    cu : float or array-like
+    cu
         Underbuild (shortfall) cost coefficient passed through to CWSL/FRS evaluations.
-    co : float or array-like
+    co
         Overbuild (excess) cost coefficient passed through to CWSL/FRS evaluations.
     tau : float | None, default=None
-        Tolerance parameter for HR@τ. If ``None``, HR@τ is omitted.
+        Tolerance parameter for HR@tau. If ``None``, HR@tau is omitted.
 
     Returns
     -------
@@ -84,11 +83,11 @@ def evaluate_panel_df(
     Notes
     -----
     - The set of metric columns is derived from the outputs of
-      ``eb_evaluation.dataframe.hierarchy.evaluate_hierarchy_df``. Only metrics present
-      in the combined wide table are melted.
-    - Grouping key columns vary by level. The returned panel includes the union of all grouping
-      key columns across levels; levels that do not use a given key will have NaN in that column.
-
+      ``eb_evaluation.dataframe.hierarchy.evaluate_hierarchy_df``. Only metrics present in
+      the combined wide table are melted.
+    - Grouping key columns vary by level. The returned panel includes the union of all
+      grouping key columns across levels; levels that do not use a given key will have NaN
+      in that column.
     """
     hier = evaluate_hierarchy_df(
         df=df,
@@ -129,13 +128,13 @@ def evaluate_panel_df(
     group_cols = [c for c in combined.columns if c not in metric_cols and c != "level"]
 
     panel = combined.melt(
-        id_vars=["level"] + group_cols,
+        id_vars=["level", *group_cols],
         value_vars=metric_cols,
         var_name="metric",
         value_name="value",
     )
 
     # Reorder for readability
-    panel = panel[["level"] + group_cols + ["metric", "value"]]
+    panel = panel[["level", *group_cols, "metric", "value"]]
 
     return panel

@@ -1,19 +1,19 @@
+"""
+Readiness Adjustment Layer (RAL): deterministic fit + apply in eb-evaluation.
+
+This module implements a transparent post-processing step that converts a baseline forecast
+into an operationally conservative readiness forecast via a learned uplift.
+
+Responsibilities
+---------------
+- Fit a simple uplift policy via grid search that minimizes CWSL.
+- Apply learned uplift factors to new data (global or segmented).
+- Provide before/after diagnostics for auditability.
+"""
+
 from __future__ import annotations
 
-"""
-Readiness Adjustment Layer (RAL) - Deterministic fit + apply in `eb-evaluation`.
-
-This module implements a transparent post-processing step that converts a
-baseline forecast into an operationally conservative readiness forecast via a
-learned uplift.
-
-Responsibilities:
-- Fit a simple uplift policy via grid search that minimizes CWSL
-- Apply learned uplift factors to new data (global or segmented)
-- Provide before/after diagnostics for auditability
-"""
-
-from typing import Optional, Sequence
+from collections.abc import Sequence
 
 import numpy as np
 import pandas as pd
@@ -43,7 +43,7 @@ class ReadinessAdjustmentLayer:
         # Learned artifacts (set by fit)
         self.global_uplift_: float | None = None
         self.segment_cols_: list[str] = []
-        self.uplift_table_: Optional[pd.DataFrame] = None
+        self.uplift_table_: pd.DataFrame | None = None
         self.diagnostics_: pd.DataFrame = pd.DataFrame()
 
     # ----------------------------
@@ -87,7 +87,7 @@ class ReadinessAdjustmentLayer:
         *,
         cu: float,
         co: float,
-        sample_weight: Optional[np.ndarray] = None,
+        sample_weight: np.ndarray | None = None,
     ) -> tuple[float, float, float]:
         """Return (best_uplift, cwsl_before, cwsl_after)."""
         y_true = y_true.astype(float, copy=False)
@@ -127,9 +127,9 @@ class ReadinessAdjustmentLayer:
         *,
         forecast_col: str,
         actual_col: str,
-        segment_cols: Optional[Sequence[str]] = None,
-        sample_weight_col: Optional[str] = None,
-    ) -> "ReadinessAdjustmentLayer":
+        segment_cols: Sequence[str] | None = None,
+        sample_weight_col: str | None = None,
+    ) -> ReadinessAdjustmentLayer:
         cu, co = self._require_costs()
 
         required = [forecast_col, actual_col]
@@ -194,11 +194,11 @@ class ReadinessAdjustmentLayer:
 
                 best_u = float(best_u)
 
-                row = {col: val for col, val in zip(seg_cols, key_vals)}
+                row = dict(zip(seg_cols, key_vals, strict=False))
                 row["uplift"] = best_u
                 table_rows.append(row)
 
-                diag = {col: val for col, val in zip(seg_cols, key_vals)}
+                diag = dict(zip(seg_cols, key_vals, strict=False))
                 diag.update(
                     {
                         "scope": "segment",
@@ -220,14 +220,14 @@ class ReadinessAdjustmentLayer:
         *,
         forecast_col: str,
         output_col: str = "readiness_forecast",
-        segment_cols: Optional[Sequence[str]] = None,
+        segment_cols: Sequence[str] | None = None,
     ) -> pd.DataFrame:
         """Apply learned uplift factors to produce readiness forecasts.
 
         Test expectation:
-        - If called before explicit fit(), this should still work for *global* uplift
-          by implicitly fitting on the provided dataframe (requires an `actual` column),
-          but only when costs (cu/co) are set.
+        - If called before explicit fit(), this should still work for global uplift by
+          implicitly fitting on the provided dataframe (requires an actual column), but only
+          when costs (cu/co) are set.
         """
         if forecast_col not in df.columns:
             raise KeyError(f"Column {forecast_col!r} not found in DataFrame.")

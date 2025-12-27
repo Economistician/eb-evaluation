@@ -152,6 +152,6 @@ def test_evaluate_panel_df_matches_hierarchy_values():
                 panel_val = metric_rows["value"].iloc[0]
 
                 # Use np.isclose for numeric metrics
-                assert np.isclose(
-                    panel_val, expected_val
-                ), f"Mismatch for {metric} at level={level_name}"
+                assert np.isclose(panel_val, expected_val), (
+                    f"Mismatch for {metric} at level={level_name}"
+                )

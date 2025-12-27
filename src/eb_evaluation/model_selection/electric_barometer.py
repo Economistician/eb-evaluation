@@ -1,17 +1,14 @@
-from __future__ import annotations
-
 r"""
 Cost-aware model selection using the Electric Barometer workflow.
 
-This module defines `ElectricBarometer`,
-a lightweight selector that evaluates a *set of candidate regressors* using
-Cost-Weighted Service Loss (CWSL) as the primary objective and selects the model
-that minimizes expected operational cost.
+This module defines ``ElectricBarometer``, a lightweight selector that evaluates a set of
+candidate regressors using Cost-Weighted Service Loss (CWSL) as the primary objective and
+selects the model that minimizes expected operational cost.
 
-The selection preference is governed by asymmetric unit costs:
+Selection preference is governed by asymmetric unit costs:
 
-- $c_u$: underbuild (shortfall) cost per unit
-- $c_o$: overbuild (excess) cost per unit
+- ``cu``: underbuild (shortfall) cost per unit
+- ``co``: overbuild (excess) cost per unit
 
 A convenient summary is the cost ratio:
 
@@ -21,12 +18,14 @@ $$
 
 Notes
 -----
-ElectricBarometer is intentionally a *selector*, not a trainer that optimizes CWSL directly.
-Candidate models are trained using their native objectives (e.g., squared error), and are
-*selected* using CWSL on validation data (holdout) or across folds (CV).
+ElectricBarometer is intentionally a selector (not a trainer that optimizes CWSL directly).
+Candidate models are trained using their native objectives (e.g., squared error) and are
+selected using CWSL on validation data (holdout) or across folds (CV).
 """
 
-from typing import Any, Dict, Optional
+from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -58,7 +57,7 @@ class ElectricBarometer:
     Parameters
     ----------
     models : dict[str, Any]
-        Mapping of candidate model name to an **unfitted** estimator implementing:
+        Mapping of candidate model name to an unfitted estimator implementing:
 
         - ``fit(X, y)``
         - ``predict(X)``
@@ -74,12 +73,12 @@ class ElectricBarometer:
         into selection reporting. Currently not used in the selection criterion.
     training_mode : {"selection_only"}, default="selection_only"
         Training behavior. In the current implementation, candidate models are trained
-        using their native objectives and only *selection* is cost-aware.
+        using their native objectives and only selection is cost-aware.
     refit_on_full : bool, default=False
         Refit behavior in holdout mode:
 
         - If True, after selecting the best model by validation CWSL, refit a fresh clone
-          of the winning model on train ∪ validation.
+          of the winning model on train and validation.
         - If False, keep the fitted winning model as trained on the training split
           (and selected on the validation split).
 
@@ -104,8 +103,7 @@ class ElectricBarometer:
     results_ : pandas.DataFrame | None
         Per-model comparison table.
 
-        - In holdout mode: output of `select_model_by_cwsl`
-          (typically includes CWSL, RMSE, wMAPE).
+        - In holdout mode: output of ``select_model_by_cwsl``.
         - In CV mode: mean scores across folds with columns ``["CWSL", "RMSE", "wMAPE"]``.
     validation_cwsl_ : float | None
         CWSL of the winning model on validation (holdout) or mean across folds (CV).
@@ -113,12 +111,11 @@ class ElectricBarometer:
         RMSE of the winning model on validation (holdout) or mean across folds (CV).
     validation_wmape_ : float | None
         wMAPE of the winning model on validation (holdout) or mean across folds (CV).
-
     """
 
     def __init__(
         self,
-        models: Dict[str, Any],
+        models: dict[str, Any],
         cu: float = 2.0,
         co: float = 1.0,
         tau: float = 2.0,
@@ -126,7 +123,7 @@ class ElectricBarometer:
         refit_on_full: bool = False,
         selection_mode: str = "holdout",
         cv: int = 3,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
     ) -> None:
         if not models:
             raise ValueError("ElectricBarometer requires at least one candidate model.")
@@ -141,14 +138,13 @@ class ElectricBarometer:
 
         if selection_mode not in {"holdout", "cv"}:
             raise ValueError(
-                "selection_mode must be either 'holdout' or 'cv'; "
-                f"got {selection_mode!r}."
+                f"selection_mode must be either 'holdout' or 'cv'; got {selection_mode!r}."
             )
 
         if selection_mode == "cv" and cv < 2:
             raise ValueError(f"In CV mode, cv must be at least 2; got {cv!r}.")
 
-        self.models: Dict[str, Any] = models
+        self.models: dict[str, Any] = models
         self.cu: float = float(cu)
         self.co: float = float(co)
         self.tau: float = float(tau)
@@ -156,16 +152,16 @@ class ElectricBarometer:
         self.refit_on_full: bool = bool(refit_on_full)
         self.selection_mode: str = selection_mode
         self.cv: int = int(cv)
-        self.random_state: Optional[int] = random_state
+        self.random_state: int | None = random_state
 
         # Fitted state
-        self.best_name_: Optional[str] = None
-        self.best_model_: Optional[Any] = None
-        self.results_: Optional[pd.DataFrame] = None
+        self.best_name_: str | None = None
+        self.best_model_: Any | None = None
+        self.results_: pd.DataFrame | None = None
 
-        self.validation_cwsl_: Optional[float] = None
-        self.validation_rmse_: Optional[float] = None
-        self.validation_wmape_: Optional[float] = None
+        self.validation_cwsl_: float | None = None
+        self.validation_rmse_: float | None = None
+        self.validation_wmape_: float | None = None
 
     @property
     def r_(self) -> float:
@@ -180,7 +176,6 @@ class ElectricBarometer:
             $$
                 R = \frac{c_u}{c_o}
             $$
-
         """
         return self.cu / self.co
 
@@ -188,7 +183,7 @@ class ElectricBarometer:
         self,
         X: np.ndarray,
         y: np.ndarray,
-        sample_weight: Optional[np.ndarray] = None,
+        sample_weight: np.ndarray | None = None,
     ) -> pd.DataFrame:
         """
         Evaluate candidate models via simple K-fold CV and return mean scores.
@@ -218,7 +213,6 @@ class ElectricBarometer:
         ValueError
             If ``cv`` is invalid for the number of samples, or if sample_weight has
             an incompatible length.
-
         """
         X_arr = np.asarray(X)
         y_arr = np.asarray(y, dtype=float)
@@ -236,7 +230,7 @@ class ElectricBarometer:
         if k < 2 or k > n_samples:
             raise ValueError(f"Invalid number of folds cv={k} for n_samples={n_samples}.")
 
-        sw_arr: Optional[np.ndarray] = None
+        sw_arr: np.ndarray | None = None
         if sample_weight is not None:
             sw_arr = np.asarray(sample_weight, dtype=float)
             if sw_arr.shape[0] != n_samples:
@@ -248,7 +242,6 @@ class ElectricBarometer:
         indices = np.arange(n_samples)
         rng.shuffle(indices)
 
-        # Fold sizes as evenly as possible
         fold_sizes = np.full(k, n_samples // k, dtype=int)
         fold_sizes[: n_samples % k] += 1
 
@@ -309,47 +302,18 @@ class ElectricBarometer:
         y_train: np.ndarray,
         X_val: np.ndarray,
         y_val: np.ndarray,
-        sample_weight_train: Optional[np.ndarray] = None,
-        sample_weight_val: Optional[np.ndarray] = None,
-        refit_on_full: Optional[bool] = None,
-    ) -> "ElectricBarometer":
+        sample_weight_train: np.ndarray | None = None,
+        sample_weight_val: np.ndarray | None = None,
+        refit_on_full: bool | None = None,
+    ) -> ElectricBarometer:
         """
         Fit candidate models and select the best one by minimizing CWSL.
-
-        Parameters
-        ----------
-        X_train : numpy.ndarray of shape (n_samples_train, n_features)
-            - In holdout mode: training features.
-            - In CV mode: full feature matrix used for cross-validation.
-        y_train : numpy.ndarray of shape (n_samples_train,)
-            Targets corresponding to ``X_train``.
-        X_val : numpy.ndarray of shape (n_samples_val, n_features)
-            - In holdout mode: validation features.
-            - In CV mode: ignored.
-        y_val : numpy.ndarray of shape (n_samples_val,)
-            - In holdout mode: validation targets.
-            - In CV mode: ignored.
-        sample_weight_train : numpy.ndarray of shape (n_samples_train,), optional
-            - In CV mode: treated as per-sample weights for the full dataset and
-              used in CWSL calculations on each validation fold.
-            - In holdout mode: reserved (behavior depends on downstream helpers).
-        sample_weight_val : numpy.ndarray of shape (n_samples_val,), optional
-            Reserved for future use.
-        refit_on_full : bool, optional
-            Holdout-only override of the instance-level ``refit_on_full`` flag.
-
-        Returns
-        -------
-        ElectricBarometer
-            Fitted selector with ``best_name_``, ``best_model_``, and ``results_`` populated.
-
         """
         _ = sample_weight_val  # reserved for future use
 
         refit_flag = self.refit_on_full if refit_on_full is None else bool(refit_on_full)
 
         if self.selection_mode == "holdout":
-            # select_model_by_cwsl is the single point-of-truth for holdout selection in this repo.
             best_name, best_model, results = select_model_by_cwsl(
                 models=self.models,
                 X_train=X_train,
@@ -358,7 +322,7 @@ class ElectricBarometer:
                 y_val=y_val,
                 cu=self.cu,
                 co=self.co,
-                sample_weight_val=None,  # current holdout helper accepts this but may ignore
+                sample_weight_val=None,
             )
 
             self.best_name_ = best_name
@@ -368,7 +332,6 @@ class ElectricBarometer:
             self.validation_rmse_ = None
             self.validation_wmape_ = None
 
-            # Best-effort extraction of winner row
             try:
                 row = results.loc[best_name]
                 if "CWSL" in row:
@@ -393,7 +356,6 @@ class ElectricBarometer:
             self.best_model_ = best_model_refit
             return self
 
-        # selection_mode == "cv"
         results = self._cv_evaluate_models(
             X=np.asarray(X_train),
             y=np.asarray(y_train, dtype=float),
@@ -417,24 +379,7 @@ class ElectricBarometer:
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        """
-        Predict using the selected best model.
-
-        Parameters
-        ----------
-        X : numpy.ndarray of shape (n_samples, n_features)
-
-        Returns
-        -------
-        numpy.ndarray of shape (n_samples,)
-            Predicted values.
-
-        Raises
-        ------
-        RuntimeError
-            If called before ``fit``.
-
-        """
+        """Predict using the selected best model."""
         if self.best_model_ is None:
             raise RuntimeError(
                 "ElectricBarometer has not been fit yet. Call .fit(...) first (holdout or cv mode)."
@@ -447,32 +392,11 @@ class ElectricBarometer:
         self,
         y_true: np.ndarray,
         y_pred: np.ndarray,
-        sample_weight: Optional[np.ndarray] = None,
-        cu: Optional[float] = None,
-        co: Optional[float] = None,
+        sample_weight: np.ndarray | None = None,
+        cu: float | None = None,
+        co: float | None = None,
     ) -> float:
-        """
-        Compute CWSL using this selector's costs (or overrides).
-
-        Parameters
-        ----------
-        y_true : numpy.ndarray of shape (n_samples,)
-            Actual values.
-        y_pred : numpy.ndarray of shape (n_samples,)
-            Predicted values.
-        sample_weight : numpy.ndarray of shape (n_samples,), optional
-            Optional non-negative weights per interval.
-        cu : float, optional
-            Override for $c_u$. If None, uses ``self.cu``.
-        co : float, optional
-            Override for $c_o$. If None, uses ``self.co``.
-
-        Returns
-        -------
-        float
-            CWSL for the provided series.
-
-        """
+        """Compute CWSL using this selector's costs (or overrides)."""
         cu_eff = float(self.cu if cu is None else cu)
         co_eff = float(self.co if co is None else co)
 

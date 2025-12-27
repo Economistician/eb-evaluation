@@ -3,15 +3,15 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from eb_evaluation.dataframe import evaluate_hierarchy_df
 from eb_metrics.metrics import (
     cwsl,
+    frs,
+    hr_at_tau,
     nsl,
     ud,
     wmape,
-    hr_at_tau,
-    frs,
 )
-from eb_evaluation.dataframe import evaluate_hierarchy_df
 
 
 def _build_sample_df() -> pd.DataFrame:

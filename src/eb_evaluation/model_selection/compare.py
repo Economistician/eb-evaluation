@@ -1,16 +1,14 @@
-from __future__ import annotations
-
 r"""
 Forecast comparison and cost-aware model selection helpers.
 
-This module provides small, evaluation-oriented utilities built on top of
-`eb_metrics.metrics`:
+This module provides evaluation-oriented utilities built on top of
+``eb_metrics.metrics``:
 
-- `compare_forecasts` computes CWSL and related diagnostics for multiple forecast
+- ``compare_forecasts`` computes CWSL and related diagnostics for multiple forecast
   vectors against a common target series.
-- `select_model_by_cwsl` fits a set of candidate estimators (using their native
-  training objective) and selects the model with the lowest validation CWSL.
-- `select_model_by_cwsl_cv` performs K-fold cross-validation, selecting the model
+- ``select_model_by_cwsl`` fits candidate estimators (using their native training
+  objective) and selects the model with the lowest validation CWSL.
+- ``select_model_by_cwsl_cv`` performs K-fold cross-validation, selecting the model
   with the lowest mean CWSL and refitting it on the full dataset.
 
 CWSL is evaluated with asymmetric costs for underbuild and overbuild, typically summarized
@@ -23,7 +21,8 @@ $$
 where $c_u$ is the cost per unit of shortfall and $c_o$ is the cost per unit of excess.
 """
 
-from typing import Any, Dict, Iterable, Mapping, Optional, Tuple, Union
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -40,16 +39,16 @@ from eb_metrics.metrics import (
     wmape,
 )
 
-ArrayLike = Union[Iterable[float], np.ndarray]
+ArrayLike = Iterable[float] | np.ndarray
 
 
 def compare_forecasts(
     y_true: ArrayLike,
     forecasts: Mapping[str, ArrayLike],
-    cu: Union[float, ArrayLike],
-    co: Union[float, ArrayLike],
+    cu: float | ArrayLike,
+    co: float | ArrayLike,
     sample_weight: ArrayLike | None = None,
-    tau: Union[float, ArrayLike] = 2.0,
+    tau: float | ArrayLike = 2.0,
 ) -> pd.DataFrame:
     r"""
     Compare multiple forecast models on the same target series.
@@ -60,7 +59,7 @@ def compare_forecasts(
     - NSL
     - UD
     - wMAPE
-    - HR@τ
+    - HR@tau
     - FRS
     - MAE
     - RMSE
@@ -78,10 +77,10 @@ def compare_forecasts(
         Overbuild (excess) cost per unit.
     sample_weight : array-like of shape (n_samples,), optional
         Optional non-negative weights per interval. Passed to metrics that support
-        ``sample_weight`` (CWSL, NSL, UD, HR@τ, FRS). Metrics that are currently unweighted
-        in `eb_metrics` (e.g., wMAPE, MAE, RMSE, MAPE) are computed without weights.
+        ``sample_weight`` (CWSL, NSL, UD, HR@tau, FRS). Metrics that are currently unweighted
+        in ``eb_metrics`` (e.g., wMAPE, MAE, RMSE, MAPE) are computed without weights.
     tau : float or array-like, default=2.0
-        Tolerance parameter for HR@τ. May be scalar or per-interval.
+        Tolerance parameter for HR@tau. May be scalar or per-interval.
 
     Returns
     -------
@@ -94,7 +93,6 @@ def compare_forecasts(
     ValueError
         If ``y_true`` is not 1D, if ``forecasts`` is empty, or if any forecast length
         is incompatible with ``y_true``.
-
     """
     y_true_arr = np.asarray(y_true, dtype=float)
 
@@ -109,14 +107,12 @@ def compare_forecasts(
     if sample_weight is not None:
         sw = np.asarray(sample_weight, dtype=float)
         if sw.ndim != 1 or sw.shape[0] != n:
-            raise ValueError(
-                f"sample_weight must be 1D with length {n}; got shape {sw.shape}"
-            )
+            raise ValueError(f"sample_weight must be 1D with length {n}; got shape {sw.shape}")
         sample_weight_val: ArrayLike | None = sw
     else:
         sample_weight_val = None
 
-    rows: Dict[str, Dict[str, float]] = {}
+    rows: dict[str, dict[str, float]] = {}
 
     for model_name, y_pred in forecasts.items():
         y_pred_arr = np.asarray(y_pred, dtype=float)
@@ -163,13 +159,13 @@ def compare_forecasts(
         }
         rows[str(model_name)] = metrics_row
 
-    df = pd.DataFrame.from_dict(rows, orient="index")
-    df.index.name = "model"
-    return df
+    out = pd.DataFrame.from_dict(rows, orient="index")
+    out.index.name = "model"
+    return out
 
 
 def select_model_by_cwsl(
-    models: Dict[str, Any],
+    models: dict[str, Any],
     X_train,
     y_train,
     X_val,
@@ -178,7 +174,7 @@ def select_model_by_cwsl(
     cu: float,
     co: float,
     sample_weight_val=None,
-) -> Tuple[str, Any, pd.DataFrame]:
+) -> tuple[str, Any, pd.DataFrame]:
     r"""
     Fit multiple models, then select the best by validation CWSL.
 
@@ -228,12 +224,11 @@ def select_model_by_cwsl(
     - RMSE and wMAPE are computed unweighted (consistent with current eb_metrics behavior).
     - This function is intentionally simple and does not handle time-series splitting; callers
       should ensure the split is appropriate.
-
     """
     y_val_arr = np.asarray(y_val, dtype=float)
 
     rows = []
-    best_name: Optional[str] = None
+    best_name: str | None = None
     best_model: Any | None = None
     best_cwsl = np.inf
 
@@ -269,15 +264,15 @@ def select_model_by_cwsl(
 
 
 def select_model_by_cwsl_cv(
-    models: Dict[str, Any],
+    models: dict[str, Any],
     X,
     y,
     *,
     cu: float,
     co: float,
     cv: int = 5,
-    sample_weight: Optional[np.ndarray] = None,
-) -> Tuple[str, Any, pd.DataFrame]:
+    sample_weight: np.ndarray | None = None,
+) -> tuple[str, Any, pd.DataFrame]:
     r"""
     Select a model by cross-validated CWSL and refit on the full dataset.
 
@@ -285,7 +280,7 @@ def select_model_by_cwsl_cv(
 
     1. Split indices into ``cv`` folds.
     2. For each model and fold:
-       - fit on (cv-1) folds
+       - fit on (cv - 1) folds
        - evaluate on the held-out fold using CWSL, RMSE, and wMAPE
     3. Aggregate metrics across folds for each model.
     4. Choose the model with the **lowest mean CWSL**.
@@ -335,7 +330,6 @@ def select_model_by_cwsl_cv(
     This function uses a naive split of indices into contiguous folds via
     ``numpy.array_split``. For time-series problems, callers should prefer
     time-aware splitting outside this helper.
-
     """
     X_arr = np.asarray(X)
     y_arr = np.asarray(y, dtype=float)
@@ -360,7 +354,7 @@ def select_model_by_cwsl_cv(
         sw_arr = None
 
     rows = []
-    best_name: Optional[str] = None
+    best_name: str | None = None
     best_model: Any | None = None
     best_cwsl_mean = np.inf
 

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Internal utilities for the Readiness Adjustment Layer.
 
@@ -11,14 +9,14 @@ The intent is to keep the main algorithm (and its public surface area) in
 `eb_evaluation.adjustment.ral` clean and readable.
 """
 
+from __future__ import annotations
+
 from collections.abc import Callable, Sequence
-from typing import Any, Union, overload
 
 import numpy as np
 import pandas as pd
 
-
-ArrayLike = Union[np.ndarray, Sequence[float], pd.Series, pd.DataFrame]
+ArrayLike = np.ndarray | Sequence[float] | pd.Series | pd.DataFrame
 
 
 # ---------------------------------------------------------------------------
@@ -105,15 +103,15 @@ def safe_mean(values: np.ndarray) -> float:
 # ---------------------------------------------------------------------------
 def groupby_apply_values(
     df: pd.DataFrame,
-    group_cols: Union[str, Sequence[str]],
+    group_cols: str | Sequence[str],
     value_col: str,
     func: Callable[[np.ndarray], float],
 ) -> pd.DataFrame:
     """Apply a numeric reducer to a column, grouped by one or more keys.
 
     This helper groups ``df`` by ``group_cols`` and applies ``func`` to the values of
-    ``value_col`` for each group. The function is called with a **validated**, finite
-    float array.
+    ``value_col`` for each group. The function is called with a validated, finite float
+    array.
 
     Parameters
     ----------

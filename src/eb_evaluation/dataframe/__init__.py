@@ -1,10 +1,8 @@
-from __future__ import annotations
-
 """
 DataFrame utilities for Electric Barometer evaluation.
 
 This subpackage contains pandas-oriented helpers that orchestrate grouping, reshaping,
-and tabular outputs for forecast evaluation. Metric *definitions* live in
+and tabular outputs for forecast evaluation. Metric definitions live in
 ``eb_metrics.metrics``; this package focuses on DataFrame workflows such as:
 
 - computing CWSL on a single DataFrame slice
@@ -13,10 +11,11 @@ and tabular outputs for forecast evaluation. Metric *definitions* live in
 - producing long-form (tidy) panels for plotting and reporting
 - entity-aware evaluation using externally supplied entity-specific cost ratios
 
-Optimization, calibration, and sensitivity analysis utilities
-(e.g., cost-ratio estimation, τ selection, sensitivity sweeps)
-live exclusively in ``eb-optimization``.
+Optimization, calibration, and sensitivity analysis utilities (e.g., cost-ratio
+estimation, tau selection, sensitivity sweeps) live exclusively in ``eb-optimization``.
 """
+
+from __future__ import annotations
 
 from .entity import evaluate_panel_with_entity_R
 from .group import evaluate_groups_df

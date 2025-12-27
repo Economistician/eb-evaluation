@@ -1,25 +1,26 @@
-from __future__ import annotations
-
 """
 Auto model-zoo builder for Electric Barometer selection.
 
-This module provides `AutoEngine`, a convenience factory that constructs an
-`ElectricBarometer` instance with a curated set of candidate regressors ("model zoo")
-and cost parameters.
+This module defines :class:`~eb_evaluation.model_selection.auto_engine.AutoEngine`, a
+convenience factory that constructs an unfitted
+:class:`~eb_evaluation.model_selection.electric_barometer.ElectricBarometer` with a curated
+set of candidate regressors (a "model zoo") and asymmetric cost parameters.
 
-The intent is to offer a simple, batteries-included entry point:
+The intent is to provide a batteries-included entry point:
 
 - choose asymmetric costs (cu, co)
-- choose a speed preset (fast / balanced / slow)
-- optionally leverage additional engines (XGBoost / LightGBM / CatBoost) when installed
-- get back an *unfitted* ElectricBarometer selector ready for cost-aware selection
+- choose a speed preset (fast, balanced, slow)
+- optionally include additional engines (XGBoost, LightGBM, CatBoost) when installed
+- get back an unfitted selector ready for cost-aware model selection
 
-The selector evaluates candidate models using CWSL-style, cost-aware criteria rather than
-traditional symmetric error alone, enabling operationally aligned model selection.
+Model selection is performed using cost-aware criteria (e.g., CWSL) rather than symmetric
+error alone, enabling operationally aligned choices.
 """
 
+from __future__ import annotations
+
 import importlib.util
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Literal
 
 import numpy as np
 from sklearn.dummy import DummyRegressor
@@ -33,53 +34,39 @@ SpeedType = Literal["fast", "balanced", "slow"]
 
 
 class AutoEngine:
-    r"""
-    Convenience factory for `ElectricBarometer` (from `eb_evaluation.model_selection.electric_barometer`).
+    """
+    Convenience factory for :class:`~eb_evaluation.model_selection.electric_barometer.ElectricBarometer`.
 
     AutoEngine builds an ElectricBarometer with a curated set of candidate models chosen
-    by a simple ``speed`` preset:
+    by a speed preset:
 
-    - ``speed="fast"``:
-      small, inexpensive model zoo; appropriate for quick experiments and CI.
-    - ``speed="balanced"`` (default):
-      reasonable trade-off between runtime and modeling power.
-    - ``speed="slow"``:
-      larger ensembles / heavier boosting; use when additional wall-clock time is acceptable.
+    - ``speed="fast"``: small, inexpensive zoo; suitable for quick experiments and CI.
+    - ``speed="balanced"`` (default): trade-off between runtime and modeling power.
+    - ``speed="slow"``: heavier ensembles/boosting; use when wall-clock time is acceptable.
 
-    Asymmetric costs define the primary selection objective via the cost ratio:
-
-    $$
-        R = \frac{c_u}{c_o}
-    $$
-
-    where $c_u$ is the underbuild (shortfall) cost per unit and $c_o$ is the overbuild (excess)
-    cost per unit. These costs are passed through to the ElectricBarometer instance and used
-    during selection.
+    Asymmetric costs define the primary selection objective via the cost ratio ``R = cu / co``.
 
     Parameters
     ----------
-    cu : float, default=2.0
+    cu
         Underbuild (shortfall) cost per unit. Must be strictly positive.
-    co : float, default=1.0
+    co
         Overbuild (excess) cost per unit. Must be strictly positive.
-    tau : float, default=2.0
-        Tolerance parameter forwarded to ElectricBarometer for optional diagnostics (e.g., HR@τ).
-    selection_mode : {"holdout", "cv"}, default="holdout"
-        Selection strategy used by ElectricBarometer.
-    cv : int, default=3
+    tau
+        Tolerance parameter forwarded to ElectricBarometer for optional diagnostics (e.g., HR@tau).
+    selection_mode
+        Selection strategy used by ElectricBarometer. Must be ``"holdout"`` or ``"cv"``.
+    cv
         Number of folds when ``selection_mode="cv"``.
-    random_state : int | None, default=None
+    random_state
         Seed used for stochastic models and (when applicable) cross-validation.
-    speed : {"fast", "balanced", "slow"}, default="balanced"
+    speed
         Controls which models are included and their approximate complexity.
 
     Notes
     -----
-    - Optional engines are included only when their packages are installed:
-      ``xgboost``, ``lightgbm``, ``catboost``.
-    - ``build_selector`` accepts ``X`` and ``y`` for future heuristics (e.g., adapting the zoo
-      to very small sample sizes), but does not currently use them.
-
+    Optional engines are included only when their packages are installed: ``xgboost``,
+    ``lightgbm``, ``catboost``.
     """
 
     def __init__(
@@ -90,7 +77,7 @@ class AutoEngine:
         tau: float = 2.0,
         selection_mode: str = "holdout",
         cv: int = 3,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
         speed: SpeedType = "balanced",
     ) -> None:
         if cu <= 0 or co <= 0:
@@ -98,14 +85,12 @@ class AutoEngine:
 
         if selection_mode not in {"holdout", "cv"}:
             raise ValueError(
-                "AutoEngine: selection_mode must be 'holdout' or 'cv', "
-                f"got {selection_mode!r}."
+                f"AutoEngine: selection_mode must be 'holdout' or 'cv', got {selection_mode!r}."
             )
 
         if speed not in {"fast", "balanced", "slow"}:
             raise ValueError(
-                "AutoEngine.speed must be one of 'fast', 'balanced', 'slow'; "
-                f"got {speed!r}."
+                f"AutoEngine.speed must be one of 'fast', 'balanced', 'slow'; got {speed!r}."
             )
 
         self.cu = float(cu)
@@ -118,30 +103,25 @@ class AutoEngine:
 
     @staticmethod
     def _has_package(name: str) -> bool:
-        """
-        Return True if the given package can be imported.
-
-        This uses importlib's module discovery to avoid importing optional dependencies.
-        """
+        """Return True if the given package can be imported (without importing it)."""
         return importlib.util.find_spec(name) is not None
 
-    def _make_base_models(self) -> Dict[str, Any]:
+    def _make_base_models(self) -> dict[str, Any]:
         """
         Build the default model zoo for the chosen speed preset.
 
         Returns
         -------
         dict[str, Any]
-            Mapping ``{name: estimator}`` of candidate regressors.
+            Mapping of ``{name: estimator}`` for candidate regressors.
 
         Notes
         -----
         The zoo always includes inexpensive baselines, then adds heavier tree/boosting models
-        depending on ``speed``. Optional engines (XGBoost / LightGBM / CatBoost) are included
+        depending on ``speed``. Optional engines (XGBoost, LightGBM, CatBoost) are included
         only if installed and importable.
-
         """
-        models: Dict[str, Any] = {}
+        models: dict[str, Any] = {}
 
         # Always-include baselines
         models["dummy_mean"] = DummyRegressor(strategy="mean")
@@ -260,22 +240,15 @@ class AutoEngine:
 
         Parameters
         ----------
-        X : numpy.ndarray, shape (n_samples, n_features)
-            Currently unused by the builder, but accepted for future heuristics (e.g., adapting
-            the zoo based on sample size or feature dimensionality).
-        y : numpy.ndarray, shape (n_samples,)
-            Currently unused by the builder.
+        X
+            Feature matrix. Currently unused by the builder (reserved for future heuristics).
+        y
+            Target vector. Currently unused by the builder (reserved for future heuristics).
 
         Returns
         -------
         ElectricBarometer
-            Unfitted selector. Fit it with the appropriate API (e.g., holdout or CV mode).
-
-        Notes
-        -----
-        This method only constructs the selector; it does not perform any fitting or model
-        selection.
-
+            Unfitted selector instance.
         """
         _ = (X, y)  # reserved for future use
 
