@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from eb_evaluation.model_selection import (
     compare_forecasts,
@@ -74,8 +75,6 @@ def test_compare_forecasts_validates_inputs():
 
     cu, co = 1.0, 1.0
 
-    import pytest
-
     with pytest.raises(ValueError):
         compare_forecasts(
             y_true=y_true_2d,
@@ -100,8 +99,6 @@ def _build_simple_regression_data():
 
 
 def test_select_model_by_cwsl_prefers_better_model():
-    import pytest
-
     X, y = _build_simple_regression_data()
 
     # Use last 3 points as validation
@@ -198,8 +195,6 @@ def test_select_model_by_cwsl_cv_basic():
 
 
 def test_select_model_by_cwsl_cv_validates_arguments():
-    import pytest
-
     X = np.arange(5).reshape(-1, 1).astype(float)
     y = np.linspace(0.0, 1.0, num=5)
 

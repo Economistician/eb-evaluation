@@ -222,7 +222,10 @@ def evaluate_panel_with_entity_R(
         )
 
         row["HR@tau"] = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred, tau=tau, sample_weight=sample_weight: hr_at_tau(
+            lambda y_true=y_true,
+            y_pred=y_pred,
+            tau=tau,
+            sample_weight=sample_weight: hr_at_tau(
                 y_true=y_true,
                 y_pred=y_pred,
                 tau=tau,

@@ -62,7 +62,9 @@ def ensure_columns_present(
         return
 
     prefix = f"[{context}] " if context else ""
-    raise DataFrameValidationError(f"{prefix}DataFrame is missing required columns: {missing}")
+    raise DataFrameValidationError(
+        f"{prefix}DataFrame is missing required columns: {missing}"
+    )
 
 
 def ensure_non_empty(

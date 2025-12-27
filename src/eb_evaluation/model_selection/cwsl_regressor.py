@@ -113,7 +113,9 @@ class CWSLRegressor:
             raise ValueError("CWSLRegressor requires at least one candidate model.")
 
         if selection_mode not in {"holdout", "cv"}:
-            raise ValueError(f"selection_mode must be 'holdout' or 'cv'; got {selection_mode!r}.")
+            raise ValueError(
+                f"selection_mode must be 'holdout' or 'cv'; got {selection_mode!r}."
+            )
 
         if selection_mode == "holdout" and not (0.0 < validation_fraction < 1.0):
             raise ValueError(
@@ -278,7 +280,9 @@ class CWSLRegressor:
             If called before ``fit``.
         """
         if self.best_estimator_ is None:
-            raise RuntimeError("CWSLRegressor has not been fit yet. Call .fit(X, y) first.")
+            raise RuntimeError(
+                "CWSLRegressor has not been fit yet. Call .fit(X, y) first."
+            )
 
         X_arr = np.asarray(X)
         if X_arr.ndim == 1:

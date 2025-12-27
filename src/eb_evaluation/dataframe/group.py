@@ -102,7 +102,9 @@ def evaluate_groups_df(
     if not group_cols:
         raise ValueError("group_cols must be a non-empty list of column names.")
 
-    missing = [c for c in [*group_cols, actual_col, forecast_col] if c not in df.columns]
+    missing = [
+        c for c in [*group_cols, actual_col, forecast_col] if c not in df.columns
+    ]
     if missing:
         raise KeyError(f"Missing required columns in df: {missing}")
 
@@ -135,7 +137,9 @@ def evaluate_groups_df(
         y_pred = g[forecast_col].to_numpy(dtype=float)
 
         sample_weight = (
-            g[sample_weight_col].to_numpy(dtype=float) if sample_weight_col is not None else None
+            g[sample_weight_col].to_numpy(dtype=float)
+            if sample_weight_col is not None
+            else None
         )
 
         cu_value = g[cu].to_numpy(dtype=float) if isinstance(cu, str) else cu
@@ -171,7 +175,10 @@ def evaluate_groups_df(
         )
 
         row["HR@tau"] = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred, tau=tau, sample_weight=sample_weight: hr_at_tau(
+            lambda y_true=y_true,
+            y_pred=y_pred,
+            tau=tau,
+            sample_weight=sample_weight: hr_at_tau(
                 y_true=y_true,
                 y_pred=y_pred,
                 tau=tau,

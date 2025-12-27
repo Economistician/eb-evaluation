@@ -51,7 +51,9 @@ class ReadinessAdjustmentLayer:
     # ----------------------------
     def _require_costs(self) -> tuple[float, float]:
         if self.cu is None or self.co is None:
-            raise TypeError("ReadinessAdjustmentLayer requires cu and co to be set (via __init__).")
+            raise TypeError(
+                "ReadinessAdjustmentLayer requires cu and co to be set (via __init__)."
+            )
         return float(self.cu), float(self.co)
 
     def _grid(self) -> np.ndarray:
@@ -94,7 +96,9 @@ class ReadinessAdjustmentLayer:
         y_pred = y_pred.astype(float, copy=False)
 
         before = float(
-            cwsl(y_true=y_true, y_pred=y_pred, cu=cu, co=co, sample_weight=sample_weight)
+            cwsl(
+                y_true=y_true, y_pred=y_pred, cu=cu, co=co, sample_weight=sample_weight
+            )
         )
 
         grid = self._grid()
@@ -112,7 +116,9 @@ class ReadinessAdjustmentLayer:
                 )
             )
             # Tie-break: prefer the smaller uplift
-            if (loss < best_loss) or (abs(loss - best_loss) < 1e-12 and float(u) < best_u):
+            if (loss < best_loss) or (
+                abs(loss - best_loss) < 1e-12 and float(u) < best_u
+            ):
                 best_loss = loss
                 best_u = float(u)
 
@@ -138,7 +144,9 @@ class ReadinessAdjustmentLayer:
             raise KeyError(f"Missing required columns for fit(): {missing}")
 
         if sample_weight_col is not None and sample_weight_col not in df.columns:
-            raise KeyError(f"sample_weight_col {sample_weight_col!r} not found in DataFrame.")
+            raise KeyError(
+                f"sample_weight_col {sample_weight_col!r} not found in DataFrame."
+            )
 
         seg_cols = list(segment_cols) if segment_cols is not None else []
         if seg_cols:
@@ -148,7 +156,9 @@ class ReadinessAdjustmentLayer:
 
         y_true_all = df[actual_col].to_numpy(dtype=float)
         y_pred_all = df[forecast_col].to_numpy(dtype=float)
-        w_all = df[sample_weight_col].to_numpy(dtype=float) if sample_weight_col else None
+        w_all = (
+            df[sample_weight_col].to_numpy(dtype=float) if sample_weight_col else None
+        )
 
         # Fit global uplift on full data (used as fallback)
         global_u, g_before, g_after = self._best_uplift(
@@ -182,7 +192,11 @@ class ReadinessAdjustmentLayer:
 
                 y_true = g[actual_col].to_numpy(dtype=float)
                 y_pred = g[forecast_col].to_numpy(dtype=float)
-                w = g[sample_weight_col].to_numpy(dtype=float) if sample_weight_col else None
+                w = (
+                    g[sample_weight_col].to_numpy(dtype=float)
+                    if sample_weight_col
+                    else None
+                )
 
                 best_u, before, after = self._best_uplift(
                     y_true,
@@ -236,7 +250,9 @@ class ReadinessAdjustmentLayer:
         if self.global_uplift_ is None or self.diagnostics_.empty:
             if self.cu is None or self.co is None:
                 # Required by test_transform_raises_if_not_fit
-                raise RuntimeError("ReadinessAdjustmentLayer must be fit() before transform().")
+                raise RuntimeError(
+                    "ReadinessAdjustmentLayer must be fit() before transform()."
+                )
 
             if "actual" not in df.columns:
                 raise RuntimeError(
@@ -244,9 +260,13 @@ class ReadinessAdjustmentLayer:
                     "or provide an 'actual' column to allow implicit global fit."
                 )
 
-            self.fit(df, forecast_col=forecast_col, actual_col="actual", segment_cols=None)
+            self.fit(
+                df, forecast_col=forecast_col, actual_col="actual", segment_cols=None
+            )
 
-        seg_cols = list(segment_cols) if segment_cols is not None else list(self.segment_cols_)
+        seg_cols = (
+            list(segment_cols) if segment_cols is not None else list(self.segment_cols_)
+        )
         result_df = df.copy()
 
         if seg_cols and self.uplift_table_ is not None and not self.uplift_table_.empty:
