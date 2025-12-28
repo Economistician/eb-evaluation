@@ -12,7 +12,7 @@ Electric Barometer metrics, plus familiar symmetric error metrics.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Hashable
 
 import numpy as np
 import pandas as pd
@@ -157,7 +157,7 @@ def evaluate_panel_with_entity_R(
             "After merging df with entity_R, no rows remain. Check entity identifiers and join keys."
         )
 
-    results: list[dict] = []
+    results: list[dict[str, float | Hashable]] = []
 
     def _safe_metric(fn: Callable[[], float]) -> float:
         """Compute a metric and return NaN if the metric raises ValueError."""
@@ -185,7 +185,7 @@ def evaluate_panel_with_entity_R(
         cu_arr = np.full_like(y_true, fill_value=R_e * co_e, dtype=float)
         co_arr = np.full_like(y_true, fill_value=co_e, dtype=float)
 
-        row: dict[str, float] = {
+        row: dict[str, float | Hashable] = {
             entity_col: entity_id,
             "R": R_e,
             "cu": R_e * co_e,

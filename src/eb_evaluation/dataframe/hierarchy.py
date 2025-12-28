@@ -176,7 +176,7 @@ def evaluate_hierarchy_df(
 
             row["frs"] = frs(y_true=y_true, y_pred=y_pred, cu=cu, co=co)
 
-            # Attach grouping keys
+            # Attach grouping keys (ensure values are treated as scalars for type-checkers)
             for col, value in zip(group_cols, keys, strict=False):
                 row[col] = value
 
@@ -184,9 +184,9 @@ def evaluate_hierarchy_df(
 
         level_df = pd.DataFrame(group_rows)
 
-        # Put group columns first for readability
-        results[level_name] = level_df[
-            list(group_cols) + [c for c in level_df.columns if c not in group_cols]
-        ]
+        # Put group columns first for readability.
+        # Use `loc` to keep the return type a DataFrame for type checkers.
+        ordered_cols = list(group_cols) + [c for c in level_df.columns if c not in group_cols]
+        results[level_name] = level_df.loc[:, ordered_cols]
 
     return results

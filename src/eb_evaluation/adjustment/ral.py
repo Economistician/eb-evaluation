@@ -246,6 +246,11 @@ class ReadinessAdjustmentLayer:
 
             self.fit(df, forecast_col=forecast_col, actual_col="actual", segment_cols=None)
 
+        # Narrow Optional[float] for type-checkers (runtime behavior unchanged).
+        global_uplift = self.global_uplift_
+        if global_uplift is None:
+            raise RuntimeError("ReadinessAdjustmentLayer must be fit() before transform().")
+
         seg_cols = list(segment_cols) if segment_cols is not None else list(self.segment_cols_)
         result_df = df.copy()
 
@@ -262,9 +267,9 @@ class ReadinessAdjustmentLayer:
 
             mask_nan = ~np.isfinite(uplift)
             if mask_nan.any():
-                uplift[mask_nan] = float(self.global_uplift_)
+                uplift[mask_nan] = float(global_uplift)
         else:
-            uplift = np.full(len(result_df), float(self.global_uplift_), dtype=float)
+            uplift = np.full(len(result_df), float(global_uplift), dtype=float)
 
         result_df[output_col] = result_df[forecast_col].to_numpy(dtype=float) * uplift
         return result_df

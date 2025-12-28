@@ -107,9 +107,10 @@ def evaluate_panel_df(
 
     combined = pd.concat(stacked_frames, ignore_index=True)
 
-    # Put 'level' first for readability
+    # Put 'level' first for readability.
+    # Use `loc` to keep the type a DataFrame for type checkers.
     cols = ["level"] + [c for c in combined.columns if c != "level"]
-    combined = combined[cols]
+    combined = combined.loc[:, cols]
 
     # Decide which columns are metrics vs grouping keys
     candidate_metric_cols = [
@@ -134,7 +135,8 @@ def evaluate_panel_df(
         value_name="value",
     )
 
-    # Reorder for readability
-    panel = panel[["level", *group_cols, "metric", "value"]]
+    # Reorder for readability.
+    # Use `loc` so the return is always a DataFrame (not inferred as Series).
+    panel = panel.loc[:, ["level", *group_cols, "metric", "value"]]
 
     return panel

@@ -21,10 +21,13 @@ $$
 where $c_u$ is the cost per unit of shortfall and $c_o$ is the cost per unit of excess.
 """
 
-from collections.abc import Iterable, Mapping
+from __future__ import annotations
+
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
+from numpy.typing import ArrayLike
 import pandas as pd
 
 from eb_metrics.metrics import (
@@ -38,8 +41,6 @@ from eb_metrics.metrics import (
     ud,
     wmape,
 )
-
-ArrayLike = Iterable[float] | np.ndarray
 
 
 def compare_forecasts(
@@ -104,11 +105,31 @@ def compare_forecasts(
 
     n = y_true_arr.shape[0]
 
+    # Normalize any array-like costs/weights/tau to NumPy arrays to satisfy eb_metrics typing
+    # and to keep runtime behavior consistent (NumPy will broadcast as needed).
+    if isinstance(cu, (float, int)):
+        cu_val: float | np.ndarray = float(cu)
+    else:
+        cu_arr = np.asarray(cu, dtype=float)
+        cu_val = float(cu_arr) if cu_arr.ndim == 0 else cu_arr
+
+    if isinstance(co, (float, int)):
+        co_val: float | np.ndarray = float(co)
+    else:
+        co_arr = np.asarray(co, dtype=float)
+        co_val = float(co_arr) if co_arr.ndim == 0 else co_arr
+
+    if isinstance(tau, (float, int)):
+        tau_val: float | np.ndarray = float(tau)
+    else:
+        tau_arr = np.asarray(tau, dtype=float)
+        tau_val = float(tau_arr) if tau_arr.ndim == 0 else tau_arr
+
     if sample_weight is not None:
         sw = np.asarray(sample_weight, dtype=float)
         if sw.ndim != 1 or sw.shape[0] != n:
             raise ValueError(f"sample_weight must be 1D with length {n}; got shape {sw.shape}")
-        sample_weight_val: ArrayLike | None = sw
+        sample_weight_val: np.ndarray | None = sw
     else:
         sample_weight_val = None
 
@@ -126,8 +147,8 @@ def compare_forecasts(
                 cwsl(
                     y_true_arr,
                     y_pred_arr,
-                    cu=cu,
-                    co=co,
+                    cu=cu_val,
+                    co=co_val,
                     sample_weight=sample_weight_val,
                 )
             ),
@@ -139,7 +160,7 @@ def compare_forecasts(
                 hr_at_tau(
                     y_true_arr,
                     y_pred_arr,
-                    tau=tau,
+                    tau=tau_val,
                     sample_weight=sample_weight_val,
                 )
             ),
@@ -147,8 +168,8 @@ def compare_forecasts(
                 frs(
                     y_true_arr,
                     y_pred_arr,
-                    cu=cu,
-                    co=co,
+                    cu=cu_val,
+                    co=co_val,
                     sample_weight=sample_weight_val,
                 )
             ),
@@ -359,9 +380,9 @@ def select_model_by_cwsl_cv(
     best_cwsl_mean = np.inf
 
     for name, model in models.items():
-        cwsl_scores = []
-        rmse_scores = []
-        wmape_scores = []
+        cwsl_scores: list[float] = []
+        rmse_scores: list[float] = []
+        wmape_scores: list[float] = []
 
         for i, val_idx in enumerate(folds):
             train_idx = np.concatenate([f for j, f in enumerate(folds) if j != i])
