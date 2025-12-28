@@ -30,3 +30,4 @@ jobs:
       run_precommit: true
       enable_typecheck: true
       import_module: "eb_evaluation"
+      extras: "all"
