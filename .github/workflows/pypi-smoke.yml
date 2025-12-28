@@ -1,29 +1,20 @@
-name: PyPI smoke (eb-evaluation)
+name: PyPI Smoke Test
 
 on:
-  push:
-    branches: [ "main" ]
-  workflow_dispatch:
   schedule:
-    - cron: "36 23 * * *" 
+    - cron: "0 0 * * 0"  # Weekly on Sundays
+  workflow_run:
+    workflows: ["PyPI Release"]
+    types:
+      - completed
+  workflow_dispatch:      # Allows you to click "Run workflow" in GitHub UI
 
 jobs:
-  smoke:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Upgrade pip
-        run: python -m pip install -U pip
-
-      - name: Install from PyPI
-        run: |
-          python -m pip install -U -i https://pypi.org/simple eb-evaluation
-          python -m pip check
-
-      - name: Import smoke
-        run: |
-          python -c "import eb_evaluation; print('eb-evaluation PyPI import OK')"
+  smoke-test:
+    # Only run if the release was a success, OR if it's a scheduled/manual run
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name != 'workflow_run' }}
+    uses: Economistician/eb-integration/.github/workflows/pypi-smoke.yml@main
+    with:
+      python-version: "3.12"
+      package: "eb-evaluation"
+      import_module: "eb_evaluation"
