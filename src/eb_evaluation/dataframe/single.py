@@ -89,9 +89,7 @@ def compute_cwsl_df(
     co_value = df[co].to_numpy(dtype=float) if isinstance(co, str) else co
 
     sample_weight = (
-        df[sample_weight_col].to_numpy(dtype=float)
-        if sample_weight_col is not None
-        else None
+        df[sample_weight_col].to_numpy(dtype=float) if sample_weight_col is not None else None
     )
 
     return cwsl(

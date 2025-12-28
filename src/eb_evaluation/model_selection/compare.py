@@ -107,9 +107,7 @@ def compare_forecasts(
     if sample_weight is not None:
         sw = np.asarray(sample_weight, dtype=float)
         if sw.ndim != 1 or sw.shape[0] != n:
-            raise ValueError(
-                f"sample_weight must be 1D with length {n}; got shape {sw.shape}"
-            )
+            raise ValueError(f"sample_weight must be 1D with length {n}; got shape {sw.shape}")
         sample_weight_val: ArrayLike | None = sw
     else:
         sample_weight_val = None
@@ -250,9 +248,7 @@ def select_model_by_cwsl(
         rmse_val = float(rmse(y_true=y_val_arr, y_pred=y_pred_val))
         wmape_val = float(wmape(y_true=y_val_arr, y_pred=y_pred_val))
 
-        rows.append(
-            {"model": name, "CWSL": cwsl_val, "RMSE": rmse_val, "wMAPE": wmape_val}
-        )
+        rows.append({"model": name, "CWSL": cwsl_val, "RMSE": rmse_val, "wMAPE": wmape_val})
 
         if cwsl_val < best_cwsl:
             best_cwsl = cwsl_val
@@ -353,9 +349,7 @@ def select_model_by_cwsl_cv(
     if sample_weight is not None:
         sw_arr = np.asarray(sample_weight, dtype=float)
         if sw_arr.shape[0] != n_samples:
-            raise ValueError(
-                f"sample_weight must have length {n_samples}; got {sw_arr.shape[0]}"
-            )
+            raise ValueError(f"sample_weight must have length {n_samples}; got {sw_arr.shape[0]}")
     else:
         sw_arr = None
 

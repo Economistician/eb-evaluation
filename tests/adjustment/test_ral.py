@@ -48,9 +48,7 @@ def test_global_uplift_reduces_cwsl_and_adds_column():
     # Assertions
     assert ral.global_uplift_ >= 1.0
     assert not ral.diagnostics_.empty
-    assert {"scope", "uplift", "cwsl_before", "cwsl_after"}.issubset(
-        ral.diagnostics_.columns
-    )
+    assert {"scope", "uplift", "cwsl_before", "cwsl_after"}.issubset(ral.diagnostics_.columns)
 
     # Applying uplift should reduce CWSL relative to baseline
     y_true = df["actual"].to_numpy(dtype=float)

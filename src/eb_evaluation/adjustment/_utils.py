@@ -55,7 +55,7 @@ def validate_numeric_array(arr: ArrayLike, name: str = "array") -> np.ndarray:
     - This helper does *not* drop missing values. If you need filtering behavior, perform
       it upstream and call this only once the array should be clean.
     """
-    if isinstance(arr, (pd.Series, pd.DataFrame)):
+    if isinstance(arr, pd.Series | pd.DataFrame):
         arr = arr.to_numpy()
 
     out = np.asarray(arr, dtype=float)

@@ -115,9 +115,7 @@ def evaluate_hierarchy_df(
     if df.empty:
         raise ValueError("df is empty.")
     if not levels:
-        raise ValueError(
-            "levels must be a non-empty mapping of level name -> group columns."
-        )
+        raise ValueError("levels must be a non-empty mapping of level name -> group columns.")
 
     # Validate required columns (actual/forecast + all referenced group columns)
     required_cols = {actual_col, forecast_col}
@@ -147,9 +145,7 @@ def evaluate_hierarchy_df(
                 "wmape": wmape(y_true=y_true, y_pred=y_pred),
             }
             if tau is not None:
-                metrics_row["hr_at_tau"] = hr_at_tau(
-                    y_true=y_true, y_pred=y_pred, tau=tau
-                )
+                metrics_row["hr_at_tau"] = hr_at_tau(y_true=y_true, y_pred=y_pred, tau=tau)
 
             metrics_row["frs"] = frs(y_true=y_true, y_pred=y_pred, cu=cu, co=co)
 

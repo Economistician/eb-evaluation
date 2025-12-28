@@ -228,9 +228,7 @@ class ElectricBarometer:
 
         k = int(self.cv)
         if k < 2 or k > n_samples:
-            raise ValueError(
-                f"Invalid number of folds cv={k} for n_samples={n_samples}."
-            )
+            raise ValueError(f"Invalid number of folds cv={k} for n_samples={n_samples}.")
 
         sw_arr: np.ndarray | None = None
         if sample_weight is not None:
@@ -313,9 +311,7 @@ class ElectricBarometer:
         """
         _ = sample_weight_val  # reserved for future use
 
-        refit_flag = (
-            self.refit_on_full if refit_on_full is None else bool(refit_on_full)
-        )
+        refit_flag = self.refit_on_full if refit_on_full is None else bool(refit_on_full)
 
         if self.selection_mode == "holdout":
             best_name, best_model, results = select_model_by_cwsl(
@@ -349,9 +345,7 @@ class ElectricBarometer:
 
             best_model_refit = best_model
             if refit_flag and hasattr(best_model_refit, "fit"):
-                X_full = np.concatenate(
-                    [np.asarray(X_train), np.asarray(X_val)], axis=0
-                )
+                X_full = np.concatenate([np.asarray(X_train), np.asarray(X_val)], axis=0)
                 y_full = np.concatenate(
                     [np.asarray(y_train, dtype=float), np.asarray(y_val, dtype=float)],
                     axis=0,
