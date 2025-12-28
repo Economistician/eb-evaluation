@@ -107,19 +107,19 @@ def compare_forecasts(
 
     # Normalize any array-like costs/weights/tau to NumPy arrays to satisfy eb_metrics typing
     # and to keep runtime behavior consistent (NumPy will broadcast as needed).
-    if isinstance(cu, (float, int)):
+    if isinstance(cu, float | int):
         cu_val: float | np.ndarray = float(cu)
     else:
         cu_arr = np.asarray(cu, dtype=float)
         cu_val = float(cu_arr) if cu_arr.ndim == 0 else cu_arr
 
-    if isinstance(co, (float, int)):
+    if isinstance(co, float | int):
         co_val: float | np.ndarray = float(co)
     else:
         co_arr = np.asarray(co, dtype=float)
         co_val = float(co_arr) if co_arr.ndim == 0 else co_arr
 
-    if isinstance(tau, (float, int)):
+    if isinstance(tau, float | int):
         tau_val: float | np.ndarray = float(tau)
     else:
         tau_arr = np.asarray(tau, dtype=float)
