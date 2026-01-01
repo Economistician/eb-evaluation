@@ -49,6 +49,8 @@ TauPolicy
 GovernanceDecision
     Authoritative governance decision bundle (DQC + FPC + policies).
 decide_governance
+    Core governance decision engine combining DQC x FPC.
+validate_governance
     Stable public entrypoint for running combined DQC x FPC governance.
 
 Notes
@@ -97,6 +99,7 @@ from .governance import (
 from .validate import (
     validate_dqc,
     validate_fpc,
+    validate_governance,
 )
 
 __all__ = [
@@ -118,4 +121,5 @@ __all__ = [
     "dqc_to_dict",
     "validate_dqc",
     "validate_fpc",
+    "validate_governance",
 ]
