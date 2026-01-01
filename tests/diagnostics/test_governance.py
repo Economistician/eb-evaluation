@@ -7,7 +7,8 @@ These tests validate that the governance layer:
 - Uses snapped FPC for allowability when snapping is required,
 - Uses raw FPC for allowability when demand is continuous-like,
 - Produces stable traffic-light status and RALPolicy outputs,
-- Is deterministic and respects threshold overrides (via upstream components).
+- Is deterministic and respects threshold overrides (via upstream components),
+- Supports small policy presets (conservative/balanced/aggressive).
 
 We intentionally construct FPCSignals directly to avoid coupling governance tests
 to any particular forecast baseline model or notebook wiring.
@@ -18,10 +19,12 @@ from __future__ import annotations
 from eb_evaluation.diagnostics.dqc import DQCThresholds
 from eb_evaluation.diagnostics.fpc import FPCSignals, FPCThresholds
 from eb_evaluation.diagnostics.governance import (
+    GovernancePreset,
     GovernanceStatus,
     RALPolicy,
     TauPolicy,
     decide_governance,
+    preset_thresholds,
 )
 
 
@@ -54,6 +57,12 @@ def _signals(
         intervals=100,
         shortfall_intervals=None,
     )
+
+
+def test_preset_thresholds_returns_types() -> None:
+    dqc_thr, fpc_thr = preset_thresholds(GovernancePreset.BALANCED)
+    assert isinstance(dqc_thr, DQCThresholds)
+    assert isinstance(fpc_thr, FPCThresholds)
 
 
 def test_governance_continuous_like_uses_raw_fpc() -> None:
@@ -144,7 +153,7 @@ def test_governance_quantized_marginal_after_snap_is_yellow() -> None:
     # Snapped remains marginal (gain below material threshold).
     snapped = _signals(
         nsl_base=0.06,
-        nsl_ral=0.08,  # delta=0.02 -> at default tiny threshold
+        nsl_ral=0.08,  # delta=0.02 -> below material gate, above tiny
         hr_base_tau=0.10,
         hr_ral_tau=0.09,
         ud=3.0,
@@ -222,6 +231,45 @@ def test_governance_respects_threshold_overrides_through_upstream_components() -
     assert res.snap_required is True
     assert res.tau_policy == TauPolicy.GRID_UNITS
     assert res.fpc_snapped.fpc_class.value in ("compatible", "marginal")
-    # With the loosened threshold, this should be compatible and thus GREEN.
     assert res.ral_policy in (RALPolicy.ALLOW_AFTER_SNAP, RALPolicy.CAUTION_AFTER_SNAP)
     assert res.status in (GovernanceStatus.GREEN, GovernanceStatus.YELLOW)
+
+
+def test_governance_preset_is_recorded_in_reasons_when_not_overridden() -> None:
+    y = [0.0] * 10 + [4.0] * 40 + [8.0] * 40 + [12.0] * 20
+    raw = _signals(
+        nsl_base=0.06,
+        nsl_ral=0.16,
+        hr_base_tau=0.03,
+        hr_ral_tau=0.02,
+        ud=3.0,
+    )
+    res = decide_governance(
+        y=y,
+        fpc_signals_raw=raw,
+        fpc_signals_snapped=raw,
+        preset=GovernancePreset.CONSERVATIVE,
+    )
+    assert any(r == "preset=conservative" for r in res.reasons)
+
+
+def test_governance_preset_reason_not_added_when_thresholds_overridden() -> None:
+    y = [0.0] * 10 + [4.0] * 40 + [8.0] * 40 + [12.0] * 20
+    raw = _signals(
+        nsl_base=0.06,
+        nsl_ral=0.16,
+        hr_base_tau=0.03,
+        hr_ral_tau=0.02,
+        ud=3.0,
+    )
+
+    # Any explicit threshold override should suppress preset reason for that component.
+    res = decide_governance(
+        y=y,
+        fpc_signals_raw=raw,
+        fpc_signals_snapped=raw,
+        dqc_thresholds=DQCThresholds(),
+        fpc_thresholds=FPCThresholds(),
+        preset=GovernancePreset.AGGRESSIVE,
+    )
+    assert not any(r.startswith("preset=") for r in res.reasons)

@@ -17,6 +17,30 @@ drive:
 - readiness adjustment policy (allow / caution / disallow),
 - reporting and downstream policy gating.
 
+Decision contract (authoritative)
+---------------------------------
+Inputs:
+- y (realized demand series) is used ONLY for DQC.
+- fpc_signals_raw is REQUIRED and represents FPC signals computed on raw units.
+- fpc_signals_snapped is OPTIONAL and represents FPC signals computed after
+  snapping forecasts to the demand grid. If omitted, snapped == raw.
+
+Outputs:
+- snap_required:
+    True iff DQC class ∈ {quantized, piecewise_packed}.
+- snap_unit:
+    DQC granularity when snap_required else None.
+- tau_policy:
+    grid_units when snap_required else raw_units.
+- ral_policy & status:
+    Determined from FPC on:
+      * snapped FPC when snap_required
+      * raw FPC when continuous-like
+
+Policy presets:
+- conservative / balanced / aggressive provide small, stable presets for
+  governance thresholds. Explicit threshold overrides always win.
+
 Notes
 -----
 This module is a governance layer. It is not a performance metric and is not an
@@ -32,6 +56,23 @@ from math import isnan
 
 from .dqc import DQCClass, DQCResult, DQCThresholds, classify_dqc
 from .fpc import FPCClass, FPCResult, FPCSignals, FPCThresholds, classify_fpc
+
+
+class GovernancePreset(str, Enum):
+    """
+    Small, stable governance presets.
+
+    These presets tune only *thresholds* (not algorithms). They are intended as
+    governance defaults that are easy to communicate and keep stable over time.
+
+    - conservative: harder to declare "compatible"
+    - balanced: current default behavior (close to upstream defaults)
+    - aggressive: easier to declare "compatible" (still deterministic/auditable)
+    """
+
+    CONSERVATIVE = "conservative"
+    BALANCED = "balanced"
+    AGGRESSIVE = "aggressive"
 
 
 class GovernanceStatus(str, Enum):
@@ -171,6 +212,64 @@ def build_fpc_signals(
     )
 
 
+def preset_thresholds(
+    preset: GovernancePreset,
+) -> tuple[DQCThresholds, FPCThresholds]:
+    """
+    Return (DQCThresholds, FPCThresholds) for a governance preset.
+
+    Explicit thresholds passed to decide_governance override these defaults.
+    """
+    # Start from upstream defaults (stable, interpretable).
+    dqc = DQCThresholds()
+    fpc = FPCThresholds()
+
+    if preset == GovernancePreset.BALANCED:
+        return dqc, fpc
+
+    if preset == GovernancePreset.CONSERVATIVE:
+        # Harder to declare compatible:
+        # - treat low coverage as more concerning
+        # - require stronger response to RAL (delta_nsl) to be "material"
+        # - treat deep shortfalls as mismatch-like sooner
+        return (
+            DQCThresholds(
+                multiple_rate_quantized=dqc.multiple_rate_quantized,
+                multiple_rate_packed=dqc.multiple_rate_packed,
+                offgrid_mad_ratio_max=dqc.offgrid_mad_ratio_max,
+                min_nonzero_obs=dqc.min_nonzero_obs,
+            ),
+            FPCThresholds(
+                nsl_very_low=max(fpc.nsl_very_low, 0.05),
+                delta_nsl_tiny=max(fpc.delta_nsl_tiny, 0.03),
+                hr_very_low=max(fpc.hr_very_low, 0.06),
+                delta_hr_large_drop=fpc.delta_hr_large_drop,
+                ud_high=min(fpc.ud_high, 8.0),
+                delta_cwsl_high=fpc.delta_cwsl_high,
+            ),
+        )
+
+    # AGGRESSIVE
+    # Easier to declare compatible (still bounded):
+    # - allow smaller "material" gain; allow bigger UD before mismatch signal
+    return (
+        DQCThresholds(
+            multiple_rate_quantized=dqc.multiple_rate_quantized,
+            multiple_rate_packed=dqc.multiple_rate_packed,
+            offgrid_mad_ratio_max=dqc.offgrid_mad_ratio_max,
+            min_nonzero_obs=dqc.min_nonzero_obs,
+        ),
+        FPCThresholds(
+            nsl_very_low=min(fpc.nsl_very_low, 0.02),
+            delta_nsl_tiny=min(fpc.delta_nsl_tiny, 0.015),
+            hr_very_low=min(fpc.hr_very_low, 0.04),
+            delta_hr_large_drop=fpc.delta_hr_large_drop,
+            ud_high=max(fpc.ud_high, 15.0),
+            delta_cwsl_high=fpc.delta_cwsl_high,
+        ),
+    )
+
+
 def decide_governance(
     *,
     y: Sequence[float],
@@ -178,6 +277,7 @@ def decide_governance(
     fpc_signals_snapped: FPCSignals | None = None,
     dqc_thresholds: DQCThresholds | None = None,
     fpc_thresholds: FPCThresholds | None = None,
+    preset: GovernancePreset = GovernancePreset.BALANCED,
 ) -> GovernanceDecision:
     """
     Produce an authoritative governance decision for a single realized series.
@@ -185,7 +285,7 @@ def decide_governance(
     Inputs
     ------
     y:
-        Realized demand series.
+        Realized demand series (used for DQC only).
     fpc_signals_raw:
         FPC signals computed in raw units.
     fpc_signals_snapped:
@@ -193,9 +293,12 @@ def decide_governance(
         demand grid. If not provided, the snapped decision is treated as equal
         to the raw decision.
     dqc_thresholds:
-        Optional thresholds for DQC.
+        Optional thresholds for DQC. Overrides preset thresholds.
     fpc_thresholds:
-        Optional thresholds for FPC.
+        Optional thresholds for FPC. Overrides preset thresholds.
+    preset:
+        GovernancePreset determining default thresholds when explicit thresholds
+        are not provided.
 
     Returns
     -------
@@ -204,14 +307,19 @@ def decide_governance(
     """
     reasons: list[str] = []
 
+    # Preset thresholds (explicit overrides win)
+    preset_dqc, preset_fpc = preset_thresholds(preset)
+    eff_dqc = dqc_thresholds or preset_dqc
+    eff_fpc = fpc_thresholds or preset_fpc
+
     # 1) DQC classification from realized demand
     y_list = _as_list(y)
-    dqc = classify_dqc(y_list, thresholds=dqc_thresholds)
+    dqc = classify_dqc(y_list, thresholds=eff_dqc)
 
     # 2) FPC classification from provided signals
-    fpc_raw = classify_fpc(fpc_signals_raw, thresholds=fpc_thresholds)
+    fpc_raw = classify_fpc(fpc_signals_raw, thresholds=eff_fpc)
     fpc_snapped = (
-        classify_fpc(fpc_signals_snapped, thresholds=fpc_thresholds)
+        classify_fpc(fpc_signals_snapped, thresholds=eff_fpc)
         if fpc_signals_snapped is not None
         else fpc_raw
     )
@@ -222,7 +330,7 @@ def decide_governance(
     tau_policy = TauPolicy.GRID_UNITS if snap_required else TauPolicy.RAW_UNITS
 
     # 4) RAL policy + status
-    #    - If snapped required, we judge allowability primarily off snapped FPC.
+    #    - If snapping is required, judge allowability off snapped FPC.
     #    - If continuous-like, judge off raw FPC.
     target_fpc = fpc_snapped if snap_required else fpc_raw
 
@@ -252,8 +360,10 @@ def decide_governance(
         status = GovernanceStatus.RED
         reasons.append("incompatible")
 
-    # Helpful annotations: record max delta_nsl if the caller passes alpha curves elsewhere
-    # (kept as optional fields to avoid entangling governance with sweep logic)
+    # Helpful annotation for auditability: record preset used if caller didn't override.
+    if dqc_thresholds is None or fpc_thresholds is None:
+        reasons.append(f"preset={preset.value}")
+
     return GovernanceDecision(
         dqc=dqc,
         fpc_raw=fpc_raw,

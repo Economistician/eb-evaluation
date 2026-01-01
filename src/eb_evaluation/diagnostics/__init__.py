@@ -40,6 +40,10 @@ validate_dqc
 dqc_to_dict
     JSON-friendly serialization for DQCResult.
 
+GovernancePreset
+    Named policy presets (conservative/balanced/aggressive) for default thresholds.
+preset_thresholds
+    Resolve a preset into (DQCThresholds, FPCThresholds).
 GovernanceStatus
     Traffic-light governance status (green/yellow/red).
 RALPolicy
@@ -91,10 +95,12 @@ from .fpc import (
 )
 from .governance import (
     GovernanceDecision,
+    GovernancePreset,
     GovernanceStatus,
     RALPolicy,
     TauPolicy,
     decide_governance,
+    preset_thresholds,
 )
 from .validate import (
     validate_dqc,
@@ -112,6 +118,7 @@ __all__ = [
     "FPCSignals",
     "FPCThresholds",
     "GovernanceDecision",
+    "GovernancePreset",
     "GovernanceStatus",
     "RALPolicy",
     "TauPolicy",
@@ -119,6 +126,7 @@ __all__ = [
     "classify_fpc",
     "decide_governance",
     "dqc_to_dict",
+    "preset_thresholds",
     "validate_dqc",
     "validate_fpc",
     "validate_governance",
