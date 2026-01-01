@@ -1,20 +1,22 @@
 # eb-evaluation
 
-**eb-evaluation** is the evaluation and model-selection toolkit of the
+**eb-evaluation** is the evaluation, diagnostics, and governance toolkit of the
 **Electric Barometer** ecosystem.
 
-It provides **DataFrame-oriented workflows**, **diagnostic orchestration**, and
-**cost-aware model selection utilities** built on top of the core metrics
+It provides **DataFrame-oriented evaluation workflows**, **structural diagnostics**,
+and **cost-aware model selection utilities** built on top of the core metrics
 defined in `eb-metrics`.
 
-While `eb-metrics` defines *how* forecast error and readiness are measured,
-`eb-evaluation` defines *how those measurements are applied* across groups,
-hierarchies, entities, and competing models in real operational settings.
+While `eb-metrics` defines *how* forecast error, service loss, and readiness are
+measured, **eb-evaluation** defines *how those measurements are interpreted,
+validated, and governed* across entities, hierarchies, and competing models in
+real operational environments.
 
-This package is designed for **applied forecasting environments** where
+This package is designed for **applied forecasting and decision systems** where
 evaluation must be:
 
 - cost-aware rather than purely symmetric,
+- structurally valid rather than assumption-blind,
 - operationally interpretable rather than abstract,
 - scalable across entities, hierarchies, and time.
 
@@ -24,9 +26,9 @@ evaluation must be:
 
 Electric Barometer packages follow a consistent naming convention:
 
-- **Distribution names** (used with `pip install`) use hyphens
+- **Distribution names** (used with `pip install`) use hyphens  
   e.g. `pip install eb-evaluation`
-- **Python import paths** use underscores
+- **Python import paths** use underscores  
   e.g. `import eb_evaluation`
 
 This follows standard Python packaging practices and avoids ambiguity between
@@ -45,14 +47,47 @@ High-level utilities for applying Electric Barometer metrics to tabular data.
 - Long-form (tidy) panel outputs for plotting and reporting
 - Entity-aware evaluation using entity-specific cost ratios
 
+See: `docs/api/dataframe.md`
+
 ---
 
-### Cost-ratio and sensitivity diagnostics
+### Diagnostics (structural compatibility & validity)
+Governance-oriented diagnostics that assess whether forecasts and evaluation
+controls are **structurally compatible** with observed demand processes.
+
+- Demand Quantization Compatibility (DQC)
+- Forecast Primitive Compatibility (FPC)
+- Grid detection and snap-to-grid diagnostics
+- Diagnostic rationales suitable for audit and review
+
+See: `docs/api/diagnostics.md`
+
+---
+
+### Governance & decision contracts
+An authoritative governance layer that composes diagnostics into **explicit,
+machine-readable policy decisions**.
+
+- Snap requirements (raw units vs grid units)
+- τ interpretation policy (raw vs grid units)
+- Readiness Adjustment Layer (RAL) allow / caution / disallow decisions
+- Traffic-light governance status (green / yellow / red)
+- Stable decision contracts for downstream systems
+
+See:
+- `docs/api/governance.md`
+- `docs/api/decision_lifecycle.md`
+
+---
+
+### Cost-ratio and sensitivity analysis
 Tools for understanding how asymmetric costs influence evaluation outcomes.
 
 - Cost-ratio sensitivity curves for CWSL
 - Data-driven estimation of entity-specific cost ratios
 - Diagnostics to support governance and operational review
+
+See: `docs/api/adjustment.md`
 
 ---
 
@@ -77,6 +112,8 @@ just symmetric error.
 - sklearn-style wrapper (`CWSLRegressor`) for pipelines and production use
 - Convenience factories for building curated model zoos
 
+See: `docs/api/model_selection.md`
+
 ---
 
 ### Feature engineering utilities
@@ -87,17 +124,20 @@ Lightweight, frequency-agnostic feature engineering for panel time series.
 - Static metadata and external regressors
 - Clean transformation into `(X, y, feature_names)` for modeling
 
+See: `docs/api/utils.md`
+
 ---
 
 ## Documentation structure
 
-- **API Reference**
-  All documentation is generated automatically from NumPy-style docstrings in
-  the source code using `mkdocstrings`.
+- **API Reference**  
+  Automatically generated from NumPy-style docstrings using `mkdocstrings`.
 
-Conceptual motivation, mathematical definitions, and theoretical grounding for
-the Electric Barometer framework are documented in the companion research
-repository **eb-papers**.
+- **Conceptual & governance documentation**  
+  Explains *why* diagnostics and decisions exist, not just how to call them.
+
+Formal theory, mathematical definitions, and research context live in the
+companion repository **eb-papers**.
 
 ---
 
@@ -107,22 +147,23 @@ This package is intended for:
 
 - data scientists and applied ML practitioners
 - forecasting and demand-planning teams
-- operations and service analytics leaders
+- platform and data engineers integrating forecasts into operations
+- operations, service, and supply-chain analytics leaders
 - researchers working in cost-sensitive or service-constrained environments
 
-The emphasis is on **decision-relevant evaluation workflows**, not isolated
+The emphasis is on **decision-relevant evaluation and governance**, not isolated
 metrics.
 
 ---
 
 ## Relationship to the Electric Barometer ecosystem
 
-`eb-evaluation` provides the **evaluation and orchestration layer** of the
-Electric Barometer ecosystem. It is designed to be used alongside:
+`eb-evaluation` provides the **evaluation, diagnostics, and governance layer**
+of the Electric Barometer ecosystem. It is designed to be used alongside:
 
 - **eb-metrics** — core metric definitions and mathematical implementations
 - **eb-adapters** — integrations with external forecasting systems and models
 - **eb-papers** — formal theory, definitions, and technical notes
 
-Together, these components support a unified framework for measuring
-**forecast readiness**, not just forecast error.
+Together, these components support a unified framework for measuring and
+governing **forecast readiness**, not just forecast accuracy.
