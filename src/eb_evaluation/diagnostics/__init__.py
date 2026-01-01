@@ -40,6 +40,17 @@ validate_dqc
 dqc_to_dict
     JSON-friendly serialization for DQCResult.
 
+GovernanceStatus
+    Traffic-light governance status (green/yellow/red).
+RALPolicy
+    Policy decision for whether RAL is allowed (and under what conditions).
+TauPolicy
+    Policy decision for interpreting τ in raw units vs grid units.
+GovernanceDecision
+    Authoritative governance decision bundle (DQC + FPC + policies).
+decide_governance
+    Stable public entrypoint for running combined DQC x FPC governance.
+
 Notes
 -----
 Forecast Primitive Compatibility (FPC) is a **diagnostic and governance
@@ -54,6 +65,9 @@ resolution or is strongly quantized/packed (e.g., piecewise items sold in pack
 sizes). When demand is quantized, tolerance-based diagnostics and readiness
 adjustments should be interpreted or applied in quantized units (e.g., snap-to-
 grid).
+
+The governance layer composes DQC and FPC to produce an **authoritative**
+downstream policy decision (snap required? τ in grid units? allow RAL?).
 """
 
 from __future__ import annotations
@@ -73,6 +87,13 @@ from .fpc import (
     FPCThresholds,
     classify_fpc,
 )
+from .governance import (
+    GovernanceDecision,
+    GovernanceStatus,
+    RALPolicy,
+    TauPolicy,
+    decide_governance,
+)
 from .validate import (
     validate_dqc,
     validate_fpc,
@@ -87,8 +108,13 @@ __all__ = [
     "FPCResult",
     "FPCSignals",
     "FPCThresholds",
+    "GovernanceDecision",
+    "GovernanceStatus",
+    "RALPolicy",
+    "TauPolicy",
     "classify_dqc",
     "classify_fpc",
+    "decide_governance",
     "dqc_to_dict",
     "validate_dqc",
     "validate_fpc",
