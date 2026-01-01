@@ -46,6 +46,7 @@ def test_global_uplift_reduces_cwsl_and_adds_column():
     ral.transform(df, forecast_col="forecast")
 
     # Assertions
+    assert ral.global_uplift_ is not None
     assert ral.global_uplift_ >= 1.0
     assert not ral.diagnostics_.empty
     assert {"scope", "uplift", "cwsl_before", "cwsl_after"}.issubset(ral.diagnostics_.columns)
@@ -111,6 +112,8 @@ def test_sample_weight_changes_optimal_uplift():
     )
 
     # Assert the weighted uplift is higher than the unweighted
+    assert ral_weighted.global_uplift_ is not None
+    assert ral_unweighted.global_uplift_ is not None
     assert ral_weighted.global_uplift_ >= ral_unweighted.global_uplift_
 
 
@@ -169,4 +172,5 @@ def test_segment_specific_uplift_and_fallback_to_global():
     # Row 1: cluster B → segment uplift
     assert pytest.approx(applied_uplift[1], rel=1e-6) == uplift_b
     # Row 2: cluster C (unseen) → global uplift
+    assert ral.global_uplift_ is not None
     assert pytest.approx(applied_uplift[2], rel=1e-6) == ral.global_uplift_

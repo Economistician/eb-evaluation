@@ -43,7 +43,7 @@ def test_autoengine_invalid_speed_raises():
 @pytest.mark.parametrize("speed", ["fast", "balanced", "slow"])
 def test_build_selector_returns_electric_barometer(speed: str):
     X, y = _dummy_data()
-    engine = AutoEngine(cu=2.0, co=1.0, speed=speed)
+    engine = AutoEngine(cu=2.0, co=1.0, speed=speed)  # type: ignore[arg-type]
 
     eb = engine.build_selector(X, y)
 
@@ -64,7 +64,7 @@ def test_optional_dependencies_are_gated(monkeypatch):
     If _has_package reports False for optional deps, the corresponding
     entries should not appear in the model zoo.
     """
-    engine = AutoEngine(cu=2.0, co=1.0, speed="balanced")
+    engine = AutoEngine(cu=2.0, co=1.0, speed="balanced")  # type: ignore[arg-type]
 
     def fake_has_package(name: str) -> bool:
         # Pretend that no optional libs are available
@@ -93,7 +93,7 @@ def test_autoengine_repr_round_trips_core_config():
         selection_mode="cv",
         cv=4,
         random_state=42,
-        speed="slow",
+        speed="slow",  # type: ignore[arg-type]
     )
 
     text = repr(engine)

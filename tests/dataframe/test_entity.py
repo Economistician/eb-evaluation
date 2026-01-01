@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pandas as pd
 
@@ -66,15 +68,18 @@ def test_evaluate_panel_with_entity_R_basic_structure():
         }
     )
 
-    result = evaluate_panel_with_entity_R(
-        df=panel,
-        entity_R=entity_R,
-        entity_col="entity",
-        y_true_col="actual_qty",
-        y_pred_col="forecast_qty",
-        R_col="R",
-        co_col="co",
-        tau=2.0,
+    result = cast(
+        pd.DataFrame,
+        evaluate_panel_with_entity_R(
+            df=panel,
+            entity_R=entity_R,
+            entity_col="entity",
+            y_true_col="actual_qty",
+            y_pred_col="forecast_qty",
+            R_col="R",
+            co_col="co",
+            tau=2.0,
+        ),
     )
 
     # One row per entity
@@ -111,7 +116,7 @@ def test_evaluate_panel_with_entity_R_matches_direct_metrics_for_single_entity()
     panel = _build_entity_panel()
 
     # Restrict to entity A only
-    panel_A = panel[panel["entity"] == "A"].reset_index(drop=True)
+    panel_A = cast(pd.DataFrame, panel.loc[panel["entity"] == "A", :].reset_index(drop=True))
 
     entity_R = pd.DataFrame(
         {
@@ -121,23 +126,28 @@ def test_evaluate_panel_with_entity_R_matches_direct_metrics_for_single_entity()
         }
     )
 
-    result = evaluate_panel_with_entity_R(
-        df=panel_A,
-        entity_R=entity_R,
-        entity_col="entity",
-        y_true_col="actual_qty",
-        y_pred_col="forecast_qty",
-        R_col="R",
-        co_col="co",
-        tau=2.0,
+    result = cast(
+        pd.DataFrame,
+        evaluate_panel_with_entity_R(
+            df=panel_A,
+            entity_R=entity_R,
+            entity_col="entity",
+            y_true_col="actual_qty",
+            y_pred_col="forecast_qty",
+            R_col="R",
+            co_col="co",
+            tau=2.0,
+        ),
     )
 
     assert len(result) == 1
     row = result.iloc[0]
 
     # Direct computation
-    y_true = panel_A["actual_qty"].to_numpy()
-    y_pred = panel_A["forecast_qty"].to_numpy()
+    y_true_s = cast(pd.Series, panel_A["actual_qty"])
+    y_pred_s = cast(pd.Series, panel_A["forecast_qty"])
+    y_true = y_true_s.to_numpy()
+    y_pred = y_pred_s.to_numpy()
 
     R_e = 2.0
     co_e = 1.5
@@ -189,15 +199,18 @@ def test_evaluate_panel_with_entity_R_respects_R_cost_ratio_behavior():
         }
     )
 
-    result = evaluate_panel_with_entity_R(
-        df=panel,
-        entity_R=entity_R,
-        entity_col="entity",
-        y_true_col="actual_qty",
-        y_pred_col="forecast_qty",
-        R_col="R",
-        co_col="co",
-        tau=2.0,
+    result = cast(
+        pd.DataFrame,
+        evaluate_panel_with_entity_R(
+            df=panel,
+            entity_R=entity_R,
+            entity_col="entity",
+            y_true_col="actual_qty",
+            y_pred_col="forecast_qty",
+            R_col="R",
+            co_col="co",
+            tau=2.0,
+        ),
     )
 
     cwsl_A = float(result.loc[result["entity"] == "A", "CWSL"].iloc[0])

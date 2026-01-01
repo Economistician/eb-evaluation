@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pandas as pd
 
@@ -32,9 +34,12 @@ def test_evaluate_groups_df_produces_expected_columns():
         }
     )
 
-    out = evaluate_groups_df(
-        df=df,
-        group_cols=["store_id", "item_id"],
+    out = cast(
+        pd.DataFrame,
+        evaluate_groups_df(
+            df=df,
+            group_cols=["store_id", "item_id"],
+        ),
     )
 
     expected_cols = {
@@ -74,20 +79,25 @@ def test_evaluate_groups_df_matches_direct_calculation_for_one_group():
     co = 1.0
     tau = 2.0
 
-    out = evaluate_groups_df(
-        df=df,
-        group_cols=["store_id", "item_id"],
-        actual_col="actual_qty",
-        forecast_col="forecast_qty",
-        cu=cu,
-        co=co,
-        tau=tau,
+    out = cast(
+        pd.DataFrame,
+        evaluate_groups_df(
+            df=df,
+            group_cols=["store_id", "item_id"],
+            actual_col="actual_qty",
+            forecast_col="forecast_qty",
+            cu=cu,
+            co=co,
+            tau=tau,
+        ),
     )
 
     # Pick group (1, A)
-    g = df[(df["store_id"] == 1) & (df["item_id"] == "A")]
-    y_true = g["actual_qty"].to_numpy()
-    y_pred = g["forecast_qty"].to_numpy()
+    g = cast(pd.DataFrame, df.loc[(df["store_id"] == 1) & (df["item_id"] == "A"), :])
+    y_true_s = cast(pd.Series, g["actual_qty"])
+    y_pred_s = cast(pd.Series, g["forecast_qty"])
+    y_true = y_true_s.to_numpy()
+    y_pred = y_pred_s.to_numpy()
 
     expected = {
         "CWSL": cwsl(y_true, y_pred, cu=cu, co=co),
@@ -101,7 +111,7 @@ def test_evaluate_groups_df_matches_direct_calculation_for_one_group():
         "MAPE": mape(y_true, y_pred),
     }
 
-    row = out[(out["store_id"] == 1) & (out["item_id"] == "A")].iloc[0]
+    row = out.loc[(out["store_id"] == 1) & (out["item_id"] == "A"), :].iloc[0]
 
     for metric, val in expected.items():
         assert np.isclose(row[metric], val)
@@ -142,14 +152,17 @@ def test_evaluate_groups_df_supports_per_row_cu_co_and_changes_results():
 
     df = pd.DataFrame(rows)
 
-    out = evaluate_groups_df(
-        df=df,
-        group_cols=["entity"],
-        actual_col="actual_qty",
-        forecast_col="forecast_qty",
-        cu="cu",  # per-row cost
-        co="co",
-        tau=2.0,
+    out = cast(
+        pd.DataFrame,
+        evaluate_groups_df(
+            df=df,
+            group_cols=["entity"],
+            actual_col="actual_qty",
+            forecast_col="forecast_qty",
+            cu="cu",  # per-row cost
+            co="co",
+            tau=2.0,
+        ),
     )
 
     cwsl_A = float(out.loc[out["entity"] == "A", "CWSL"].iloc[0])

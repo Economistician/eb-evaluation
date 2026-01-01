@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import cast
+
 import numpy as np
 import pandas as pd
 
@@ -39,7 +42,7 @@ def test_evaluate_hierarchy_df_returns_all_levels():
     """
     df = _build_sample_df()
 
-    levels = {
+    levels: dict[str, Sequence[str]] = {
         "overall": [],
         "by_store": ["store_id"],
         "by_item": ["item_id"],
@@ -50,14 +53,17 @@ def test_evaluate_hierarchy_df_returns_all_levels():
     co = 1.0
     tau = 2.0
 
-    result = evaluate_hierarchy_df(
-        df=df,
-        levels=levels,
-        actual_col="actual_qty",
-        forecast_col="forecast_qty",
-        cu=cu,
-        co=co,
-        tau=tau,
+    result = cast(
+        dict[str, pd.DataFrame],
+        evaluate_hierarchy_df(
+            df=df,
+            levels=levels,
+            actual_col="actual_qty",
+            forecast_col="forecast_qty",
+            cu=cu,
+            co=co,
+            tau=tau,
+        ),
     )
 
     # We expect all level keys to be present
@@ -88,26 +94,31 @@ def test_evaluate_hierarchy_df_overall_level_matches_direct_metrics():
     """
     df = _build_sample_df()
 
-    levels = {"overall": []}
+    levels: dict[str, Sequence[str]] = {"overall": []}
     cu = 2.0
     co = 1.0
     tau = 2.0
 
-    result = evaluate_hierarchy_df(
-        df=df,
-        levels=levels,
-        actual_col="actual_qty",
-        forecast_col="forecast_qty",
-        cu=cu,
-        co=co,
-        tau=tau,
+    result = cast(
+        dict[str, pd.DataFrame],
+        evaluate_hierarchy_df(
+            df=df,
+            levels=levels,
+            actual_col="actual_qty",
+            forecast_col="forecast_qty",
+            cu=cu,
+            co=co,
+            tau=tau,
+        ),
     )
 
     overall_df = result["overall"]
     assert len(overall_df) == 1
 
-    y_true = df["actual_qty"].to_numpy()
-    y_pred = df["forecast_qty"].to_numpy()
+    y_true_s = cast(pd.Series, df["actual_qty"])
+    y_pred_s = cast(pd.Series, df["forecast_qty"])
+    y_true = y_true_s.to_numpy()
+    y_pred = y_pred_s.to_numpy()
 
     expected = {
         "cwsl": cwsl(y_true, y_pred, cu=cu, co=co),
@@ -133,19 +144,22 @@ def test_evaluate_hierarchy_df_group_level_matches_direct_metrics_for_store():
     """
     df = _build_sample_df()
 
-    levels = {"by_store": ["store_id"]}
+    levels: dict[str, Sequence[str]] = {"by_store": ["store_id"]}
     cu = 2.0
     co = 1.0
     tau = 2.0
 
-    result = evaluate_hierarchy_df(
-        df=df,
-        levels=levels,
-        actual_col="actual_qty",
-        forecast_col="forecast_qty",
-        cu=cu,
-        co=co,
-        tau=tau,
+    result = cast(
+        dict[str, pd.DataFrame],
+        evaluate_hierarchy_df(
+            df=df,
+            levels=levels,
+            actual_col="actual_qty",
+            forecast_col="forecast_qty",
+            cu=cu,
+            co=co,
+            tau=tau,
+        ),
     )
 
     by_store = result["by_store"]
@@ -154,9 +168,11 @@ def test_evaluate_hierarchy_df_group_level_matches_direct_metrics_for_store():
     assert set(by_store["store_id"]) == {1, 2}
 
     # Focus on store 1
-    g = df[df["store_id"] == 1]
-    y_true = g["actual_qty"].to_numpy()
-    y_pred = g["forecast_qty"].to_numpy()
+    g = cast(pd.DataFrame, df.loc[df["store_id"] == 1, :])
+    y_true_s = cast(pd.Series, g["actual_qty"])
+    y_pred_s = cast(pd.Series, g["forecast_qty"])
+    y_true = y_true_s.to_numpy()
+    y_pred = y_pred_s.to_numpy()
 
     expected = {
         "cwsl": cwsl(y_true, y_pred, cu=cu, co=co),
@@ -169,6 +185,6 @@ def test_evaluate_hierarchy_df_group_level_matches_direct_metrics_for_store():
         "total_demand": float(g["actual_qty"].sum()),
     }
 
-    row = by_store[by_store["store_id"] == 1].iloc[0]
+    row = by_store.loc[by_store["store_id"] == 1, :].iloc[0]
     for name, val in expected.items():
         assert np.isclose(row[name], val), f"Mismatch for metric '{name}' on store 1"

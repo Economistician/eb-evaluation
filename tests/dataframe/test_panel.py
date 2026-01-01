@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pandas as pd
 
@@ -42,14 +44,17 @@ def test_evaluate_panel_df_basic_structure():
     co = 1.0
     tau = 2.0
 
-    panel = evaluate_panel_df(
-        df=df,
-        levels=levels,
-        actual_col="actual_qty",
-        forecast_col="forecast_qty",
-        cu=cu,
-        co=co,
-        tau=tau,
+    panel = cast(
+        pd.DataFrame,
+        evaluate_panel_df(
+            df=df,
+            levels=levels,
+            actual_col="actual_qty",
+            forecast_col="forecast_qty",
+            cu=cu,
+            co=co,
+            tau=tau,
+        ),
     )
 
     # Required structural columns
@@ -88,25 +93,31 @@ def test_evaluate_panel_df_matches_hierarchy_values():
     tau = 2.0
 
     # Wide form per level
-    hier = evaluate_hierarchy_df(
-        df=df,
-        levels=levels,
-        actual_col="actual_qty",
-        forecast_col="forecast_qty",
-        cu=cu,
-        co=co,
-        tau=tau,
+    hier = cast(
+        dict[str, pd.DataFrame],
+        evaluate_hierarchy_df(
+            df=df,
+            levels=levels,
+            actual_col="actual_qty",
+            forecast_col="forecast_qty",
+            cu=cu,
+            co=co,
+            tau=tau,
+        ),
     )
 
     # Long-form panel
-    panel = evaluate_panel_df(
-        df=df,
-        levels=levels,
-        actual_col="actual_qty",
-        forecast_col="forecast_qty",
-        cu=cu,
-        co=co,
-        tau=tau,
+    panel = cast(
+        pd.DataFrame,
+        evaluate_panel_df(
+            df=df,
+            levels=levels,
+            actual_col="actual_qty",
+            forecast_col="forecast_qty",
+            cu=cu,
+            co=co,
+            tau=tau,
+        ),
     )
 
     # Metrics that panel is expected to melt
@@ -125,7 +136,7 @@ def test_evaluate_panel_df_matches_hierarchy_values():
         wide = hier[level_name]
 
         # For this level, filter the panel rows
-        panel_level = panel[panel["level"] == level_name]
+        panel_level = cast(pd.DataFrame, panel[panel["level"] == level_name])
 
         for _, wide_row in wide.iterrows():
             # Build a mask in the panel for this group's coordinates
@@ -133,7 +144,7 @@ def test_evaluate_panel_df_matches_hierarchy_values():
             for col in group_cols:
                 mask &= panel_level[col] == wide_row[col]
 
-            group_panel = panel_level[mask]
+            group_panel = cast(pd.DataFrame, panel_level[mask])
 
             for metric in metric_cols:
                 if metric not in wide.columns:
@@ -142,14 +153,15 @@ def test_evaluate_panel_df_matches_hierarchy_values():
                 expected_val = wide_row[metric]
 
                 # In the panel, this metric is a row with metric name and value
-                metric_rows = group_panel[group_panel["metric"] == metric]
+                metric_rows = cast(pd.DataFrame, group_panel[group_panel["metric"] == metric])
                 assert len(metric_rows) == 1, (
                     f"Expected exactly one panel row for "
                     f"level={level_name}, group={dict(wide_row[group_cols])}, "
                     f"metric={metric}"
                 )
 
-                panel_val = metric_rows["value"].iloc[0]
+                # Narrow to a scalar for type checkers.
+                panel_val = float(metric_rows["value"].iloc[0])
 
                 # Use np.isclose for numeric metrics
                 assert np.isclose(panel_val, expected_val), (
