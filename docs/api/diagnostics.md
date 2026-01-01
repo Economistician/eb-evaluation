@@ -177,4 +177,3 @@ For production gating, prefer the **governance API**.
 Diagnostics are the **structural truth layer** of Electric Barometer.
 
 They answer *what is valid* — not *what is best*.
-

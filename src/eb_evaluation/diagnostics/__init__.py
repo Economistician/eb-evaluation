@@ -42,8 +42,11 @@ dqc_to_dict
 
 GovernancePreset
     Named policy presets (conservative/balanced/aggressive) for default thresholds.
+get_governance_preset
+    Resolve a preset name into a GovernancePreset.
 preset_thresholds
-    Resolve a preset into (DQCThresholds, FPCThresholds).
+    Resolve a preset name (or preset instance) into (DQCThresholds, FPCThresholds).
+
 GovernanceStatus
     Traffic-light governance status (green/yellow/red).
 RALPolicy
@@ -95,11 +98,14 @@ from .fpc import (
 )
 from .governance import (
     GovernanceDecision,
-    GovernancePreset,
     GovernanceStatus,
     RALPolicy,
     TauPolicy,
     decide_governance,
+)
+from .presets import (
+    GovernancePreset,
+    get_governance_preset,
     preset_thresholds,
 )
 from .validate import (
@@ -126,6 +132,7 @@ __all__ = [
     "classify_fpc",
     "decide_governance",
     "dqc_to_dict",
+    "get_governance_preset",
     "preset_thresholds",
     "validate_dqc",
     "validate_fpc",

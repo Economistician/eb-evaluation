@@ -26,9 +26,9 @@ evaluation must be:
 
 Electric Barometer packages follow a consistent naming convention:
 
-- **Distribution names** (used with `pip install`) use hyphens  
+- **Distribution names** (used with `pip install`) use hyphens
   e.g. `pip install eb-evaluation`
-- **Python import paths** use underscores  
+- **Python import paths** use underscores
   e.g. `import eb_evaluation`
 
 This follows standard Python packaging practices and avoids ambiguity between
@@ -130,10 +130,10 @@ See: `docs/api/utils.md`
 
 ## Documentation structure
 
-- **API Reference**  
+- **API Reference**
   Automatically generated from NumPy-style docstrings using `mkdocstrings`.
 
-- **Conceptual & governance documentation**  
+- **Conceptual & governance documentation**
   Explains *why* diagnostics and decisions exist, not just how to call them.
 
 Formal theory, mathematical definitions, and research context live in the

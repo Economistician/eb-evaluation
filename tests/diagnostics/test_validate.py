@@ -8,7 +8,10 @@ logic; they test API correctness and pass-through behavior.
 
 from __future__ import annotations
 
+import pytest
+
 from eb_evaluation.diagnostics import (
+    preset_thresholds,
     validate_dqc,
     validate_fpc,
     validate_governance,
@@ -20,6 +23,7 @@ from eb_evaluation.diagnostics.fpc import (
     FPCThresholds,
 )
 from eb_evaluation.diagnostics.governance import (
+    GovernancePreset,
     GovernanceStatus,
     RALPolicy,
     TauPolicy,
@@ -196,3 +200,84 @@ def test_validate_governance_respects_threshold_overrides() -> None:
     assert decision.tau_policy == TauPolicy.GRID_UNITS
     assert decision.fpc_snapped.fpc_class in (FPCClass.COMPATIBLE, FPCClass.MARGINAL)
     assert decision.status in (GovernanceStatus.GREEN, GovernanceStatus.YELLOW)
+
+
+def test_validate_governance_accepts_preset_and_matches_preset_thresholds() -> None:
+    """
+    The validate_governance entrypoint should accept a preset and wire it into
+    the underlying thresholds resolution, producing the same behavior as
+    explicitly passing the preset's thresholds.
+    """
+    # Moderately grid-ish series that we can push over/under the snap boundary by preset.
+    y = [0.0] * 20 + [4.0] * 50 + [8.0] * 40 + [12.0] * 30
+
+    # Use compatible signals so policy outcome is driven by snap_required differences
+    # rather than FPC ambiguity.
+    fpc_ok = FPCSignals(
+        nsl_base=0.08,
+        nsl_ral=0.18,
+        delta_nsl=0.10,
+        hr_base_tau=0.10,
+        hr_ral_tau=0.08,
+        delta_hr_tau=-0.02,
+        ud=3.0,
+        cwsl_base=None,
+        cwsl_ral=None,
+        delta_cwsl=None,
+        intervals=140,
+        shortfall_intervals=None,
+    )
+
+    preset = GovernancePreset.BALANCED
+    dqc_thr, fpc_thr = preset_thresholds(preset)
+
+    by_preset = validate_governance(
+        y=y,
+        fpc_signals_raw=fpc_ok,
+        fpc_signals_snapped=fpc_ok,
+        preset=preset,
+    )
+    explicit = validate_governance(
+        y=y,
+        fpc_signals_raw=fpc_ok,
+        fpc_signals_snapped=fpc_ok,
+        dqc_thresholds=dqc_thr,
+        fpc_thresholds=fpc_thr,
+    )
+
+    assert by_preset.dqc.dqc_class == explicit.dqc.dqc_class
+    assert by_preset.snap_required == explicit.snap_required
+    assert by_preset.tau_policy == explicit.tau_policy
+    assert by_preset.ral_policy == explicit.ral_policy
+    assert by_preset.status == explicit.status
+
+
+def test_validate_governance_rejects_preset_and_explicit_thresholds_together() -> None:
+    """
+    Contract: callers should choose either a preset or explicit thresholds.
+    Mixing is ambiguous and should raise.
+    """
+    y = [0.0] * 10 + [4.0] * 20 + [8.0] * 20
+    fpc = FPCSignals(
+        nsl_base=0.08,
+        nsl_ral=0.18,
+        delta_nsl=0.10,
+        hr_base_tau=0.10,
+        hr_ral_tau=0.08,
+        delta_hr_tau=-0.02,
+        ud=3.0,
+        cwsl_base=None,
+        cwsl_ral=None,
+        delta_cwsl=None,
+        intervals=50,
+        shortfall_intervals=None,
+    )
+
+    with pytest.raises(ValueError):
+        validate_governance(
+            y=y,
+            fpc_signals_raw=fpc,
+            fpc_signals_snapped=fpc,
+            preset=GovernancePreset.BALANCED,
+            dqc_thresholds=DQCThresholds(),
+        )

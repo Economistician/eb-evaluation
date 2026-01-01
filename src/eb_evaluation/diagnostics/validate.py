@@ -16,6 +16,7 @@ from collections.abc import Sequence
 from .dqc import DQCResult, DQCThresholds, classify_dqc
 from .fpc import FPCResult, FPCSignals, FPCThresholds, classify_fpc
 from .governance import GovernanceDecision, decide_governance
+from .presets import GovernancePreset, preset_thresholds
 
 
 def validate_fpc(
@@ -71,6 +72,7 @@ def validate_governance(
     fpc_signals_snapped: FPCSignals | None = None,
     dqc_thresholds: DQCThresholds | None = None,
     fpc_thresholds: FPCThresholds | None = None,
+    preset: str | GovernancePreset | None = None,
 ) -> GovernanceDecision:
     """
     Run the governance decision contract (DQC x FPC) for a single entity.
@@ -80,6 +82,12 @@ def validate_governance(
     - Demand Quantization Compatibility (DQC): whether snapping to a demand grid is required
     - Forecast Primitive Compatibility (FPC): whether scale-based readiness adjustment (e.g., RAL)
       is structurally valid, evaluated in raw space and (when required) snapped space.
+
+    Presets
+    -------
+    If `preset` is provided, callers MUST NOT also pass explicit `dqc_thresholds`
+    and/or `fpc_thresholds`. Mixing a preset with explicit thresholds is
+    ambiguous and is rejected.
 
     Parameters
     ----------
@@ -95,6 +103,10 @@ def validate_governance(
         Optional thresholds for DQC classification.
     fpc_thresholds:
         Optional thresholds for FPC classification (applied to both raw and snapped signals).
+    preset:
+        Optional governance preset. Provide either:
+        - preset name: {"conservative", "balanced", "aggressive"}, or
+        - a GovernancePreset instance.
 
     Returns
     -------
@@ -104,11 +116,31 @@ def validate_governance(
         - FPC results (raw + snapped)
         - snapping and τ interpretation policy
         - readiness adjustment allowability policy (traffic-light status)
+
+    Raises
+    ------
+    ValueError
+        If `preset` is provided together with explicit thresholds.
+    TypeError
+        If `preset` is not a str or GovernancePreset.
+    ValueError
+        If `preset` is a str but not a known preset name.
     """
+    if preset is not None and (dqc_thresholds is not None or fpc_thresholds is not None):
+        raise ValueError(
+            "Ambiguous governance configuration: provide either `preset` OR explicit "
+            "`dqc_thresholds`/`fpc_thresholds`, not both."
+        )
+
+    dqc_thr = dqc_thresholds
+    fpc_thr = fpc_thresholds
+    if preset is not None:
+        dqc_thr, fpc_thr = preset_thresholds(preset)
+
     return decide_governance(
         y=y,
         fpc_signals_raw=fpc_signals_raw,
         fpc_signals_snapped=fpc_signals_snapped,
-        dqc_thresholds=dqc_thresholds,
-        fpc_thresholds=fpc_thresholds,
+        dqc_thresholds=dqc_thr,
+        fpc_thresholds=fpc_thr,
     )
