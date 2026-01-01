@@ -28,6 +28,7 @@ from eb_evaluation.diagnostics.governance import (
     RALPolicy,
     TauPolicy,
 )
+from eb_evaluation.diagnostics.validate import run_governance_gate
 
 
 def test_validate_fpc_delegates_and_returns_result() -> None:
@@ -281,3 +282,46 @@ def test_validate_governance_rejects_preset_and_explicit_thresholds_together() -
             preset=GovernancePreset.BALANCED,
             dqc_thresholds=DQCThresholds(),
         )
+
+
+def test_run_governance_gate_recommended_modes() -> None:
+    # 1) Continuous-like demand => continuous
+    y_cont = [0.1 * i for i in range(1, 101)]
+    # Baseline covers about half the intervals; RAL covers (almost) all.
+    yhat_base_cont = [v if (i % 2 == 0) else (v * 0.90) for i, v in enumerate(y_cont)]
+    yhat_ral_cont = [v * 1.01 for v in y_cont]
+    gate = run_governance_gate(
+        y=y_cont,
+        yhat_base=yhat_base_cont,
+        yhat_ral=yhat_ral_cont,
+        tau=2.0,
+        cwsl_r=None,
+    )
+    assert gate.recommended_mode == "continuous"
+
+    # 2) Quantized demand => pack_aware (snapping required)
+    y_q = [0.0] * 10 + [4.0] * 30 + [8.0] * 30 + [12.0] * 30
+    yhat_base_q = [0.0] * 10 + [4.0] * 30 + [4.0] * 30 + [8.0] * 30  # underbuild in later blocks
+    yhat_ral_q = y_q[:]  # perfect cover
+    gate_q = run_governance_gate(
+        y=y_q,
+        yhat_base=yhat_base_q,
+        yhat_ral=yhat_ral_q,
+        tau=1.0,
+        cwsl_r=None,
+    )
+    assert gate_q.recommended_mode in ("pack_aware", "reroute_discrete")
+    assert gate_q.decision.snap_required is True
+
+    # 3) Incompatible primitive => reroute_discrete
+    y_bad = [10.0] * 80
+    yhat_base_bad = [0.0] * 80
+    yhat_ral_bad = [0.0] * 80
+    gate_bad = run_governance_gate(
+        y=y_bad,
+        yhat_base=yhat_base_bad,
+        yhat_ral=yhat_ral_bad,
+        tau=0.5,
+        cwsl_r=None,
+    )
+    assert gate_bad.recommended_mode == "reroute_discrete"
