@@ -16,6 +16,8 @@ to any particular forecast baseline model or notebook wiring.
 
 from __future__ import annotations
 
+import pytest
+
 from eb_evaluation.diagnostics.dqc import DQCThresholds
 from eb_evaluation.diagnostics.fpc import FPCSignals, FPCThresholds
 from eb_evaluation.diagnostics.governance import (
@@ -25,6 +27,7 @@ from eb_evaluation.diagnostics.governance import (
     TauPolicy,
     decide_governance,
     preset_thresholds,
+    snap_to_grid,
 )
 
 
@@ -57,6 +60,18 @@ def _signals(
         intervals=100,
         shortfall_intervals=None,
     )
+
+
+def test_snap_to_grid_modes_and_invalid_mode() -> None:
+    values = [0.1, 4.0, 4.1]
+    unit = 4.0
+
+    assert snap_to_grid(values, unit, mode="ceil") == [4.0, 4.0, 8.0]
+    assert snap_to_grid(values, unit, mode="floor") == [0.0, 4.0, 4.0]
+    assert snap_to_grid(values, unit, mode="round") == [0.0, 4.0, 4.0]
+
+    with pytest.raises(ValueError):
+        snap_to_grid(values, unit, mode="nope")
 
 
 def test_preset_thresholds_returns_types() -> None:

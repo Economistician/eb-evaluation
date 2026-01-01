@@ -133,13 +133,13 @@ def _as_list(y: Sequence[float] | Iterable[float]) -> list[float]:
     return list(y)
 
 
-def snap_to_grid(values: Sequence[float], unit: float) -> list[float]:
+def snap_to_grid(values: Sequence[float], unit: float, *, mode: str = "ceil") -> list[float]:
     """
-    Snap values upward to the detected demand grid.
+    Snap values to the detected demand grid.
 
-    We use ceil snapping because readiness is a "build to cover" control in most
+    We default to ceil snapping because readiness is a "build to cover" control in most
     operational settings (i.e., avoid underbuild). Downstream systems may choose
-    alternate snapping (nearest/round) but governance should be conservative.
+    alternate snapping (round/floor) but governance should be conservative.
 
     Parameters
     ----------
@@ -147,6 +147,8 @@ def snap_to_grid(values: Sequence[float], unit: float) -> list[float]:
         Forecast values to snap.
     unit:
         Grid unit (granularity) to snap to. Must be > 0.
+    mode:
+        One of {"ceil", "round", "floor"}.
 
     Returns
     -------
@@ -156,6 +158,9 @@ def snap_to_grid(values: Sequence[float], unit: float) -> list[float]:
     if unit <= 0 or isnan(unit):
         return _as_list(values)
 
+    if mode not in {"ceil", "round", "floor"}:
+        raise ValueError(f"Invalid snap mode: {mode}")
+
     snapped: list[float] = []
     inv = 1.0 / unit
     for v in values:
@@ -163,11 +168,23 @@ def snap_to_grid(values: Sequence[float], unit: float) -> list[float]:
         if v is None or (isinstance(v, float) and isnan(v)):
             snapped.append(v)  # type: ignore[arg-type]
             continue
-        # ceil(v/unit)*unit without importing numpy
+
         q = v * inv
-        qi = int(q)
-        if q > float(qi):
-            qi += 1
+
+        if mode == "ceil":
+            # ceil(v/unit)*unit without importing numpy
+            qi = int(q)
+            if q > float(qi):
+                qi += 1
+
+        elif mode == "floor":
+            # floor(v/unit)*unit
+            qi = int(q)
+
+        else:  # mode == "round"
+            # nearest integer, half-up
+            qi = int(q + 0.5)
+
         snapped.append(float(qi) * unit)
     return snapped
 

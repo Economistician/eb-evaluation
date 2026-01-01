@@ -146,39 +146,39 @@ No blending, averaging, or fallback behavior is permitted.
 
 ### `RALPolicy`
 
-- `allow`  
+- `allow`
   Readiness adjustment is permitted in raw units.
 
-- `allow_after_snap`  
+- `allow_after_snap`
   Adjustment is permitted only after snapping forecasts to the demand grid.
 
-- `caution_after_snap`  
+- `caution_after_snap`
   Adjustment is structurally valid but marginal; apply conservatively.
 
-- `disallow`  
+- `disallow`
   Adjustment is structurally invalid and must not be applied.
 
 ---
 
 ### `TauPolicy`
 
-- `raw_units`  
+- `raw_units`
   Interpret tolerance τ in original forecast units.
 
-- `grid_units`  
+- `grid_units`
   Interpret tolerance τ in snapped (quantized) units.
 
 ---
 
 ### `GovernanceStatus`
 
-- `green`  
+- `green`
   Structurally valid and safe.
 
-- `yellow`  
+- `yellow`
   Marginal; constrain usage and monitor outcomes.
 
-- `red`  
+- `red`
   Structurally invalid.
 
 ---
@@ -201,7 +201,7 @@ Governance behavior may evolve **only** through:
 
 ## Design Principle
 
-> Forecast accuracy is not the objective.  
+> Forecast accuracy is not the objective.
 > Cost-aware readiness under structural validity is.
 
 Governance encodes this principle directly into software.
