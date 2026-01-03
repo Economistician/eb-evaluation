@@ -6,6 +6,8 @@ These tests are intentionally "contract tests":
 - verify error_policy behavior
 - verify metric routing (cwsl/rmse/wmape)
 - verify holdout + cv modes produce expected fitted state and audit fields
+- verify tie_breaker + tie_tol behavior
+- verify validate_inputs behavior (strict/coerce/off)
 
 They avoid testing sklearn correctness or metric math (owned by eb-metrics).
 """
@@ -52,6 +54,34 @@ class _BadFitModel:
 
     def predict(self, X):
         raise RuntimeError("boom")
+
+
+class _OneModelWithParamsSmall:
+    """Predicts all ones; exposes a small parameter set for 'simpler' tie-breaking."""
+
+    def get_params(self, deep: bool = True):
+        _ = deep
+        return {"alpha": 1.0}
+
+    def fit(self, X, y):
+        return self
+
+    def predict(self, X):
+        return np.ones(len(X), dtype=float)
+
+
+class _OneModelWithParamsLarge:
+    """Predicts all ones; exposes a larger parameter set for 'simpler' tie-breaking."""
+
+    def get_params(self, deep: bool = True):
+        _ = deep
+        return {"alpha": 1.0, "beta": 2.0, "gamma": 3.0}
+
+    def fit(self, X, y):
+        return self
+
+    def predict(self, X):
+        return np.ones(len(X), dtype=float)
 
 
 # ---------------------------------------------------------------------
@@ -263,3 +293,161 @@ def test_cv_invalid_cv_raises():
     eb = ElectricBarometer(models=models, selection_mode="cv", cv=10)
     with pytest.raises(ValueError, match=r"Invalid number of folds"):
         eb.fit(X, y, X, y)
+
+
+# ---------------------------------------------------------------------
+# Tie-breaking behavior
+# ---------------------------------------------------------------------
+
+
+def test_tie_breaker_name_picks_lexicographically_smallest():
+    """
+    Two models are exactly tied (both perfect); tie_breaker='name' should choose by name.
+    """
+    X_tr, y_tr, X_va, y_va = _holdout_data()
+
+    models = {"b": _OneModel(), "a": _OneModel()}
+    eb = ElectricBarometer(
+        models=models,
+        metric="cwsl",
+        error_policy="raise",
+        selection_mode="holdout",
+        tie_tol=0.0,
+        tie_breaker="name",
+    )
+
+    eb.fit(X_tr, y_tr, X_va, y_va)
+    assert eb.best_name_ == "a"
+
+
+def test_tie_breaker_simpler_prefers_smaller_param_surface():
+    """
+    Two models are exactly tied (both perfect); tie_breaker='simpler' should prefer the
+    one with fewer parameters (via get_params length heuristic).
+    """
+    X_tr, y_tr, X_va, y_va = _holdout_data()
+
+    models = {"small": _OneModelWithParamsSmall(), "large": _OneModelWithParamsLarge()}
+    eb = ElectricBarometer(
+        models=models,
+        metric="rmse",
+        error_policy="raise",
+        selection_mode="holdout",
+        tie_tol=0.0,
+        tie_breaker="simpler",
+    )
+
+    eb.fit(X_tr, y_tr, X_va, y_va)
+    assert eb.best_name_ == "small"
+
+
+def test_tie_tol_allows_near_ties_to_be_considered():
+    """
+    tie_tol should treat models within best + tol as tied.
+    Here both are perfect anyway, but this test asserts the parameter is accepted and
+    the selection remains deterministic under tie_breaker='name'.
+    """
+    X_tr, y_tr, X_va, y_va = _holdout_data()
+
+    models = {"b": _OneModel(), "a": _OneModel()}
+    eb = ElectricBarometer(
+        models=models,
+        metric="wmape",
+        error_policy="raise",
+        selection_mode="holdout",
+        tie_tol=0.5,
+        tie_breaker="name",
+    )
+
+    eb.fit(X_tr, y_tr, X_va, y_va)
+    assert eb.best_name_ == "a"
+
+
+# ---------------------------------------------------------------------
+# Input validation behavior
+# ---------------------------------------------------------------------
+
+
+def test_validate_inputs_strict_rejects_nan_in_y():
+    X_tr, y_tr, X_va, y_va = _holdout_data()
+    y_tr_bad = y_tr.copy()
+    y_tr_bad[0] = np.nan
+
+    models = {"one": _OneModel()}
+    eb = ElectricBarometer(
+        models=models,
+        selection_mode="holdout",
+        error_policy="raise",
+        validate_inputs="strict",
+    )
+
+    with pytest.raises(ValueError, match=r"contains NaN or inf"):
+        eb.fit(X_tr, y_tr_bad, X_va, y_va)
+
+
+def test_validate_inputs_strict_rejects_non_numeric_object_X():
+    """
+    Under strict validation, object dtype inputs are rejected (even if coercible).
+    """
+    X_tr, y_tr, X_va, y_va = _holdout_data()
+
+    # Make X_train object dtype (coercible strings)
+    X_tr_obj = X_tr.astype(object)
+    X_tr_obj[:, 0] = [str(int(v)) for v in X_tr[:, 0]]
+
+    models = {"one": _OneModel()}
+    eb = ElectricBarometer(
+        models=models,
+        selection_mode="holdout",
+        error_policy="raise",
+        validate_inputs="strict",
+    )
+
+    with pytest.raises(ValueError, match=r"must be numeric"):
+        eb.fit(X_tr_obj, y_tr, X_va, y_va)
+
+
+def test_validate_inputs_coerce_accepts_coercible_object_X():
+    """
+    Under coerce, object dtype inputs should be coerced to float (if possible).
+    """
+    X_tr, y_tr, X_va, y_va = _holdout_data()
+
+    X_tr_obj = X_tr.astype(object)
+    X_tr_obj[:, 0] = [str(int(v)) for v in X_tr[:, 0]]
+
+    X_va_obj = X_va.astype(object)
+    X_va_obj[:, 0] = [str(int(v)) for v in X_va[:, 0]]
+
+    models = {"one": _OneModel()}
+    eb = ElectricBarometer(
+        models=models,
+        selection_mode="holdout",
+        error_policy="raise",
+        validate_inputs="coerce",
+    )
+
+    eb.fit(X_tr_obj, y_tr, X_va_obj, y_va)
+    assert eb.best_name_ == "one"
+
+
+def test_validate_inputs_off_allows_nan_in_X_for_models_that_ignore_X():
+    """
+    With validate_inputs='off', we should not error on NaNs. Our toy model ignores X, so
+    selection should still succeed.
+    """
+    X_tr, y_tr, X_va, y_va = _holdout_data()
+
+    X_tr_bad = X_tr.copy()
+    X_tr_bad[0, 0] = np.nan
+
+    models = {"one": _OneModel()}
+    eb = ElectricBarometer(
+        models=models,
+        selection_mode="holdout",
+        error_policy="raise",
+        validate_inputs="off",
+    )
+
+    eb.fit(X_tr_bad, y_tr, X_va, y_va)
+    assert eb.best_name_ == "one"

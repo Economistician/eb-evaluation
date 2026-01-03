@@ -25,8 +25,9 @@ selected using a chosen selection objective on validation data (holdout) or acro
 
 from __future__ import annotations
 
+from collections.abc import Sized
 import time
-from typing import Any, Literal
+from typing import Any, Literal, cast
 import warnings
 
 import numpy as np
@@ -51,7 +52,9 @@ class ElectricBarometer:
     Operational preference is captured by asymmetric costs and the induced ratio:
 
     $$
+
         R = \frac{c_u}{c_o}
+
     $$
 
     Parameters
@@ -74,6 +77,22 @@ class ElectricBarometer:
         Selection objective used to choose the winning model.
         All metrics are computed and reported; this parameter determines which column
         is optimized.
+    tie_tol : float, default=0.0
+        Absolute tolerance applied to the selection metric when determining ties.
+        Any model with score <= (best_score + tie_tol) is considered tied.
+    tie_breaker : {"metric", "simpler", "name"}, default="metric"
+        How to break ties among models within ``tie_tol`` of the best score.
+
+        - ``"metric"``: choose the tied model with the lowest metric
+          (deterministic by insertion/index order)
+        - ``"simpler"``: prefer a "simpler" model based on a lightweight heuristic
+        - ``"name"``: choose lexicographically smallest model name
+    validate_inputs : {"strict", "coerce", "off"}, default="strict"
+        Input validation level.
+
+        - ``"strict"``: require numeric arrays and error on NaN/inf
+        - ``"coerce"``: coerce to float and error on NaN/inf
+        - ``"off"``: minimal validation (legacy behavior)
     error_policy : {"raise", "skip", "warn_skip"}, default="warn_skip"
         Behavior when a candidate model fails to fit/predict or otherwise errors.
 
@@ -151,6 +170,8 @@ class ElectricBarometer:
 
     _MetricName = Literal["cwsl", "rmse", "wmape"]
     _ErrorPolicy = Literal["raise", "skip", "warn_skip"]
+    _TieBreaker = Literal["metric", "simpler", "name"]
+    _ValidateInputs = Literal["strict", "coerce", "off"]
 
     _SCORE_COLUMNS: tuple[str, str, str] = ("CWSL", "RMSE", "wMAPE")
 
@@ -169,6 +190,9 @@ class ElectricBarometer:
         include: set[str] | None = None,
         exclude: set[str] | None = None,
         metric: _MetricName = "cwsl",
+        tie_tol: float = 0.0,
+        tie_breaker: _TieBreaker = "metric",
+        validate_inputs: _ValidateInputs = "strict",
         error_policy: _ErrorPolicy = "warn_skip",
         time_budget_s: float | None = None,
         per_model_time_budget_s: float | None = None,
@@ -194,6 +218,20 @@ class ElectricBarometer:
 
         if metric not in {"cwsl", "rmse", "wmape"}:
             raise ValueError(f"metric must be one of {{'cwsl','rmse','wmape'}}; got {metric!r}.")
+
+        if float(tie_tol) < 0:
+            raise ValueError("tie_tol must be non-negative.")
+
+        if tie_breaker not in {"metric", "simpler", "name"}:
+            raise ValueError(
+                f"tie_breaker must be one of {{'metric','simpler','name'}}; got {tie_breaker!r}."
+            )
+
+        if validate_inputs not in {"strict", "coerce", "off"}:
+            raise ValueError(
+                "validate_inputs must be one of {'strict','coerce','off'}; "
+                f"got {validate_inputs!r}."
+            )
 
         if error_policy not in {"raise", "skip", "warn_skip"}:
             raise ValueError(
@@ -248,6 +286,10 @@ class ElectricBarometer:
         self.random_state: int | None = random_state
 
         self.metric: ElectricBarometer._MetricName = metric
+        self.tie_tol: float = float(tie_tol)
+        self.tie_breaker: ElectricBarometer._TieBreaker = tie_breaker
+        self.validate_inputs: ElectricBarometer._ValidateInputs = validate_inputs
+
         self.error_policy: ElectricBarometer._ErrorPolicy = error_policy
         self.time_budget_s: float | None = None if time_budget_s is None else float(time_budget_s)
         self.per_model_time_budget_s: float | None = (
@@ -281,7 +323,9 @@ class ElectricBarometer:
             The ratio:
 
             $$
+
                 R = \frac{c_u}{c_o}
+
             $$
         """
         return self.cu / self.co
@@ -292,6 +336,45 @@ class ElectricBarometer:
             raise RuntimeError(f"Model {model_name!r} failed: {reason}")
         if self.error_policy == "warn_skip":
             warnings.warn(f"Skipping model {model_name!r}: {reason}", RuntimeWarning, stacklevel=2)
+
+    def _ensure_numeric_finite(
+        self,
+        *,
+        name: str,
+        arr: np.ndarray,
+        require_1d: bool = False,
+        require_2d: bool = False,
+    ) -> np.ndarray:
+        """
+        Validate numeric dtype and finite values according to validate_inputs.
+
+        - strict: require numeric dtype and finite
+        - coerce: coerce to float then require finite
+        - off: return as-is
+        """
+        if self.validate_inputs == "off":
+            return arr
+
+        if self.validate_inputs == "coerce":
+            arr2 = np.asarray(arr, dtype=float)
+        else:  # "strict"
+            arr2 = np.asarray(arr)
+            if not np.issubdtype(arr2.dtype, np.number):
+                raise ValueError(
+                    f"{name} must be numeric under validate_inputs='strict'; got {arr2.dtype}."
+                )
+
+        if require_1d and arr2.ndim != 1:
+            raise ValueError(f"{name} must be 1D; got shape {arr2.shape}.")
+        if require_2d and arr2.ndim != 2:
+            raise ValueError(f"{name} must be 2D; got shape {arr2.shape}.")
+
+        if not np.all(np.isfinite(arr2)):
+            raise ValueError(
+                f"{name} contains NaN or inf under validate_inputs={self.validate_inputs!r}."
+            )
+
+        return arr2
 
     def _score_row(
         self,
@@ -356,6 +439,105 @@ class ElectricBarometer:
             raise RuntimeError("No valid candidate scores were produced; all models failed.")
         return str(s.idxmin())
 
+    def _model_complexity_score(self, model: Any) -> float:
+        """
+        Best-effort heuristic for "simpler" tie-breaking.
+
+        Lower is simpler. This is intentionally lightweight and stable (not perfect).
+        """
+        score = 0.0
+
+        get_params = getattr(model, "get_params", None)
+        if callable(get_params):
+            try:
+                params = get_params(deep=True)
+
+                # Pyright-friendly: only call len() when the returned object is Sized.
+                # (sklearn typically returns dict[str, Any].)
+                if isinstance(params, Sized):
+                    score += float(len(cast(Sized, params)))
+                else:
+                    score += 1000.0
+            except Exception:
+                score += 1000.0
+
+        for attr in ("n_estimators", "iterations", "num_iterations", "max_iter", "n_iter_"):
+            if hasattr(model, attr):
+                try:
+                    val = getattr(model, attr)
+                    if val is not None:
+                        score += float(val)
+                except Exception:
+                    score += 50.0
+
+        for attr in ("max_depth", "depth", "num_leaves"):
+            if hasattr(model, attr):
+                try:
+                    val = getattr(model, attr)
+                    if val is not None:
+                        v = float(val)
+                        if v > 0:
+                            score += v
+                except Exception:
+                    score += 10.0
+
+        return score
+
+    def _select_best_name(self, results: pd.DataFrame) -> str:
+        """
+        Select the best model name using metric + tie-breaking rules.
+
+        Ties are defined as all candidates with score <= best_score + tie_tol.
+        """
+        select_col = self._select_column_name()
+
+        selected = results[select_col]
+        if not isinstance(selected, pd.Series):
+            raise RuntimeError(f"Expected Series for selection column {select_col!r}.")
+
+        # Reuse existing NaN/inf-safe conversion logic, but keep the cleaned Series for ties.
+        numeric = pd.to_numeric(selected, errors="coerce")
+        if isinstance(numeric, pd.Series):
+            s = numeric
+        else:
+            idx = getattr(selected, "index", None)
+            s = pd.Series(numeric, index=idx)
+
+        s = s.replace([np.inf, -np.inf], np.nan).dropna()
+        if s.empty:
+            raise RuntimeError("No valid candidate scores were produced; all models failed.")
+
+        best_score = float(s.min())
+        tol = float(self.tie_tol)
+
+        # Use `.loc[...]` to force Series output under pandas-stubs/pyright (avoid ndarray typing).
+        tied = s.loc[s <= (best_score + tol)]
+        tied_names = [str(i) for i in tied.index]
+
+        if len(tied_names) == 1:
+            return tied_names[0]
+
+        if self.tie_breaker == "name":
+            return sorted(tied_names)[0]
+
+        if self.tie_breaker == "simpler":
+            scored: list[tuple[float, str]] = []
+            for name in tied_names:
+                base = self.models.get(name)
+                if base is None:
+                    continue
+                scored.append((self._model_complexity_score(base), name))
+
+            if scored:
+                scored.sort(key=lambda t: (t[0], t[1]))
+                return scored[0][1]
+
+            # Defensive fallback
+            return sorted(tied_names)[0]
+
+        # "metric" (default): deterministic by Series index order
+        return str(s.idxmin())
+
     def _cv_evaluate_models(
         self,
         X: np.ndarray,
@@ -377,6 +559,11 @@ class ElectricBarometer:
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
 
+        if self.validate_inputs != "off":
+            X_arr = self._ensure_numeric_finite(name="X", arr=X_arr, require_2d=True)
+            y_arr = self._ensure_numeric_finite(name="y", arr=y_arr, require_1d=True)
+            y_arr = np.asarray(y_arr, dtype=float)
+
         n_samples = X_arr.shape[0]
         if y_arr.shape[0] != n_samples:
             raise ValueError(
@@ -390,6 +577,12 @@ class ElectricBarometer:
         sw_arr: np.ndarray | None = None
         if sample_weight is not None:
             sw_arr = np.asarray(sample_weight, dtype=float)
+            if self.validate_inputs != "off":
+                sw_arr = self._ensure_numeric_finite(
+                    name="sample_weight", arr=sw_arr, require_1d=True
+                )
+                sw_arr = np.asarray(sw_arr, dtype=float)
+
             if sw_arr.shape[0] != n_samples:
                 raise ValueError(
                     f"sample_weight must have length {n_samples}; got {sw_arr.shape[0]}."
@@ -522,6 +715,14 @@ class ElectricBarometer:
             if X_va.ndim == 1:
                 X_va = X_va.reshape(-1, 1)
 
+            if self.validate_inputs != "off":
+                X_tr = self._ensure_numeric_finite(name="X_train", arr=X_tr, require_2d=True)
+                y_tr = self._ensure_numeric_finite(name="y_train", arr=y_tr, require_1d=True)
+                X_va = self._ensure_numeric_finite(name="X_val", arr=X_va, require_2d=True)
+                y_va = self._ensure_numeric_finite(name="y_val", arr=y_va, require_1d=True)
+                y_tr = np.asarray(y_tr, dtype=float)
+                y_va = np.asarray(y_va, dtype=float)
+
             if y_tr.shape[0] != X_tr.shape[0]:
                 raise ValueError(
                     f"X_train and y_train must have matching rows; got {X_tr.shape[0]} and {y_tr.shape[0]}."
@@ -534,6 +735,12 @@ class ElectricBarometer:
             sw_val: np.ndarray | None = None
             if sample_weight_val is not None:
                 sw_val = np.asarray(sample_weight_val, dtype=float)
+                if self.validate_inputs != "off":
+                    sw_val = self._ensure_numeric_finite(
+                        name="sample_weight_val", arr=sw_val, require_1d=True
+                    )
+                    sw_val = np.asarray(sw_val, dtype=float)
+
                 if sw_val.shape[0] != y_va.shape[0]:
                     raise ValueError(
                         f"sample_weight_val must have length {y_va.shape[0]}; got {sw_val.shape[0]}."
@@ -613,13 +820,7 @@ class ElectricBarometer:
             )
             self.results_ = results
 
-            select_col = self._select_column_name()
-            selected = results[select_col]
-            if not isinstance(selected, pd.Series):
-                # Defensive for pandas typing/stubs; runtime should always be Series here.
-                raise RuntimeError(f"Expected Series for selection column {select_col!r}.")
-
-            best_name = self._argmin_with_nan_safe(selected)
+            best_name = self._select_best_name(results)
             self.best_name_ = best_name
 
             row = results.loc[best_name]
@@ -655,12 +856,7 @@ class ElectricBarometer:
         )
         self.results_ = results
 
-        select_col = self._select_column_name()
-        selected = results[select_col]
-        if not isinstance(selected, pd.Series):
-            raise RuntimeError(f"Expected Series for selection column {select_col!r}.")
-
-        best_name = self._argmin_with_nan_safe(selected)
+        best_name = self._select_best_name(results)
         self.best_name_ = best_name
 
         row = results.loc[best_name]
@@ -712,7 +908,8 @@ class ElectricBarometer:
         best = self.best_name_ if self.best_name_ is not None else "None"
         return (
             f"ElectricBarometer(models={model_names}, "
-            f"metric={self.metric!r}, error_policy={self.error_policy!r}, "
+            f"metric={self.metric!r}, tie_tol={self.tie_tol}, tie_breaker={self.tie_breaker!r}, "
+            f"validate_inputs={self.validate_inputs!r}, error_policy={self.error_policy!r}, "
             f"cu={self.cu}, co={self.co}, tau={self.tau}, "
             f"refit_on_full={self.refit_on_full}, "
             f"selection_mode={self.selection_mode!r}, "
