@@ -234,7 +234,50 @@ class AutoEngine:
 
         return models
 
-    def build_selector(self, X: np.ndarray, y: np.ndarray) -> ElectricBarometer:
+    def available_models(self) -> list[str]:
+        """
+        List the model names that would be included in the zoo for this AutoEngine.
+
+        This reflects:
+        - the selected ``speed`` preset, and
+        - which optional packages are available in the current environment.
+
+        Returns
+        -------
+        list[str]
+            Model names in deterministic insertion order.
+        """
+        return list(self._make_base_models().keys())
+
+    def build_zoo(self) -> dict[str, Any]:
+        """
+        Build and return the unfitted model zoo.
+
+        Returns
+        -------
+        dict[str, Any]
+            Mapping of ``{name: estimator}`` for candidate regressors.
+
+        Notes
+        -----
+        The returned dict is a shallow copy so callers may filter/mutate it without
+        affecting future calls.
+        """
+        return dict(self._make_base_models())
+
+    def build_selector(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        *,
+        include: set[str] | None = None,
+        exclude: set[str] | None = None,
+        metric: ElectricBarometer._MetricName = "cwsl",
+        error_policy: ElectricBarometer._ErrorPolicy = "warn_skip",
+        time_budget_s: float | None = None,
+        per_model_time_budget_s: float | None = None,
+        refit_on_full: bool = False,
+    ) -> ElectricBarometer:
         """
         Build an unfitted ElectricBarometer configured with the default model zoo.
 
@@ -244,6 +287,21 @@ class AutoEngine:
             Feature matrix. Currently unused by the builder (reserved for future heuristics).
         y
             Target vector. Currently unused by the builder (reserved for future heuristics).
+        include
+            Optional allowlist of model names to include from the zoo.
+        exclude
+            Optional blocklist of model names to exclude from the zoo.
+        metric
+            Selection objective used by ElectricBarometer to choose the winning model.
+        error_policy
+            Behavior when a candidate model fails to fit/predict or otherwise errors.
+        time_budget_s
+            Optional wall-clock time budget (seconds) for the full selection run.
+        per_model_time_budget_s
+            Optional wall-clock time budget (seconds) per candidate model.
+        refit_on_full
+            Forwarded to ElectricBarometer; controls whether the winning model is refit on
+            train+validation in holdout mode.
 
         Returns
         -------
@@ -254,6 +312,8 @@ class AutoEngine:
 
         models = self._make_base_models()
 
+        # Delegate include/exclude validation and filtering to ElectricBarometer
+        # to avoid duplicating the filtering rules in two places.
         return ElectricBarometer(
             models=models,
             cu=self.cu,
@@ -262,6 +322,13 @@ class AutoEngine:
             selection_mode=self.selection_mode,
             cv=self.cv,
             random_state=self.random_state,
+            include=include,
+            exclude=exclude,
+            metric=metric,
+            error_policy=error_policy,
+            time_budget_s=time_budget_s,
+            per_model_time_budget_s=per_model_time_budget_s,
+            refit_on_full=refit_on_full,
         )
 
     def __repr__(self) -> str:

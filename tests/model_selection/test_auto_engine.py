@@ -67,9 +67,6 @@ def test_optional_dependencies_are_gated(monkeypatch):
     engine = AutoEngine(cu=2.0, co=1.0, speed="balanced")  # type: ignore[arg-type]
 
     def fake_has_package(name: str) -> bool:
-        # Pretend that no optional libs are available
-        if name in {"xgboost", "lightgbm", "catboost"}:
-            return False
         return False
 
     monkeypatch.setattr(engine, "_has_package", fake_has_package)
@@ -83,6 +80,61 @@ def test_optional_dependencies_are_gated(monkeypatch):
     # Baselines should still be there
     assert "dummy_mean" in models
     assert "linear" in models
+
+
+def test_available_models_matches_built_zoo(monkeypatch):
+    """
+    available_models() should reflect the same keys as the built zoo, and
+    should remain deterministic under gating of optional dependencies.
+    """
+    engine = AutoEngine(cu=2.0, co=1.0, speed="balanced")  # type: ignore[arg-type]
+
+    def fake_has_package(name: str) -> bool:
+        return False
+
+    monkeypatch.setattr(engine, "_has_package", fake_has_package)
+
+    available = engine.available_models()
+    zoo = engine.build_zoo()
+
+    assert available == list(zoo.keys())
+
+    # Core models should always be present
+    for name in ["dummy_mean", "linear", "ridge", "lasso", "rf", "gbr"]:
+        assert name in available
+
+
+def test_build_selector_supports_include_exclude(monkeypatch):
+    """
+    build_selector should filter the zoo based on include/exclude.
+    """
+    X, y = _dummy_data()
+    engine = AutoEngine(cu=2.0, co=1.0, speed="balanced")  # type: ignore[arg-type]
+
+    def fake_has_package(name: str) -> bool:
+        return False
+
+    monkeypatch.setattr(engine, "_has_package", fake_has_package)
+
+    eb = engine.build_selector(X, y, include={"linear", "ridge", "rf"}, exclude={"rf"})
+
+    assert set(eb.models.keys()) == {"linear", "ridge"}
+
+
+def test_build_selector_include_unknown_raises(monkeypatch):
+    """
+    Unknown include names should raise (validated by AutoEngine against zoo keys).
+    """
+    X, y = _dummy_data()
+    engine = AutoEngine(cu=2.0, co=1.0, speed="fast")  # type: ignore[arg-type]
+
+    def fake_has_package(name: str) -> bool:
+        return False
+
+    monkeypatch.setattr(engine, "_has_package", fake_has_package)
+
+    with pytest.raises(ValueError):
+        engine.build_selector(X, y, include={"does_not_exist"})
 
 
 def test_autoengine_repr_round_trips_core_config():

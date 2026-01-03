@@ -20,12 +20,14 @@ Notes
 -----
 ElectricBarometer is intentionally a selector (not a trainer that optimizes CWSL directly).
 Candidate models are trained using their native objectives (e.g., squared error) and are
-selected using CWSL on validation data (holdout) or across folds (CV).
+selected using a chosen selection objective on validation data (holdout) or across folds (CV).
 """
 
 from __future__ import annotations
 
-from typing import Any
+import time
+from typing import Any, Literal
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -33,20 +35,18 @@ import pandas as pd
 from eb_adapters import clone_model as _clone_model
 from eb_metrics.metrics import cwsl, rmse, wmape
 
-from .compare import select_model_by_cwsl
-
 
 class ElectricBarometer:
     r"""
-    Cost-aware selector that chooses the best model by minimizing CWSL.
+    Cost-aware selector that chooses the best model by minimizing a selection objective.
 
     ElectricBarometer evaluates each candidate model on either:
 
     - a provided train/validation split (``selection_mode="holdout"``), or
     - K-fold cross-validation on the provided dataset (``selection_mode="cv"``),
 
-    and selects the model with the lowest Cost-Weighted Service Loss (CWSL).
-    For interpretability, it also reports reference symmetric diagnostics (RMSE, wMAPE).
+    and selects the model with the best (lowest) score under the chosen selection objective.
+    For interpretability, it also reports reference diagnostics (CWSL, RMSE, wMAPE).
 
     Operational preference is captured by asymmetric costs and the induced ratio:
 
@@ -64,6 +64,31 @@ class ElectricBarometer:
 
         Models can be scikit-learn regressors/pipelines or EB adapters implementing
         the same interface.
+    include : set[str] | None, default=None
+        Optional allowlist of model names to include from ``models``. If provided,
+        only these names are retained (after validation).
+    exclude : set[str] | None, default=None
+        Optional blocklist of model names to exclude from ``models`` (after validation).
+        Applied after ``include`` filtering.
+    metric : {"cwsl", "rmse", "wmape"}, default="cwsl"
+        Selection objective used to choose the winning model.
+        All metrics are computed and reported; this parameter determines which column
+        is optimized.
+    error_policy : {"raise", "skip", "warn_skip"}, default="warn_skip"
+        Behavior when a candidate model fails to fit/predict or otherwise errors.
+
+        - ``"raise"``: raise immediately
+        - ``"skip"``: skip failing models silently (recorded in ``failures_``)
+        - ``"warn_skip"``: warn and skip (recorded in ``failures_``)
+    time_budget_s : float | None, default=None
+        Optional wall-clock time budget (seconds) for the full selection run. If exceeded,
+        remaining models are not evaluated.
+        Note: this cannot forcibly interrupt a model already running; it gates starting
+        new candidates and can mark a candidate as timed out if it exceeds budgets.
+    per_model_time_budget_s : float | None, default=None
+        Optional wall-clock time budget (seconds) per candidate model (across folds in CV).
+        If exceeded, that model is marked as timed out and skipped (or raises under
+        ``error_policy="raise"``).
     cu : float, default=2.0
         Underbuild (shortfall) cost per unit. Must be strictly positive.
     co : float, default=1.0
@@ -73,12 +98,12 @@ class ElectricBarometer:
         into selection reporting. Currently not used in the selection criterion.
     training_mode : {"selection_only"}, default="selection_only"
         Training behavior. In the current implementation, candidate models are trained
-        using their native objectives and only selection is cost-aware.
+        using their native objectives and only selection is external.
     refit_on_full : bool, default=False
         Refit behavior in holdout mode:
 
-        - If True, after selecting the best model by validation CWSL, refit a fresh clone
-          of the winning model on train and validation.
+        - If True, after selecting the best model by the chosen metric on validation data,
+          refit a fresh clone of the winning model on train and validation.
         - If False, keep the fitted winning model as trained on the training split
           (and selected on the validation split).
 
@@ -103,15 +128,31 @@ class ElectricBarometer:
     results_ : pandas.DataFrame | None
         Per-model comparison table.
 
-        - In holdout mode: output of ``select_model_by_cwsl``.
-        - In CV mode: mean scores across folds with columns ``["CWSL", "RMSE", "wMAPE"]``.
+        - In holdout mode: one row per model with columns ``["CWSL", "RMSE", "wMAPE"]``
+        - In CV mode: mean scores across folds with the same columns
+    failures_ : dict[str, str]
+        Mapping of model name to a failure reason for models that errored or timed out.
     validation_cwsl_ : float | None
         CWSL of the winning model on validation (holdout) or mean across folds (CV).
     validation_rmse_ : float | None
         RMSE of the winning model on validation (holdout) or mean across folds (CV).
     validation_wmape_ : float | None
         wMAPE of the winning model on validation (holdout) or mean across folds (CV).
+
+    candidate_names_ : list[str]
+        Names of candidate models remaining after include/exclude filtering.
+    evaluated_names_ : list[str]
+        Names of models that were actually attempted during the most recent ``fit``.
+    stopped_early_ : bool
+        Whether evaluation stopped early due to the global time budget.
+    stop_reason_ : str | None
+        If ``stopped_early_`` is True, a human-readable reason string.
     """
+
+    _MetricName = Literal["cwsl", "rmse", "wmape"]
+    _ErrorPolicy = Literal["raise", "skip", "warn_skip"]
+
+    _SCORE_COLUMNS: tuple[str, str, str] = ("CWSL", "RMSE", "wMAPE")
 
     def __init__(
         self,
@@ -124,6 +165,13 @@ class ElectricBarometer:
         selection_mode: str = "holdout",
         cv: int = 3,
         random_state: int | None = None,
+        *,
+        include: set[str] | None = None,
+        exclude: set[str] | None = None,
+        metric: _MetricName = "cwsl",
+        error_policy: _ErrorPolicy = "warn_skip",
+        time_budget_s: float | None = None,
+        per_model_time_budget_s: float | None = None,
     ) -> None:
         if not models:
             raise ValueError("ElectricBarometer requires at least one candidate model.")
@@ -144,7 +192,52 @@ class ElectricBarometer:
         if selection_mode == "cv" and cv < 2:
             raise ValueError(f"In CV mode, cv must be at least 2; got {cv!r}.")
 
-        self.models: dict[str, Any] = models
+        if metric not in {"cwsl", "rmse", "wmape"}:
+            raise ValueError(f"metric must be one of {{'cwsl','rmse','wmape'}}; got {metric!r}.")
+
+        if error_policy not in {"raise", "skip", "warn_skip"}:
+            raise ValueError(
+                f"error_policy must be one of {{'raise','skip','warn_skip'}}; got {error_policy!r}."
+            )
+
+        if time_budget_s is not None and float(time_budget_s) <= 0:
+            raise ValueError("time_budget_s must be positive when provided.")
+
+        if per_model_time_budget_s is not None and float(per_model_time_budget_s) <= 0:
+            raise ValueError("per_model_time_budget_s must be positive when provided.")
+
+        # ---- include/exclude filtering (validated, deterministic) ----
+        model_names = set(models.keys())
+
+        if include is not None:
+            include_set = set(include)
+            unknown = sorted(include_set - model_names)
+            if unknown:
+                raise ValueError(
+                    "include contains unknown model names: "
+                    f"{unknown}. Available: {sorted(model_names)}"
+                )
+            filtered: dict[str, Any] = {k: models[k] for k in models if k in include_set}
+        else:
+            filtered = dict(models)
+
+        if exclude is not None:
+            exclude_set = set(exclude)
+            unknown = sorted(exclude_set - model_names)
+            if unknown:
+                raise ValueError(
+                    "exclude contains unknown model names: "
+                    f"{unknown}. Available: {sorted(model_names)}"
+                )
+            filtered = {k: v for k, v in filtered.items() if k not in exclude_set}
+
+        if not filtered:
+            raise ValueError(
+                "No candidate models remain after include/exclude filtering. "
+                f"Original: {sorted(models.keys())}"
+            )
+
+        self.models: dict[str, Any] = filtered
         self.cu: float = float(cu)
         self.co: float = float(co)
         self.tau: float = float(tau)
@@ -154,14 +247,28 @@ class ElectricBarometer:
         self.cv: int = int(cv)
         self.random_state: int | None = random_state
 
+        self.metric: ElectricBarometer._MetricName = metric
+        self.error_policy: ElectricBarometer._ErrorPolicy = error_policy
+        self.time_budget_s: float | None = None if time_budget_s is None else float(time_budget_s)
+        self.per_model_time_budget_s: float | None = (
+            None if per_model_time_budget_s is None else float(per_model_time_budget_s)
+        )
+
         # Fitted state
         self.best_name_: str | None = None
         self.best_model_: Any | None = None
         self.results_: pd.DataFrame | None = None
+        self.failures_: dict[str, str] = {}
 
         self.validation_cwsl_: float | None = None
         self.validation_rmse_: float | None = None
         self.validation_wmape_: float | None = None
+
+        # Run audit state (populated/reset on each fit)
+        self.candidate_names_: list[str] = list(self.models.keys())
+        self.evaluated_names_: list[str] = []
+        self.stopped_early_: bool = False
+        self.stop_reason_: str | None = None
 
     @property
     def r_(self) -> float:
@@ -179,6 +286,76 @@ class ElectricBarometer:
         """
         return self.cu / self.co
 
+    def _handle_failure(self, *, model_name: str, reason: str) -> None:
+        self.failures_[model_name] = reason
+        if self.error_policy == "raise":
+            raise RuntimeError(f"Model {model_name!r} failed: {reason}")
+        if self.error_policy == "warn_skip":
+            warnings.warn(f"Skipping model {model_name!r}: {reason}", RuntimeWarning, stacklevel=2)
+
+    def _score_row(
+        self,
+        *,
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        sample_weight: np.ndarray | None,
+    ) -> dict[str, float]:
+        y_true_f = np.asarray(y_true, dtype=float)
+        y_pred_f = np.asarray(y_pred, dtype=float)
+
+        out: dict[str, float] = {}
+        out["CWSL"] = float(
+            cwsl(
+                y_true=y_true_f,
+                y_pred=y_pred_f,
+                cu=self.cu,
+                co=self.co,
+                sample_weight=sample_weight,
+            )
+        )
+        out["RMSE"] = float(rmse(y_true=y_true_f, y_pred=y_pred_f))
+        out["wMAPE"] = float(wmape(y_true=y_true_f, y_pred=y_pred_f))
+        return out
+
+    def _select_column_name(self) -> str:
+        # Metric names are lower-case; result columns use conventional casing.
+        if self.metric == "cwsl":
+            return "CWSL"
+        if self.metric == "rmse":
+            return "RMSE"
+        return "wMAPE"
+
+    def _empty_results(self) -> pd.DataFrame:
+        """
+        Create an empty results table with stable schema and index name.
+
+        This avoids pandas-stubs/pyright false positives around `DataFrame(columns=[...])`
+        while keeping runtime behavior identical.
+        """
+        return pd.DataFrame(
+            {
+                "CWSL": pd.Series(dtype=float),
+                "RMSE": pd.Series(dtype=float),
+                "wMAPE": pd.Series(dtype=float),
+            },
+            index=pd.Index([], name="model"),
+        )
+
+    def _argmin_with_nan_safe(self, series: pd.Series) -> str:
+        # pandas typing is broad; force Series-shaped output for pyright/pandas-stubs.
+        numeric = pd.to_numeric(series, errors="coerce")
+        if isinstance(numeric, pd.Series):
+            s = numeric
+        else:
+            # Fallback: preserve the original index if available; otherwise default.
+            idx = getattr(series, "index", None)
+            s = pd.Series(numeric, index=idx)
+
+        s = s.replace([np.inf, -np.inf], np.nan).dropna()
+        if s.empty:
+            raise RuntimeError("No valid candidate scores were produced; all models failed.")
+        return str(s.idxmin())
+
     def _cv_evaluate_models(
         self,
         X: np.ndarray,
@@ -188,31 +365,11 @@ class ElectricBarometer:
         """
         Evaluate candidate models via simple K-fold CV and return mean scores.
 
-        Parameters
-        ----------
-        X : numpy.ndarray of shape (n_samples, n_features)
-            Feature matrix.
-        y : numpy.ndarray of shape (n_samples,)
-            Target vector.
-        sample_weight : numpy.ndarray of shape (n_samples,), optional
-            Optional non-negative weights. When provided, weights are subset to each
-            fold's validation indices and passed to CWSL. RMSE and wMAPE remain
-            unweighted in the current eb-metrics implementation.
-
-        Returns
-        -------
-        pandas.DataFrame
-            DataFrame indexed by model name with columns:
-
-            - ``"CWSL"``: mean CWSL across folds
-            - ``"RMSE"``: mean RMSE across folds
-            - ``"wMAPE"``: mean wMAPE across folds
-
-        Raises
-        ------
-        ValueError
-            If ``cv`` is invalid for the number of samples, or if sample_weight has
-            an incompatible length.
+        Notes on budgets
+        ----------------
+        Budgets are enforced as gating/marking checks and cannot forcibly interrupt a fit
+        mid-call. If a model exceeds ``per_model_time_budget_s`` across folds, it is marked
+        as timed out and skipped (or raises under ``error_policy="raise"``).
         """
         X_arr = np.asarray(X)
         y_arr = np.asarray(y, dtype=float)
@@ -256,45 +413,82 @@ class ElectricBarometer:
 
         rows: list[dict[str, float | str]] = []
 
+        run_start = time.perf_counter()
+
         for model_name, base_model in self.models.items():
+            self.evaluated_names_.append(str(model_name))
+
+            if (
+                self.time_budget_s is not None
+                and (time.perf_counter() - run_start) > self.time_budget_s
+            ):
+                self.stopped_early_ = True
+                self.stop_reason_ = f"global time budget exceeded ({self.time_budget_s}s)"
+                self._handle_failure(
+                    model_name=str(model_name),
+                    reason=f"global time budget exceeded ({self.time_budget_s}s); stopping evaluation",
+                )
+                break  # remaining models not evaluated
+
+            model_start = time.perf_counter()
+
             cwsl_scores: list[float] = []
             rmse_scores: list[float] = []
             wmape_scores: list[float] = []
 
-            for train_idx, val_idx in folds:
+            model_failed = False
+
+            for fold_i, (train_idx, val_idx) in enumerate(folds):
+                if self.per_model_time_budget_s is not None:
+                    elapsed_model = time.perf_counter() - model_start
+                    if elapsed_model > self.per_model_time_budget_s:
+                        self._handle_failure(
+                            model_name=str(model_name),
+                            reason=(
+                                f"per-model time budget exceeded ({self.per_model_time_budget_s}s) "
+                                f"during CV (fold {fold_i + 1}/{k})"
+                            ),
+                        )
+                        model_failed = True
+                        break
+
                 X_tr, X_va = X_arr[train_idx], X_arr[val_idx]
                 y_tr, y_va = y_arr[train_idx], y_arr[val_idx]
-
-                model = _clone_model(base_model)
-                model.fit(X_tr, y_tr)
-                y_pred = np.asarray(model.predict(X_va), dtype=float)
-
                 sw_va = sw_arr[val_idx] if sw_arr is not None else None
 
-                cwsl_scores.append(
-                    float(
-                        cwsl(
-                            y_true=y_va,
-                            y_pred=y_pred,
-                            cu=self.cu,
-                            co=self.co,
-                            sample_weight=sw_va,
-                        )
+                try:
+                    model = _clone_model(base_model)
+                    model.fit(X_tr, y_tr)
+                    y_pred = np.asarray(model.predict(X_va), dtype=float)
+
+                    scores = self._score_row(y_true=y_va, y_pred=y_pred, sample_weight=sw_va)
+                    cwsl_scores.append(scores["CWSL"])
+                    rmse_scores.append(scores["RMSE"])
+                    wmape_scores.append(scores["wMAPE"])
+                except Exception as e:
+                    self._handle_failure(
+                        model_name=str(model_name),
+                        reason=f"{type(e).__name__}: {e}",
                     )
-                )
-                rmse_scores.append(float(rmse(y_true=y_va, y_pred=y_pred)))
-                wmape_scores.append(float(wmape(y_true=y_va, y_pred=y_pred)))
+                    model_failed = True
+                    break
+
+            if model_failed:
+                continue
 
             rows.append(
                 {
-                    "model": model_name,
+                    "model": str(model_name),
                     "CWSL": float(np.mean(cwsl_scores)),
                     "RMSE": float(np.mean(rmse_scores)),
                     "wMAPE": float(np.mean(wmape_scores)),
                 }
             )
 
-        return pd.DataFrame(rows).set_index("model")
+        if not rows:
+            return self._empty_results()
+
+        return pd.DataFrame.from_records(rows).set_index("model")
 
     def fit(
         self,
@@ -307,56 +501,153 @@ class ElectricBarometer:
         refit_on_full: bool | None = None,
     ) -> ElectricBarometer:
         """
-        Fit candidate models and select the best one by minimizing CWSL.
+        Fit candidate models and select the best one by minimizing the chosen metric.
         """
-        _ = sample_weight_val  # reserved for future use
+        # Reset run-audit state for this fit call
+        self.candidate_names_ = list(self.models.keys())
+        self.evaluated_names_ = []
+        self.stopped_early_ = False
+        self.stop_reason_ = None
 
         refit_flag = self.refit_on_full if refit_on_full is None else bool(refit_on_full)
 
         if self.selection_mode == "holdout":
-            best_name, best_model, results = select_model_by_cwsl(
-                models=self.models,
-                X_train=X_train,
-                y_train=y_train,
-                X_val=X_val,
-                y_val=y_val,
-                cu=self.cu,
-                co=self.co,
-                sample_weight_val=None,
-            )
+            X_tr = np.asarray(X_train)
+            y_tr = np.asarray(y_train, dtype=float)
+            X_va = np.asarray(X_val)
+            y_va = np.asarray(y_val, dtype=float)
 
-            self.best_name_ = best_name
-            self.results_ = results
+            if X_tr.ndim == 1:
+                X_tr = X_tr.reshape(-1, 1)
+            if X_va.ndim == 1:
+                X_va = X_va.reshape(-1, 1)
 
-            self.validation_cwsl_ = None
-            self.validation_rmse_ = None
-            self.validation_wmape_ = None
-
-            try:
-                row = results.loc[best_name]
-                if "CWSL" in row:
-                    self.validation_cwsl_ = float(row["CWSL"])
-                if "RMSE" in row:
-                    self.validation_rmse_ = float(row["RMSE"])
-                if "wMAPE" in row:
-                    self.validation_wmape_ = float(row["wMAPE"])
-            except Exception:
-                pass
-
-            best_model_refit = best_model
-            if refit_flag and hasattr(best_model_refit, "fit"):
-                X_full = np.concatenate([np.asarray(X_train), np.asarray(X_val)], axis=0)
-                y_full = np.concatenate(
-                    [np.asarray(y_train, dtype=float), np.asarray(y_val, dtype=float)],
-                    axis=0,
+            if y_tr.shape[0] != X_tr.shape[0]:
+                raise ValueError(
+                    f"X_train and y_train must have matching rows; got {X_tr.shape[0]} and {y_tr.shape[0]}."
+                )
+            if y_va.shape[0] != X_va.shape[0]:
+                raise ValueError(
+                    f"X_val and y_val must have matching rows; got {X_va.shape[0]} and {y_va.shape[0]}."
                 )
 
-                best_model_refit = _clone_model(best_model_refit)
-                best_model_refit.fit(X_full, y_full)
+            sw_val: np.ndarray | None = None
+            if sample_weight_val is not None:
+                sw_val = np.asarray(sample_weight_val, dtype=float)
+                if sw_val.shape[0] != y_va.shape[0]:
+                    raise ValueError(
+                        f"sample_weight_val must have length {y_va.shape[0]}; got {sw_val.shape[0]}."
+                    )
 
-            self.best_model_ = best_model_refit
+            rows: list[dict[str, float | str]] = []
+
+            run_start = time.perf_counter()
+
+            for model_name, base_model in self.models.items():
+                self.evaluated_names_.append(str(model_name))
+
+                if (
+                    self.time_budget_s is not None
+                    and (time.perf_counter() - run_start) > self.time_budget_s
+                ):
+                    self.stopped_early_ = True
+                    self.stop_reason_ = f"global time budget exceeded ({self.time_budget_s}s)"
+                    self._handle_failure(
+                        model_name=str(model_name),
+                        reason=f"global time budget exceeded ({self.time_budget_s}s); stopping evaluation",
+                    )
+                    break  # remaining models not evaluated
+
+                model_start = time.perf_counter()
+
+                try:
+                    model = _clone_model(base_model)
+                    model.fit(X_tr, y_tr)
+
+                    if self.per_model_time_budget_s is not None:
+                        elapsed = time.perf_counter() - model_start
+                        if elapsed > self.per_model_time_budget_s:
+                            self._handle_failure(
+                                model_name=str(model_name),
+                                reason=(
+                                    f"per-model time budget exceeded ({self.per_model_time_budget_s}s) "
+                                    f"after fit"
+                                ),
+                            )
+                            continue
+
+                    y_pred = np.asarray(model.predict(X_va), dtype=float)
+
+                    if self.per_model_time_budget_s is not None:
+                        elapsed = time.perf_counter() - model_start
+                        if elapsed > self.per_model_time_budget_s:
+                            self._handle_failure(
+                                model_name=str(model_name),
+                                reason=(
+                                    f"per-model time budget exceeded ({self.per_model_time_budget_s}s) "
+                                    f"after predict"
+                                ),
+                            )
+                            continue
+
+                    scores = self._score_row(y_true=y_va, y_pred=y_pred, sample_weight=sw_val)
+                    rows.append(
+                        {
+                            "model": str(model_name),
+                            "CWSL": float(scores["CWSL"]),
+                            "RMSE": float(scores["RMSE"]),
+                            "wMAPE": float(scores["wMAPE"]),
+                        }
+                    )
+                except Exception as e:
+                    self._handle_failure(
+                        model_name=str(model_name),
+                        reason=f"{type(e).__name__}: {e}",
+                    )
+                    continue
+
+            results = (
+                pd.DataFrame.from_records(rows).set_index("model")
+                if rows
+                else self._empty_results()
+            )
+            self.results_ = results
+
+            select_col = self._select_column_name()
+            selected = results[select_col]
+            if not isinstance(selected, pd.Series):
+                # Defensive for pandas typing/stubs; runtime should always be Series here.
+                raise RuntimeError(f"Expected Series for selection column {select_col!r}.")
+
+            best_name = self._argmin_with_nan_safe(selected)
+            self.best_name_ = best_name
+
+            row = results.loc[best_name]
+            self.validation_cwsl_ = float(row["CWSL"]) if "CWSL" in row else None
+            self.validation_rmse_ = float(row["RMSE"]) if "RMSE" in row else None
+            self.validation_wmape_ = float(row["wMAPE"]) if "wMAPE" in row else None
+
+            try:
+                # Refit or keep: we always refit a fresh clone here (deterministic, cloneable).
+                base_winner = self.models[best_name]
+                best_model_fitted = _clone_model(base_winner)
+
+                if refit_flag:
+                    X_full = np.concatenate([X_tr, X_va], axis=0)
+                    y_full = np.concatenate([y_tr, y_va], axis=0)
+                    best_model_fitted.fit(X_full, y_full)
+                else:
+                    best_model_fitted.fit(X_tr, y_tr)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Selected model {best_name!r} but failed to fit winning model for inference: "
+                    f"{type(e).__name__}: {e}"
+                ) from e
+
+            self.best_model_ = best_model_fitted
             return self
 
+        # CV mode (selection uses metric column on mean scores)
         results = self._cv_evaluate_models(
             X=np.asarray(X_train),
             y=np.asarray(y_train, dtype=float),
@@ -364,13 +655,18 @@ class ElectricBarometer:
         )
         self.results_ = results
 
-        best_name = results["CWSL"].idxmin()
-        self.best_name_ = str(best_name)
+        select_col = self._select_column_name()
+        selected = results[select_col]
+        if not isinstance(selected, pd.Series):
+            raise RuntimeError(f"Expected Series for selection column {select_col!r}.")
+
+        best_name = self._argmin_with_nan_safe(selected)
+        self.best_name_ = best_name
 
         row = results.loc[best_name]
-        self.validation_cwsl_ = float(row["CWSL"])
-        self.validation_rmse_ = float(row["RMSE"])
-        self.validation_wmape_ = float(row["wMAPE"])
+        self.validation_cwsl_ = float(row["CWSL"]) if "CWSL" in row else None
+        self.validation_rmse_ = float(row["RMSE"]) if "RMSE" in row else None
+        self.validation_wmape_ = float(row["wMAPE"]) if "wMAPE" in row else None
 
         base_model = self.models[self.best_name_]
         best_model_refit = _clone_model(base_model)
@@ -416,6 +712,7 @@ class ElectricBarometer:
         best = self.best_name_ if self.best_name_ is not None else "None"
         return (
             f"ElectricBarometer(models={model_names}, "
+            f"metric={self.metric!r}, error_policy={self.error_policy!r}, "
             f"cu={self.cu}, co={self.co}, tau={self.tau}, "
             f"refit_on_full={self.refit_on_full}, "
             f"selection_mode={self.selection_mode!r}, "
