@@ -11,6 +11,18 @@ policy stances (not model tuning). Presets are intended to be:
 Presets are consumed by stable entrypoints such as validate_governance to
 standardize downstream behavior without requiring callers to hand-wire
 thresholds on every invocation.
+
+Architecture note
+-----------------
+Governance presets are defined **exclusively** in this module.
+
+Downstream governance logic (e.g., `decide_governance`) accepts presets only as:
+- preset *names* (e.g., "conservative", "balanced", "aggressive"), or
+- explicit `GovernancePreset` instances defined here.
+
+No other module should define, duplicate, or enum-wrap governance presets.
+This avoids type-identity conflicts, keeps presets as pure data, and ensures
+that policy configuration remains centralized, auditable, and stable over time.
 """
 
 from __future__ import annotations

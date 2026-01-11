@@ -41,6 +41,18 @@ Policy presets:
 - conservative / balanced / aggressive provide small, stable presets for
   governance thresholds. Explicit threshold overrides always win.
 
+Architecture note
+-----------------
+Governance presets are owned by `eb_evaluation.diagnostics.presets`.
+
+This module consumes presets only via:
+- preset name strings (e.g., "balanced"), or
+- `GovernancePreset` instances from `diagnostics.presets`.
+
+This file should not define its own preset enums or duplicate preset containers,
+as doing so can introduce type-identity conflicts in static analysis and
+downstream call sites.
+
 Notes
 -----
 This module is a governance layer. It is not a performance metric and is not an
