@@ -17,13 +17,13 @@ It intentionally avoids model training, optimization policy definition, or data 
 
 ## Contents
 
-- **Evaluation utilities**  
+- **Evaluation utilities**
   Functions and helpers for computing evaluation metrics and summaries
 
-- **Diagnostics**  
+- **Diagnostics**
   Tools for assessing data quality, forecast plausibility, and governance signals
 
-- **Model selection**  
+- **Model selection**
   Utilities for comparing models and selecting candidates based on evaluation criteria
 
 ## API reference

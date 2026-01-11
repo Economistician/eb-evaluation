@@ -60,6 +60,12 @@ decide_governance
 validate_governance
     Stable public entrypoint for running combined DQC x FPC governance.
 
+GateResult
+    Convenience orchestrator that computes DQC/FPC from raw series inputs and
+    returns a recommended evaluation mode (continuous/pack_aware/reroute_discrete).
+run_governance_gate
+    Stable orchestration entrypoint for the governance gate from common raw inputs.
+
 Notes
 -----
 Forecast Primitive Compatibility (FPC) is a **diagnostic and governance
@@ -109,6 +115,8 @@ from .presets import (
     preset_thresholds,
 )
 from .validate import (
+    GateResult,
+    run_governance_gate,
     validate_dqc,
     validate_fpc,
     validate_governance,
@@ -123,6 +131,7 @@ __all__ = [
     "FPCResult",
     "FPCSignals",
     "FPCThresholds",
+    "GateResult",
     "GovernanceDecision",
     "GovernancePreset",
     "GovernanceStatus",
@@ -134,6 +143,7 @@ __all__ = [
     "dqc_to_dict",
     "get_governance_preset",
     "preset_thresholds",
+    "run_governance_gate",
     "validate_dqc",
     "validate_fpc",
     "validate_governance",

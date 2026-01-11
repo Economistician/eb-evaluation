@@ -15,7 +15,7 @@ thresholds on every invocation.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final
 
@@ -121,6 +121,21 @@ GOVERNANCE_PRESETS: Final[Mapping[str, GovernancePreset]] = {
     AGGRESSIVE.name: AGGRESSIVE,
 }
 
+# Stable list of preset names (useful for UIs / notebooks / error messages).
+GOVERNANCE_PRESET_NAMES: Final[Sequence[str]] = tuple(sorted(GOVERNANCE_PRESETS.keys()))
+
+
+def list_governance_presets() -> tuple[GovernancePreset, ...]:
+    """
+    List all available governance presets in stable (name-sorted) order.
+
+    Returns
+    -------
+    tuple[GovernancePreset, ...]
+        Presets sorted by their `.name`.
+    """
+    return tuple(GOVERNANCE_PRESETS[name] for name in GOVERNANCE_PRESET_NAMES)
+
 
 def get_governance_preset(name: str) -> GovernancePreset:
     """
@@ -141,10 +156,11 @@ def get_governance_preset(name: str) -> GovernancePreset:
     KeyError
         If the preset name is unknown.
     """
+    key = name.strip().lower()
     try:
-        return GOVERNANCE_PRESETS[name]
+        return GOVERNANCE_PRESETS[key]
     except KeyError as e:
-        valid = ", ".join(sorted(GOVERNANCE_PRESETS.keys()))
+        valid = ", ".join(GOVERNANCE_PRESET_NAMES)
         raise KeyError(f"Unknown governance preset '{name}'. Valid presets: {valid}.") from e
 
 

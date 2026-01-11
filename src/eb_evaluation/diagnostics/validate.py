@@ -65,7 +65,10 @@ def validate_dqc(
     DQCResult
         Quantization class + signals + rationale.
     """
-    return classify_dqc(y=y, thresholds=thresholds)
+    # Normalize to plain floats so downstream helpers never receive numpy arrays
+    # that can raise on truthiness checks (e.g., `if y:`).
+    y_list = _as_float_list(y)
+    return classify_dqc(y=y_list, thresholds=thresholds)
 
 
 def validate_governance(
@@ -140,8 +143,12 @@ def validate_governance(
     if preset is not None:
         dqc_thr, fpc_thr = preset_thresholds(preset)
 
+    # Normalize realized demand to plain floats to avoid numpy truthiness traps
+    # in downstream DQC helpers invoked by decide_governance.
+    y_list = _as_float_list(y)
+
     return decide_governance(
-        y=y,
+        y=y_list,
         fpc_signals_raw=fpc_signals_raw,
         fpc_signals_snapped=fpc_signals_snapped,
         dqc_thresholds=dqc_thr,

@@ -19,9 +19,9 @@ separate "artifacts" layer if/when needed.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from .dqc import DQCClass, DQCResult, DQCThresholds, classify_dqc
 from .fpc import (
@@ -37,6 +37,8 @@ from .governance import GovernanceDecision, decide_governance, snap_to_grid
 from .presets import GovernancePreset, preset_thresholds
 
 RecommendedMode = Literal["continuous", "pack_aware", "reroute_discrete"]
+
+FloatArrayLike: TypeAlias = Sequence[float] | Iterable[float]
 
 
 @dataclass(frozen=True)
@@ -66,11 +68,16 @@ def _ensure_equal_length(
         )
 
 
+def _to_float_list(x: FloatArrayLike) -> list[float]:
+    # `list(np_array)` yields numpy scalar types; we normalize to plain `float`.
+    return [float(v) for v in x]
+
+
 def run_governance_gate(
     *,
-    y: Sequence[float],
-    yhat_base: Sequence[float],
-    yhat_ral: Sequence[float],
+    y: FloatArrayLike,
+    yhat_base: FloatArrayLike,
+    yhat_ral: FloatArrayLike,
     tau: float,
     cwsl_r: float | None = None,
     # thresholds / presets
@@ -128,8 +135,20 @@ def run_governance_gate(
     ValueError
         If series lengths mismatch, or if `preset` is mixed with explicit thresholds.
     """
-    _ensure_equal_length(y, yhat_base, name_a="y", name_b="yhat_base")
-    _ensure_equal_length(y, yhat_ral, name_a="y", name_b="yhat_ral")
+    # Normalize inputs to plain lists of floats up-front.
+    #
+    # 1) NumPy arrays are not typed as `Sequence[float]` (Pyright),
+    # 2) Some downstream helpers may do truthiness checks (e.g., `if y:`)
+    #    which raise for NumPy arrays: "truth value is ambiguous".
+    #
+    # Converting here makes the gate robust to numpy/pandas inputs and keeps
+    # downstream diagnostics operating on a simple, predictable type.
+    y_list = _to_float_list(y)
+    yhat_base_list = _to_float_list(yhat_base)
+    yhat_ral_list = _to_float_list(yhat_ral)
+
+    _ensure_equal_length(y_list, yhat_base_list, name_a="y", name_b="yhat_base")
+    _ensure_equal_length(y_list, yhat_ral_list, name_a="y", name_b="yhat_ral")
 
     if preset is not None and (dqc_thresholds is not None or fpc_thresholds is not None):
         raise ValueError(
@@ -143,13 +162,13 @@ def run_governance_gate(
         eff_dqc, eff_fpc = preset_thresholds(preset)
 
     # 1) DQC from realized demand (structure only)
-    dqc = classify_dqc(y=y, thresholds=eff_dqc)
+    dqc = classify_dqc(y=y_list, thresholds=eff_dqc)
 
     # 2) FPC raw signals + classification
     raw_signals = build_signals_from_series(
-        y=y,
-        yhat_base=yhat_base,
-        yhat_ral=yhat_ral,
+        y=y_list,
+        yhat_base=yhat_base_list,
+        yhat_ral=yhat_ral_list,
         tau=tau,
         cwsl_r=cwsl_r,
     )
@@ -159,10 +178,10 @@ def run_governance_gate(
     snap_required = dqc.dqc_class in (DQCClass.QUANTIZED, DQCClass.PIECEWISE_PACKED)
     if snap_required and dqc.signals.granularity is not None:
         unit = float(dqc.signals.granularity)
-        yhat_base_s = snap_to_grid(yhat_base, unit, mode=snap_mode)  # type: ignore[arg-type]
-        yhat_ral_s = snap_to_grid(yhat_ral, unit, mode=snap_mode)  # type: ignore[arg-type]
+        yhat_base_s = snap_to_grid(yhat_base_list, unit, mode=snap_mode)
+        yhat_ral_s = snap_to_grid(yhat_ral_list, unit, mode=snap_mode)
         snapped_signals = build_signals_from_series(
-            y=y,
+            y=y_list,
             yhat_base=yhat_base_s,  # snapped forecasts, same y
             yhat_ral=yhat_ral_s,
             tau=tau,  # governance will tell downstream how to interpret τ
@@ -176,7 +195,7 @@ def run_governance_gate(
 
     # 4) Governance decision contract
     decision = decide_governance(
-        y=y,
+        y=y_list,
         fpc_signals_raw=raw_signals,
         fpc_signals_snapped=fpc_signals_snapped,
         dqc_thresholds=eff_dqc,

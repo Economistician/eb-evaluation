@@ -16,6 +16,7 @@ that reliably trigger each routing branch.
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from eb_evaluation.diagnostics.dqc import DQCThresholds
@@ -79,6 +80,24 @@ def test_run_governance_gate_incompatible_reroutes_discrete() -> None:
 
     assert gate.recommended_mode == "reroute_discrete"
     assert gate.fpc_raw.fpc_class.value == "incompatible"
+
+
+def test_run_governance_gate_accepts_numpy_arrays() -> None:
+    # Regression test: numpy arrays should be accepted as Sequence[float] inputs.
+    # Prior behavior could crash if downstream code performed truthiness checks.
+    y = np.asarray([0.0, 1.0, 2.0, 3.0], dtype=float)
+    yhat_base = np.asarray([0.0, 1.0, 2.0, 3.0], dtype=float)
+    yhat_ral = np.asarray([0.0, 1.0, 2.0, 3.0], dtype=float)
+
+    gate = run_governance_gate(
+        y=y,
+        yhat_base=yhat_base,
+        yhat_ral=yhat_ral,
+        tau=1.0,
+        cwsl_r=None,
+    )
+
+    assert gate is not None
 
 
 def test_run_governance_gate_rejects_length_mismatch() -> None:
