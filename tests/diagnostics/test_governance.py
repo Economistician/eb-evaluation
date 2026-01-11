@@ -21,13 +21,17 @@ import pytest
 from eb_evaluation.diagnostics.dqc import DQCThresholds
 from eb_evaluation.diagnostics.fpc import FPCSignals, FPCThresholds
 from eb_evaluation.diagnostics.governance import (
-    GovernancePreset,
     GovernanceStatus,
     RALPolicy,
     TauPolicy,
     decide_governance,
-    preset_thresholds,
     snap_to_grid,
+)
+from eb_evaluation.diagnostics.presets import (
+    AGGRESSIVE,
+    BALANCED,
+    CONSERVATIVE,
+    preset_thresholds,
 )
 
 
@@ -75,7 +79,7 @@ def test_snap_to_grid_modes_and_invalid_mode() -> None:
 
 
 def test_preset_thresholds_returns_types() -> None:
-    dqc_thr, fpc_thr = preset_thresholds(GovernancePreset.BALANCED)
+    dqc_thr, fpc_thr = preset_thresholds(BALANCED)
     assert isinstance(dqc_thr, DQCThresholds)
     assert isinstance(fpc_thr, FPCThresholds)
 
@@ -263,7 +267,7 @@ def test_governance_preset_is_recorded_in_reasons_when_not_overridden() -> None:
         y=y,
         fpc_signals_raw=raw,
         fpc_signals_snapped=raw,
-        preset=GovernancePreset.CONSERVATIVE,
+        preset=CONSERVATIVE,
     )
     assert any(r == "preset=conservative" for r in res.reasons)
 
@@ -285,6 +289,6 @@ def test_governance_preset_reason_not_added_when_thresholds_overridden() -> None
         fpc_signals_snapped=raw,
         dqc_thresholds=DQCThresholds(),
         fpc_thresholds=FPCThresholds(),
-        preset=GovernancePreset.AGGRESSIVE,
+        preset=AGGRESSIVE,
     )
     assert not any(r.startswith("preset=") for r in res.reasons)

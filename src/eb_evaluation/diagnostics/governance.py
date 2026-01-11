@@ -56,23 +56,7 @@ from math import isnan
 
 from .dqc import DQCClass, DQCResult, DQCThresholds, classify_dqc
 from .fpc import FPCClass, FPCResult, FPCSignals, FPCThresholds, classify_fpc
-
-
-class GovernancePreset(str, Enum):
-    """
-    Small, stable governance presets.
-
-    These presets tune only *thresholds* (not algorithms). They are intended as
-    governance defaults that are easy to communicate and keep stable over time.
-
-    - conservative: harder to declare "compatible"
-    - balanced: current default behavior (close to upstream defaults)
-    - aggressive: easier to declare "compatible" (still deterministic/auditable)
-    """
-
-    CONSERVATIVE = "conservative"
-    BALANCED = "balanced"
-    AGGRESSIVE = "aggressive"
+from .presets import GovernancePreset, preset_thresholds
 
 
 class GovernanceStatus(str, Enum):
@@ -229,64 +213,6 @@ def build_fpc_signals(
     )
 
 
-def preset_thresholds(
-    preset: GovernancePreset,
-) -> tuple[DQCThresholds, FPCThresholds]:
-    """
-    Return (DQCThresholds, FPCThresholds) for a governance preset.
-
-    Explicit thresholds passed to decide_governance override these defaults.
-    """
-    # Start from upstream defaults (stable, interpretable).
-    dqc = DQCThresholds()
-    fpc = FPCThresholds()
-
-    if preset == GovernancePreset.BALANCED:
-        return dqc, fpc
-
-    if preset == GovernancePreset.CONSERVATIVE:
-        # Harder to declare compatible:
-        # - treat low coverage as more concerning
-        # - require stronger response to RAL (delta_nsl) to be "material"
-        # - treat deep shortfalls as mismatch-like sooner
-        return (
-            DQCThresholds(
-                multiple_rate_quantized=dqc.multiple_rate_quantized,
-                multiple_rate_packed=dqc.multiple_rate_packed,
-                offgrid_mad_ratio_max=dqc.offgrid_mad_ratio_max,
-                min_nonzero_obs=dqc.min_nonzero_obs,
-            ),
-            FPCThresholds(
-                nsl_very_low=max(fpc.nsl_very_low, 0.05),
-                delta_nsl_tiny=max(fpc.delta_nsl_tiny, 0.03),
-                hr_very_low=max(fpc.hr_very_low, 0.06),
-                delta_hr_large_drop=fpc.delta_hr_large_drop,
-                ud_high=min(fpc.ud_high, 8.0),
-                delta_cwsl_high=fpc.delta_cwsl_high,
-            ),
-        )
-
-    # AGGRESSIVE
-    # Easier to declare compatible (still bounded):
-    # - allow smaller "material" gain; allow bigger UD before mismatch signal
-    return (
-        DQCThresholds(
-            multiple_rate_quantized=dqc.multiple_rate_quantized,
-            multiple_rate_packed=dqc.multiple_rate_packed,
-            offgrid_mad_ratio_max=dqc.offgrid_mad_ratio_max,
-            min_nonzero_obs=dqc.min_nonzero_obs,
-        ),
-        FPCThresholds(
-            nsl_very_low=min(fpc.nsl_very_low, 0.02),
-            delta_nsl_tiny=min(fpc.delta_nsl_tiny, 0.015),
-            hr_very_low=min(fpc.hr_very_low, 0.04),
-            delta_hr_large_drop=fpc.delta_hr_large_drop,
-            ud_high=max(fpc.ud_high, 15.0),
-            delta_cwsl_high=fpc.delta_cwsl_high,
-        ),
-    )
-
-
 def decide_governance(
     *,
     y: Sequence[float],
@@ -294,7 +220,7 @@ def decide_governance(
     fpc_signals_snapped: FPCSignals | None = None,
     dqc_thresholds: DQCThresholds | None = None,
     fpc_thresholds: FPCThresholds | None = None,
-    preset: GovernancePreset = GovernancePreset.BALANCED,
+    preset: str | GovernancePreset = "balanced",
 ) -> GovernanceDecision:
     """
     Produce an authoritative governance decision for a single realized series.
@@ -314,7 +240,8 @@ def decide_governance(
     fpc_thresholds:
         Optional thresholds for FPC. Overrides preset thresholds.
     preset:
-        GovernancePreset determining default thresholds when explicit thresholds
+        Governance preset name ("conservative" | "balanced" | "aggressive") or an
+        explicit GovernancePreset instance. Used only when explicit thresholds
         are not provided.
 
     Returns
@@ -377,9 +304,11 @@ def decide_governance(
         status = GovernanceStatus.RED
         reasons.append("incompatible")
 
-    # Helpful annotation for auditability: record preset used if caller didn't override.
-    if dqc_thresholds is None or fpc_thresholds is None:
-        reasons.append(f"preset={preset.value}")
+    # Helpful annotation for auditability:
+    # Only record the preset when *no* explicit threshold override is provided.
+    if dqc_thresholds is None and fpc_thresholds is None:
+        preset_name = preset if isinstance(preset, str) else preset.name
+        reasons.append(f"preset={preset_name}")
 
     return GovernanceDecision(
         dqc=dqc,

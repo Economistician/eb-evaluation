@@ -72,6 +72,7 @@ import pandas as pd
 from eb_evaluation.diagnostics.dqc import DQCThresholds
 from eb_evaluation.diagnostics.fpc import FPCThresholds
 from eb_evaluation.diagnostics.presets import GovernancePreset
+from eb_evaluation.diagnostics.results import GovernanceResult
 from eb_evaluation.diagnostics.run import run_governance_gate
 
 
@@ -179,18 +180,21 @@ def evaluate_governance_panel_df(
             fpc_thresholds=fpc_thresholds,
         )
 
+        # Use the portable, stable representation for core policy/class fields.
+        result = GovernanceResult.from_gate_result(gate=gate)
+
         # Primary routing + policies
-        row["recommended_mode"] = gate.recommended_mode
-        row["snap_required"] = gate.decision.snap_required
-        row["snap_unit"] = gate.decision.snap_unit
-        row["tau_policy"] = gate.decision.tau_policy.value
-        row["ral_policy"] = gate.decision.ral_policy.value
-        row["status"] = gate.decision.status.value
+        row["recommended_mode"] = result.recommended_mode
+        row["snap_required"] = result.snap_required
+        row["snap_unit"] = result.snap_unit
+        row["tau_policy"] = result.tau_policy.value
+        row["ral_policy"] = result.ral_policy.value
+        row["status"] = result.status.value
 
         # Classes
-        row["dqc_class"] = gate.dqc.dqc_class.value
-        row["fpc_raw_class"] = gate.fpc_raw.fpc_class.value
-        row["fpc_snapped_class"] = gate.fpc_snapped.fpc_class.value
+        row["dqc_class"] = result.dqc_class.value
+        row["fpc_raw_class"] = result.fpc_raw_class.value
+        row["fpc_snapped_class"] = result.fpc_snapped_class.value
 
         # Compact DQC signals (best effort)
         dqc_sig = gate.dqc.signals
@@ -213,11 +217,11 @@ def evaluate_governance_panel_df(
         row["delta_nsl_snapped"] = _safe_getattr(snap_sig, "delta_nsl")
         row["ud_snapped"] = _safe_getattr(snap_sig, "ud")
 
-        # Reasons / recommendations
-        row["dqc_reasons"] = _as_reason_string(gate.dqc.reasons)
-        row["fpc_raw_reasons"] = _as_reason_string(gate.fpc_raw.reasons)
-        row["fpc_snapped_reasons"] = _as_reason_string(gate.fpc_snapped.reasons)
-        row["recommendations"] = _as_reason_string(gate.recommendations)
+        # Reasons / recommendations (keep existing string columns for backward compatibility)
+        row["dqc_reasons"] = _as_reason_string(result.dqc_reasons)
+        row["fpc_raw_reasons"] = _as_reason_string(result.fpc_raw_reasons)
+        row["fpc_snapped_reasons"] = _as_reason_string(result.fpc_snapped_reasons)
+        row["recommendations"] = _as_reason_string(result.recommendations)
 
         out_rows.append(row)
 
