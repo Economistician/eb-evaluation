@@ -9,6 +9,7 @@ and tabular outputs for forecast evaluation. Metric definitions live in
 - evaluating per-group metric tables
 - evaluating multi-level hierarchies (overall / by-store / by-item / etc.)
 - producing long-form (tidy) panels for plotting and reporting
+- governance-oriented gating summaries across panels of streams
 - entity-aware evaluation using externally supplied entity-specific cost ratios
 
 Optimization, calibration, and sensitivity analysis utilities (e.g., cost-ratio
@@ -18,6 +19,7 @@ estimation, tau selection, sensitivity sweeps) live exclusively in ``eb-optimiza
 from __future__ import annotations
 
 from .entity import evaluate_panel_with_entity_R
+from .governance_panel import evaluate_governance_panel_df
 from .group import evaluate_groups_df
 from .hierarchy import evaluate_hierarchy_df
 from .levels import (
@@ -34,6 +36,7 @@ from .single import compute_cwsl_df
 __all__ = [
     "STANDARD_PANEL_LEVELS",
     "compute_cwsl_df",
+    "evaluate_governance_panel_df",
     "evaluate_groups_df",
     "evaluate_hierarchy_df",
     "evaluate_panel_df",
