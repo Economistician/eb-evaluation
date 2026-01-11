@@ -66,6 +66,10 @@ GateResult
 run_governance_gate
     Stable orchestration entrypoint for the governance gate from common raw inputs.
 
+GovernanceResult
+    Portable, JSON-friendly summary artifact for governance outcomes suitable for
+    orchestration return types and DataFrame/panel summarization.
+
 Notes
 -----
 Forecast Primitive Compatibility (FPC) is a **diagnostic and governance
@@ -114,6 +118,7 @@ from .presets import (
     get_governance_preset,
     preset_thresholds,
 )
+from .results import GovernanceResult
 from .validate import (
     GateResult,
     run_governance_gate,
@@ -134,6 +139,7 @@ __all__ = [
     "GateResult",
     "GovernanceDecision",
     "GovernancePreset",
+    "GovernanceResult",
     "GovernanceStatus",
     "RALPolicy",
     "TauPolicy",
