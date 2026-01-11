@@ -21,6 +21,7 @@ from .entity import evaluate_panel_with_entity_R
 from .group import evaluate_groups_df
 from .hierarchy import evaluate_hierarchy_df
 from .levels import (
+    STANDARD_PANEL_LEVELS,
     levels_by_entity,
     levels_by_site,
     levels_by_site_entity,
@@ -31,6 +32,7 @@ from .panel import evaluate_panel_df
 from .single import compute_cwsl_df
 
 __all__ = [
+    "STANDARD_PANEL_LEVELS",
     "compute_cwsl_df",
     "evaluate_groups_df",
     "evaluate_hierarchy_df",

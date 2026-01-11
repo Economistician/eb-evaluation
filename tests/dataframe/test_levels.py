@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from eb_evaluation.dataframe.levels import (
+    STANDARD_PANEL_LEVELS,
     levels_by_entity,
     levels_by_site,
     levels_by_site_entity,
@@ -21,6 +22,18 @@ def _assert_levels_shape(levels: dict[str, Sequence[str]]) -> None:
         assert isinstance(cols, Sequence)
         for c in cols:
             assert isinstance(c, str)
+
+
+def test_standard_panel_levels_constant() -> None:
+    """
+    The module should expose a stable, discoverable identifier for the canonical
+    "standard panel" helper.
+
+    This is primarily for docs/discoverability and lightweight indirection in
+    notebooks/pipelines (e.g., referencing the canonical default by name).
+    """
+    assert isinstance(STANDARD_PANEL_LEVELS, str)
+    assert STANDARD_PANEL_LEVELS == "levels_standard_panel"
 
 
 def test_levels_overall() -> None:
