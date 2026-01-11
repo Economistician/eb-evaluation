@@ -20,6 +20,13 @@ from __future__ import annotations
 from .entity import evaluate_panel_with_entity_R
 from .group import evaluate_groups_df
 from .hierarchy import evaluate_hierarchy_df
+from .levels import (
+    levels_by_entity,
+    levels_by_site,
+    levels_by_site_entity,
+    levels_overall,
+    levels_standard_panel,
+)
 from .panel import evaluate_panel_df
 from .single import compute_cwsl_df
 
@@ -29,4 +36,9 @@ __all__ = [
     "evaluate_hierarchy_df",
     "evaluate_panel_df",
     "evaluate_panel_with_entity_R",
+    "levels_by_entity",
+    "levels_by_site",
+    "levels_by_site_entity",
+    "levels_overall",
+    "levels_standard_panel",
 ]

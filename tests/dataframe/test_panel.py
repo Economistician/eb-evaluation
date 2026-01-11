@@ -139,10 +139,12 @@ def test_evaluate_panel_df_matches_hierarchy_values():
         panel_level = cast(pd.DataFrame, panel[panel["level"] == level_name])
 
         for _, wide_row in wide.iterrows():
-            # Build a mask in the panel for this group's coordinates
-            mask = panel_level["level"] == level_name  # redundant but clear
+            # Build a boolean mask for this group's coordinates.
+            # Start with an explicit boolean Series to keep type checkers happy.
+            mask = pd.Series(True, index=panel_level.index)
+
             for col in group_cols:
-                mask &= panel_level[col] == wide_row[col]
+                mask = mask & (panel_level[col] == wide_row[col])
 
             group_panel = cast(pd.DataFrame, panel_level[mask])
 
