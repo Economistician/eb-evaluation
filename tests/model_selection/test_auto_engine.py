@@ -76,10 +76,48 @@ def test_optional_dependencies_are_gated(monkeypatch):
     assert "xgb" not in models
     assert "lgbm" not in models
     assert "catboost" not in models
+    assert "prophet" not in models
 
     # Baselines should still be there
     assert "dummy_mean" in models
     assert "linear" in models
+
+
+def test_prophet_only_included_for_slow_when_available(monkeypatch):
+    """
+    Prophet is time-series oriented and should only be included in the zoo
+    when speed="slow" AND the optional dependency is available.
+    """
+
+    # Force prophet "available" and all other optionals "unavailable" to make this deterministic.
+    def fake_has_package(name: str) -> bool:
+        return name == "prophet"
+
+    # fast => prophet should not be present
+    engine_fast = AutoEngine(cu=2.0, co=1.0, speed="fast")  # type: ignore[arg-type]
+    monkeypatch.setattr(engine_fast, "_has_package", fake_has_package)
+    models_fast = engine_fast._make_base_models()
+    assert "prophet" not in models_fast
+
+    # balanced => prophet should not be present
+    engine_bal = AutoEngine(cu=2.0, co=1.0, speed="balanced")  # type: ignore[arg-type]
+    monkeypatch.setattr(engine_bal, "_has_package", fake_has_package)
+    models_bal = engine_bal._make_base_models()
+    assert "prophet" not in models_bal
+
+    # slow => prophet should be present (if import works)
+    engine_slow = AutoEngine(cu=2.0, co=1.0, speed="slow")  # type: ignore[arg-type]
+    monkeypatch.setattr(engine_slow, "_has_package", fake_has_package)
+    models_slow = engine_slow._make_base_models()
+
+    # If prophet is installed but misconfigured, AutoEngine intentionally skips it;
+    # in that case, this assertion could be flaky. Prefer to skip if Prophet isn't importable.
+    try:
+        import prophet
+    except Exception:
+        pytest.skip("prophet is not importable in this test environment")
+
+    assert "prophet" in models_slow
 
 
 def test_available_models_matches_built_zoo(monkeypatch):

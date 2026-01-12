@@ -10,7 +10,7 @@ The intent is to provide a batteries-included entry point:
 
 - choose asymmetric costs (cu, co)
 - choose a speed preset (fast, balanced, slow)
-- optionally include additional engines (XGBoost, LightGBM, CatBoost) when installed
+- optionally include additional engines (XGBoost, LightGBM, CatBoost, Prophet) when installed
 - get back an unfitted selector ready for cost-aware model selection
 
 Model selection is performed using cost-aware criteria (e.g., CWSL) rather than symmetric
@@ -66,7 +66,12 @@ class AutoEngine:
     Notes
     -----
     Optional engines are included only when their packages are installed: ``xgboost``,
-    ``lightgbm``, ``catboost``.
+    ``lightgbm``, ``catboost``, ``prophet``.
+
+    Prophet is time-series oriented and expects datetime-like ``X`` (or a first column
+    that is datetime-like). When AutoEngine is used with fully tabular numeric feature
+    matrices, Prophet may not be compatible and may error during fit/predict; in that
+    case it will be handled by ElectricBarometer's ``error_policy``.
     """
 
     def __init__(
@@ -118,7 +123,7 @@ class AutoEngine:
         Notes
         -----
         The zoo always includes inexpensive baselines, then adds heavier tree/boosting models
-        depending on ``speed``. Optional engines (XGBoost, LightGBM, CatBoost) are included
+        depending on ``speed``. Optional engines (XGBoost, LightGBM, CatBoost, Prophet) are included
         only if installed and importable.
         """
         models: dict[str, Any] = {}
@@ -230,6 +235,16 @@ class AutoEngine:
                 )
             except Exception:
                 # If CatBoost is unavailable or misconfigured, skip it.
+                pass
+
+        # Optional: Prophet via adapter (slow only by default; time-series oriented)
+        if self._has_package("prophet") and self.speed in {"slow"}:
+            try:  # pragma: no cover - depends on optional pkg
+                from eb_adapters.models.prophet import ProphetAdapter
+
+                models["prophet"] = ProphetAdapter()
+            except Exception:
+                # If prophet/cmdstanpy is unavailable or misconfigured, skip it.
                 pass
 
         return models
