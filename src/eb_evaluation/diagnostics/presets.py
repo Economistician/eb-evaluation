@@ -29,10 +29,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Literal
 
 from .dqc import DQCThresholds
 from .fpc import FPCThresholds
+
+NonnegativityMode = Literal["allow", "clip_zero"]
 
 
 @dataclass(frozen=True)
@@ -50,12 +52,23 @@ class GovernancePreset:
         Thresholds governing Demand Quantization Compatibility (DQC).
     fpc:
         Thresholds governing Forecast Primitive Compatibility (FPC).
+    nonnegativity_mode:
+        Policy for handling negative forecast outputs from candidate engines.
+
+        - "allow": leave predictions unchanged (may contain negatives).
+        - "clip_zero": clip predictions at 0.0 before downstream evaluation.
+
+        Notes:
+        This is *policy* (governance), not model tuning. Many operational demand
+        domains (e.g., QSR item usage) are nonnegative by definition, so allowing
+        negative predictions can produce misleading diagnostics and scores.
     """
 
     name: str
     description: str
     dqc: DQCThresholds
     fpc: FPCThresholds
+    nonnegativity_mode: NonnegativityMode = "clip_zero"
 
 
 # ---------------------------------------------------------------------
@@ -65,6 +78,8 @@ class GovernancePreset:
 # Philosophy:
 # - DQC thresholds govern *when snapping is required*.
 # - FPC thresholds govern *how much evidence is needed to allow RAL*.
+# - Nonnegativity policy governs *how to treat invalid negative predictions*
+#   from certain continuous engines (e.g., Prophet, linear models).
 #
 # The defaults in DQC/FPC are typically "balanced". Here we define explicit
 # named presets so callers can reference policy by name instead of by values.
@@ -210,3 +225,26 @@ def preset_thresholds(preset: str | GovernancePreset) -> tuple[DQCThresholds, FP
         raise TypeError(f"`preset` must be a str or GovernancePreset, got {type(preset).__name__}.")
 
     return p.dqc, p.fpc
+
+
+def preset_policy(preset: str | GovernancePreset) -> NonnegativityMode:
+    """
+    Resolve a preset into its governance policy knobs (non-threshold behavior).
+
+    Parameters
+    ----------
+    preset:
+        Either a preset name or an explicit GovernancePreset.
+
+    Returns
+    -------
+    NonnegativityMode
+        The configured nonnegativity policy.
+    """
+    if isinstance(preset, GovernancePreset):
+        p = preset
+    elif isinstance(preset, str):
+        p = get_governance_preset(preset)
+    else:
+        raise TypeError(f"`preset` must be a str or GovernancePreset, got {type(preset).__name__}.")
+    return p.nonnegativity_mode
