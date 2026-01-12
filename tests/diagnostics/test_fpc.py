@@ -123,6 +123,45 @@ def test_fpc_marginal_default_mixed_signature() -> None:
     assert result.fpc_class is FPCClass.MARGINAL
 
 
+def test_fpc_incompatible_signature_prophet_like_negative_and_clipped() -> None:
+    """
+    Regression (Option C): Prophet-like incompatibility signature.
+
+    In our stress test, Prophet produced a meaningful fraction of negative predictions
+    for a nonnegative demand series. If a naive "fix" clips negatives to zero, the
+    forecast primitive exhibits:
+      - very low base coverage (NSL),
+      - tiny/near-zero response under the control-like transform (delta NSL),
+      - very low HR@tau at reference tau.
+
+    This test uses a canonical, deterministic signature to lock in the expected FPC
+    classification for that pattern.
+    """
+    signals = FPCSignals(
+        # "Base" behaves like negative forecasts against positive demand
+        nsl_base=0.01,
+        # "RAL" behaves like clipping (but without meaningful readiness improvement)
+        nsl_ral=0.011,
+        delta_nsl=0.001,
+        hr_base_tau=0.02,
+        hr_ral_tau=0.02,
+        delta_hr_tau=0.0,
+        # UD is not required to drive the mismatch here; low coverage + tiny response + low HR does
+        ud=6.0,
+        cwsl_base=None,
+        cwsl_ral=None,
+        delta_cwsl=None,
+        intervals=10_000,
+        shortfall_intervals=9_900,
+    )
+
+    result = classify_fpc(signals)
+    assert result.fpc_class is FPCClass.INCOMPATIBLE
+    assert any("nsl_base<=" in r for r in result.reasons)
+    assert any("delta_nsl<=" in r for r in result.reasons)
+    assert any("hr_base_tau<=" in r for r in result.reasons)
+
+
 def test_fpc_thresholds_can_shift_borderline_case() -> None:
     # Same signals, but stricter/tighter thresholds can change classification.
     signals = FPCSignals(
