@@ -18,8 +18,9 @@ from typing import Literal
 
 from .dqc import DQCResult, DQCThresholds, classify_dqc
 from .fpc import FPCResult, FPCSignals, FPCThresholds, classify_fpc
-from .governance import GovernanceDecision, decide_governance, snap_to_grid
+from .governance import GovernanceDecision, decide_governance
 from .presets import GovernancePreset, preset_thresholds
+from .run import run_governance_gate as _run_governance_gate
 
 
 def validate_fpc(
@@ -344,80 +345,39 @@ def run_governance_gate(
       rerouting to a discrete/event/state decision model.
 
     Preset rules match validate_governance: do not mix preset with explicit thresholds.
+
+    Notes
+    -----
+    This entrypoint delegates orchestration to diagnostics/run.py to ensure there
+    is a single auditable "choke point" for governance gating behavior. This wrapper
+    preserves the historical validate-layer signature and behavior (snap_mode="ceil",
+    no post-prediction constraints).
     """
+    # Keep the validate-layer ambiguity check for a clear, stable error message.
     if preset is not None and (dqc_thresholds is not None or fpc_thresholds is not None):
         raise ValueError(
             "Ambiguous governance configuration: provide either `preset` OR explicit "
             "`dqc_thresholds`/`fpc_thresholds`, not both."
         )
 
-    _validate_same_length(y, yhat_base, "yhat_base")
-    _validate_same_length(y, yhat_ral, "yhat_ral")
-
-    dqc_thr = dqc_thresholds
-    fpc_thr = fpc_thresholds
-    if preset is not None:
-        dqc_thr, fpc_thr = preset_thresholds(preset)
-
-    y_list = _as_float_list(y)
-    yhat_base_list = _as_float_list(yhat_base)
-    yhat_ral_list = _as_float_list(yhat_ral)
-
-    # 1) DQC from realized demand
-    dqc = classify_dqc(y=y_list, thresholds=dqc_thr)
-
-    # 2) Raw signals
-    raw_signals = _build_signals_from_series(
-        y=y_list,
-        yhat_base=yhat_base_list,
-        yhat_ral=yhat_ral_list,
+    gate = _run_governance_gate(
+        y=y,
+        yhat_base=yhat_base,
+        yhat_ral=yhat_ral,
         tau=tau,
         cwsl_r=cwsl_r,
+        dqc_thresholds=dqc_thresholds,
+        fpc_thresholds=fpc_thresholds,
+        preset=preset,
+        snap_mode="ceil",
+        nonneg_mode="none",
     )
-
-    # 3) Snapped signals when DQC indicates snapping is required
-    snapped_signals: FPCSignals | None = None
-    if dqc.dqc_class.value in ("quantized", "piecewise_packed"):
-        unit = dqc.signals.granularity
-        if unit is not None and not _is_nan(float(unit)) and float(unit) > 0:
-            base_snapped = snap_to_grid(yhat_base_list, float(unit), mode="ceil")
-            ral_snapped = snap_to_grid(yhat_ral_list, float(unit), mode="ceil")
-            snapped_signals = _build_signals_from_series(
-                y=y_list,
-                yhat_base=base_snapped,
-                yhat_ral=ral_snapped,
-                tau=tau,
-                cwsl_r=cwsl_r,
-            )
-
-    # 4) Governance decision contract
-    decision = decide_governance(
-        y=y_list,
-        fpc_signals_raw=raw_signals,
-        fpc_signals_snapped=snapped_signals,
-        dqc_thresholds=dqc_thr,
-        fpc_thresholds=fpc_thr,
-    )
-
-    recommendations: list[str] = []
-    recommended_mode: RecommendedEvaluationMode
-
-    if decision.ral_policy.value == "disallow" and decision.status.value == "red":
-        recommended_mode = "reroute_discrete"
-        recommendations.append("reroute_to_discrete_primitive")
-    elif decision.snap_required:
-        recommended_mode = "pack_aware"
-        recommendations.append("interpret_tau_in_grid_units")
-        recommendations.append("apply_snap_to_grid")
-    else:
-        recommended_mode = "continuous"
-        recommendations.append("evaluate_in_raw_units")
 
     return GateResult(
-        dqc=decision.dqc,
-        fpc_raw=decision.fpc_raw,
-        fpc_snapped=decision.fpc_snapped,
-        decision=decision,
-        recommended_mode=recommended_mode,
-        recommendations=tuple(recommendations),
+        dqc=gate.dqc,
+        fpc_raw=gate.fpc_raw,
+        fpc_snapped=gate.fpc_snapped,
+        decision=gate.decision,
+        recommended_mode=gate.recommended_mode,
+        recommendations=gate.recommendations,
     )

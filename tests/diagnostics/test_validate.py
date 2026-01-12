@@ -27,6 +27,7 @@ from eb_evaluation.diagnostics.governance import (
     RALPolicy,
     TauPolicy,
 )
+from eb_evaluation.diagnostics.run import run_governance_gate as run_governance_gate_impl
 from eb_evaluation.diagnostics.validate import run_governance_gate
 
 
@@ -387,3 +388,39 @@ def test_run_governance_gate_recommended_modes() -> None:
         cwsl_r=None,
     )
     assert gate_bad.recommended_mode == "reroute_discrete"
+
+
+def test_validate_run_governance_gate_delegates_to_diagnostics_run() -> None:
+    """
+    validate.run_governance_gate should be a stable wrapper over diagnostics.run.run_governance_gate.
+
+    - It should match key outputs (recommended_mode, snap_required).
+    - It should NOT introduce new governance behavior (e.g., nonneg postprocessing).
+    """
+    # Use a simple continuous-like case.
+    y = [0.1 * i for i in range(1, 121)]
+    yhat_base = [v if (i % 2 == 0) else (v * 0.90) for i, v in enumerate(y)]
+    yhat_ral = [v * 1.01 for v in y]
+
+    v_gate = run_governance_gate(
+        y=y,
+        yhat_base=yhat_base,
+        yhat_ral=yhat_ral,
+        tau=2.0,
+        cwsl_r=None,
+    )
+    impl_gate = run_governance_gate_impl(
+        y=y,
+        yhat_base=yhat_base,
+        yhat_ral=yhat_ral,
+        tau=2.0,
+        cwsl_r=None,
+        snap_mode="ceil",
+        nonneg_mode="none",
+    )
+
+    assert v_gate.recommended_mode == impl_gate.recommended_mode
+    assert v_gate.decision.snap_required == impl_gate.decision.snap_required
+
+    # Validate wrapper should not auto-enable nonneg postprocessing.
+    assert not any("forecast_postprocess_nonneg(" in r for r in v_gate.recommendations)
