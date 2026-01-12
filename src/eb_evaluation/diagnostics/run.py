@@ -39,6 +39,7 @@ from .presets import GovernancePreset, preset_thresholds
 RecommendedMode = Literal["continuous", "pack_aware", "reroute_discrete"]
 
 FloatArrayLike: TypeAlias = Sequence[float] | Iterable[float]
+NonnegMode: TypeAlias = Literal["none", "clip"]
 
 
 @dataclass(frozen=True)
@@ -73,6 +74,24 @@ def _to_float_list(x: FloatArrayLike) -> list[float]:
     return [float(v) for v in x]
 
 
+def _apply_nonneg(x: Sequence[float], *, mode: NonnegMode) -> list[float]:
+    """
+    Apply a non-negativity post-process to forecasts.
+
+    Notes
+    -----
+    - This is intentionally located in the run-level orchestration module
+      (not in model adapters) so it is auditable and governed.
+    - Only forecasts are post-processed. Realized demand `y` is left untouched.
+    """
+    if mode == "none":
+        return [float(v) for v in x]
+    if mode == "clip":
+        return [0.0 if float(v) < 0.0 else float(v) for v in x]
+    # Defensive: type checkers should prevent this, but keep runtime robust.
+    raise ValueError(f"Unknown nonneg_mode: {mode!r}")
+
+
 def run_governance_gate(
     *,
     y: FloatArrayLike,
@@ -86,6 +105,8 @@ def run_governance_gate(
     preset: GovernancePreset | str | None = None,
     # snapping behavior
     snap_mode: Literal["ceil", "round", "floor"] = "ceil",
+    # post-prediction constraints
+    nonneg_mode: NonnegMode = "none",
 ) -> GateResult:
     """
     Run the minimal governance gate and return a recommended evaluation mode.
@@ -124,6 +145,12 @@ def run_governance_gate(
         Optional governance preset name/enum; determines default thresholds.
     snap_mode:
         Snapping mode used when snapping is required.
+    nonneg_mode:
+        Optional post-prediction constraint applied to forecasts:
+        - "none": no change
+        - "clip": clip negative forecasts to 0.0
+
+        This is a run-level governance behavior (auditable), not an adapter concern.
 
     Returns
     -------
@@ -161,6 +188,16 @@ def run_governance_gate(
     if preset is not None:
         eff_dqc, eff_fpc = preset_thresholds(preset)
 
+    recommendations: list[str] = []
+
+    # Optional post-process (governed): enforce nonnegativity on forecasts.
+    # This happens *before* computing FPC signals so diagnostics reflect the
+    # same constrained forecasts you would actually score downstream.
+    if nonneg_mode != "none":
+        recommendations.append(f"forecast_postprocess_nonneg(mode={nonneg_mode})")
+        yhat_base_list = _apply_nonneg(yhat_base_list, mode=nonneg_mode)
+        yhat_ral_list = _apply_nonneg(yhat_ral_list, mode=nonneg_mode)
+
     # 1) DQC from realized demand (structure only)
     dqc = classify_dqc(y=y_list, thresholds=eff_dqc)
 
@@ -180,6 +217,13 @@ def run_governance_gate(
         unit = float(dqc.signals.granularity)
         yhat_base_s = snap_to_grid(yhat_base_list, unit, mode=snap_mode)
         yhat_ral_s = snap_to_grid(yhat_ral_list, unit, mode=snap_mode)
+
+        # If snap_mode can produce negatives (e.g., floor on negative inputs),
+        # re-apply nonneg constraint post-snap when enabled.
+        if nonneg_mode != "none":
+            yhat_base_s = _apply_nonneg(yhat_base_s, mode=nonneg_mode)
+            yhat_ral_s = _apply_nonneg(yhat_ral_s, mode=nonneg_mode)
+
         snapped_signals = build_signals_from_series(
             y=y_list,
             yhat_base=yhat_base_s,  # snapped forecasts, same y
@@ -203,8 +247,6 @@ def run_governance_gate(
     )
 
     # 5) Recommended routing mode
-    recommendations: list[str] = []
-
     # "applicable" FPC for routing matches governance policy selection:
     # - snapped when snap_required, else raw
     applicable = fpc_snapped if decision.snap_required else fpc_raw
