@@ -26,6 +26,10 @@ def test_dqc_continuous_like() -> None:
     assert result.signals.granularity is not None
     assert 0.0 <= result.signals.multiple_rate <= 1.0
 
+    # Evidence counts should be present and correct
+    assert result.signals.n_obs == 399
+    assert result.signals.nonzero_obs == 399
+
 
 def test_dqc_quantized_unit_8() -> None:
     # Strong multiples-of-8 signature (packed but single unit -> QUANTIZED)
@@ -35,6 +39,10 @@ def test_dqc_quantized_unit_8() -> None:
     assert result.signals.multiple_rate >= DQCThresholds().multiple_rate_quantized
     # With only one pack size dominating, pack_signature likely empty -> QUANTIZED.
     assert result.dqc_class in (DQCClass.QUANTIZED, DQCClass.PIECEWISE_PACKED)
+
+    # Evidence counts should be present and correct
+    assert result.signals.n_obs == len(y)
+    assert result.signals.nonzero_obs == len(y) - 50
 
 
 def test_dqc_piecewise_packed_multiple_pack_sizes() -> None:
@@ -47,12 +55,21 @@ def test_dqc_piecewise_packed_multiple_pack_sizes() -> None:
     assert result.signals.multiple_rate >= DQCThresholds().multiple_rate_packed
     assert len(result.signals.pack_signature) >= DQCThresholds().pack_units_min_count
 
+    # Evidence counts should be present and correct
+    assert result.signals.n_obs == len(y)
+    assert result.signals.nonzero_obs == len(y) - 60
+
 
 def test_dqc_unknown_when_insufficient_nonzero_data() -> None:
     # Too few non-zero observations should be UNKNOWN unless signal is overwhelming.
     y = [0.0] * 500 + [8.0] * 10  # only 10 nonzero
     result = classify_dqc(y)
     assert result.dqc_class in (DQCClass.UNKNOWN, DQCClass.QUANTIZED, DQCClass.PIECEWISE_PACKED)
+
+    # Evidence counts should be present and correct
+    assert result.signals.n_obs == len(y)
+    assert result.signals.nonzero_obs == 10
+
     # If UNKNOWN, we expect the reason annotation about insufficient data.
     if result.dqc_class is DQCClass.UNKNOWN:
         assert any("nonzero_obs<" in r or "insufficient" in r for r in result.reasons)
@@ -73,6 +90,10 @@ def test_dqc_respects_threshold_override() -> None:
         DQCClass.UNKNOWN,
     )
 
+    # Evidence counts should be present and correct (both results)
+    assert default_result.signals.n_obs == len(y)
+    assert default_result.signals.nonzero_obs == len(y) - 50
+
     looser = DQCThresholds(
         multiple_rate_quantized=0.85,  # below 0.8667
         multiple_rate_packed=0.93,
@@ -81,3 +102,6 @@ def test_dqc_respects_threshold_override() -> None:
     )
     looser_result = classify_dqc(y, thresholds=looser)
     assert looser_result.dqc_class in (DQCClass.QUANTIZED, DQCClass.PIECEWISE_PACKED)
+
+    assert looser_result.signals.n_obs == len(y)
+    assert looser_result.signals.nonzero_obs == len(y) - 50

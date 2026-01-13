@@ -45,6 +45,8 @@ class DQCSignals:
     Observable signals describing demand quantization.
 
     Fields:
+    - n_obs: number of observations used for DQC (after cleaning)
+    - nonzero_obs: number of strictly-positive observations used for grid tests
     - granularity: detected base unit (e.g., 1, 2, 4, 8)
     - multiple_rate: fraction of observations that lie on the granularity grid
     - support_size: number of unique (rounded) values observed
@@ -56,6 +58,8 @@ class DQCSignals:
     - pack_signature: detected pack units (subset) when piecewise packed is detected
     """
 
+    n_obs: int
+    nonzero_obs: int
     granularity: float | None
     multiple_rate: float
     support_size: int
@@ -151,6 +155,9 @@ def classify_dqc(
     zero_mass = sum(1 for v in vals if v == 0.0) / float(len(vals))
     nonzero = [v for v in vals if v > 0.0]
 
+    n_obs = len(vals)
+    nonzero_obs = len(nonzero)
+
     support_size = len(set(vals))
     small_value_mass = (
         sum(1 for v in nonzero if v <= thr.small_value_max) / float(len(nonzero))
@@ -181,6 +188,8 @@ def classify_dqc(
         return DQCResult(
             dqc_class=DQCClass.UNKNOWN,
             signals=DQCSignals(
+                n_obs=n_obs,
+                nonzero_obs=nonzero_obs,
                 granularity=None,
                 multiple_rate=0.0,
                 support_size=support_size,
@@ -216,6 +225,8 @@ def classify_dqc(
         return DQCResult(
             dqc_class=DQCClass.UNKNOWN,
             signals=DQCSignals(
+                n_obs=n_obs,
+                nonzero_obs=nonzero_obs,
                 granularity=best_u,
                 multiple_rate=best_score,
                 support_size=support_size,
@@ -234,6 +245,8 @@ def classify_dqc(
         return DQCResult(
             dqc_class=DQCClass.PIECEWISE_PACKED,
             signals=DQCSignals(
+                n_obs=n_obs,
+                nonzero_obs=nonzero_obs,
                 granularity=best_u,
                 multiple_rate=best_score,
                 support_size=support_size,
@@ -251,6 +264,8 @@ def classify_dqc(
         return DQCResult(
             dqc_class=DQCClass.QUANTIZED,
             signals=DQCSignals(
+                n_obs=n_obs,
+                nonzero_obs=nonzero_obs,
                 granularity=best_u,
                 multiple_rate=best_score,
                 support_size=support_size,
@@ -267,6 +282,8 @@ def classify_dqc(
     return DQCResult(
         dqc_class=DQCClass.CONTINUOUS_LIKE,
         signals=DQCSignals(
+            n_obs=n_obs,
+            nonzero_obs=nonzero_obs,
             granularity=best_u,
             multiple_rate=best_score,
             support_size=support_size,
@@ -288,6 +305,8 @@ def classify_dqc(
 
 def _empty_signals(thr: DQCThresholds) -> DQCSignals:
     return DQCSignals(
+        n_obs=0,
+        nonzero_obs=0,
         granularity=None,
         multiple_rate=0.0,
         support_size=0,
@@ -406,6 +425,8 @@ def dqc_to_dict(result: DQCResult) -> dict[str, object]:
         "dqc_class": result.dqc_class.value,
         "reasons": list(result.reasons),
         "signals": {
+            "n_obs": s.n_obs,
+            "nonzero_obs": s.nonzero_obs,
             "granularity": s.granularity,
             "multiple_rate": s.multiple_rate,
             "support_size": s.support_size,
