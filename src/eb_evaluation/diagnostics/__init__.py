@@ -40,6 +40,18 @@ validate_dqc
 dqc_to_dict
     JSON-friendly serialization for DQCResult.
 
+FASSliceMode
+    Slice-key mode for constructing a Forecast Admissibility Surface (FAS) over a
+    panel (e.g., entity, entity x interval).
+FASThresholds
+    Interpretable threshold parameters governing FAS classification logic.
+slice_keys
+    Resolve slice-key columns for a given FAS slice mode.
+compute_error_anatomy
+    Compute baseline-derived error anatomy (tail/spike/zero/support) by slice.
+build_fas_surface
+    Build a joinable admissibility surface over the chosen slice keys.
+
 GovernancePreset
     Named policy presets (conservative/balanced/aggressive) for default thresholds.
 get_governance_preset
@@ -85,6 +97,11 @@ sizes). When demand is quantized, tolerance-based diagnostics and readiness
 adjustments should be interpreted or applied in quantized units (e.g., snap-to-
 grid).
 
+Forecast Admissibility Surface (FAS) is a deterministic, slice-keyed gating
+surface intended to constrain where modeling/control is admissible by combining
+structural signals and baseline error anatomy into ALLOWED/CONDITIONAL/BLOCKED
+classes.
+
 The governance layer composes DQC and FPC to produce an **authoritative**
 downstream policy decision (snap required? τ in grid units? allow RAL?).
 """
@@ -98,6 +115,13 @@ from .dqc import (
     DQCThresholds,
     classify_dqc,
     dqc_to_dict,
+)
+from .fas import (
+    FASSliceMode,
+    FASThresholds,
+    build_fas_surface,
+    compute_error_anatomy,
+    slice_keys,
 )
 from .fpc import (
     FPCClass,
@@ -132,6 +156,8 @@ __all__ = [
     "DQCResult",
     "DQCSignals",
     "DQCThresholds",
+    "FASSliceMode",
+    "FASThresholds",
     "FPCClass",
     "FPCResult",
     "FPCSignals",
@@ -143,13 +169,16 @@ __all__ = [
     "GovernanceStatus",
     "RALPolicy",
     "TauPolicy",
+    "build_fas_surface",
     "classify_dqc",
     "classify_fpc",
+    "compute_error_anatomy",
     "decide_governance",
     "dqc_to_dict",
     "get_governance_preset",
     "preset_thresholds",
     "run_governance_gate",
+    "slice_keys",
     "validate_dqc",
     "validate_fpc",
     "validate_governance",
