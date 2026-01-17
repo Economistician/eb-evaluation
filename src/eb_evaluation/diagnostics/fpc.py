@@ -242,7 +242,33 @@ def build_signals_from_series(
     tau: float,
     ud: float | None = None,
     cwsl_r: float | None = None,
+    cost_ratio: float | None = None,
 ) -> FPCSignals:
+    """
+    Compute FPCSignals from deterministic series.
+
+    Args:
+        y: Realized demand series.
+        yhat_base: Baseline point forecast series.
+        yhat_ral: RAL-adjusted point forecast series.
+        tau: Absolute error tolerance band for HR@τ.
+        ud: Optional override for UD (otherwise computed from (y, yhat_base)).
+        cwsl_r: Backward-compatible cost ratio (c_under / c_over) used to compute
+            optional CWSL signals.
+        cost_ratio: Alias for cwsl_r (preferred public name). Exactly one of
+            (cwsl_r, cost_ratio) may be provided.
+
+    Notes:
+        - This function intentionally remains small/deterministic.
+        - The alias exists to support clearer ecosystem usage without breaking
+          existing callers.
+    """
+    if cwsl_r is not None and cost_ratio is not None:
+        raise TypeError("Provide only one of 'cwsl_r' or 'cost_ratio' (they are aliases).")
+
+    if cwsl_r is None and cost_ratio is not None:
+        cwsl_r = cost_ratio
+
     nsl_base = compute_nsl(y, yhat_base)
     nsl_ral = compute_nsl(y, yhat_ral)
     delta_nsl = nsl_ral - nsl_base

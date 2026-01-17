@@ -8,10 +8,13 @@ classification semantics across refactors is critical.
 
 from __future__ import annotations
 
+import pytest
+
 from eb_evaluation.diagnostics.fpc import (
     FPCClass,
     FPCSignals,
     FPCThresholds,
+    build_signals_from_series,
     classify_fpc,
 )
 
@@ -192,3 +195,57 @@ def test_fpc_thresholds_can_shift_borderline_case() -> None:
     )
     aggressive_result = classify_fpc(signals, thresholds=aggressive)
     assert aggressive_result.fpc_class is FPCClass.INCOMPATIBLE
+
+
+def test_build_signals_from_series_accepts_cost_ratio_alias() -> None:
+    """
+    Public API stability: build_signals_from_series should accept `cost_ratio`
+    as an alias for `cwsl_r` (and compute the optional cost signals).
+
+    This locks in the integration surface relied on by downstream repos (e.g.,
+    eb-integration ecosystem smoke tests).
+    """
+    y = [10.0, 12.0, 11.0, 9.0]
+    yhat_base = [10.0, 11.0, 11.5, 9.5]
+    yhat_ral = [10.5, 11.5, 11.25, 9.25]
+
+    signals = build_signals_from_series(
+        y=y,
+        yhat_base=yhat_base,
+        yhat_ral=yhat_ral,
+        tau=0.2,
+        cost_ratio=2.0,
+    )
+
+    assert isinstance(signals, FPCSignals)
+    assert signals.cwsl_base is not None
+    assert signals.cwsl_ral is not None
+    assert signals.delta_cwsl is not None
+
+    # Backward-compatibility: `cwsl_r` should yield the same values.
+    signals_legacy = build_signals_from_series(
+        y=y,
+        yhat_base=yhat_base,
+        yhat_ral=yhat_ral,
+        tau=0.2,
+        cwsl_r=2.0,
+    )
+
+    assert signals_legacy.cwsl_base == pytest.approx(signals.cwsl_base, rel=1e-12)
+    assert signals_legacy.cwsl_ral == pytest.approx(signals.cwsl_ral, rel=1e-12)
+    assert signals_legacy.delta_cwsl == pytest.approx(signals.delta_cwsl, rel=1e-12)
+
+
+def test_build_signals_from_series_rejects_both_cost_ratio_and_cwsl_r() -> None:
+    """
+    Guardrail: providing both aliases should raise, to avoid ambiguous input.
+    """
+    with pytest.raises(TypeError):
+        build_signals_from_series(
+            y=[1.0],
+            yhat_base=[1.0],
+            yhat_ral=[1.0],
+            tau=0.1,
+            cwsl_r=2.0,
+            cost_ratio=2.0,
+        )
