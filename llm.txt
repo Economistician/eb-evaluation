@@ -1,0 +1,129 @@
+REPOSITORY: eb-evaluation
+
+ROLE
+This repository is the evaluation, diagnostics, and model-comparison layer of the
+Electric Barometer ecosystem.
+
+It applies EB metric primitives to forecasts and observations using DataFrame-first
+workflows (entity, group, hierarchy, panel semantics), and produces auditable
+diagnostic and governance artifacts (DQC, FPC, GovernanceDecision, FAS results).
+
+This repository orchestrates evaluation and diagnostic logic.
+It does not define metric mathematics, contracts, feature engineering, or model training.
+
+---
+
+PRIMARY RESPONSIBILITIES
+
+- DataFrame-first evaluation workflows:
+  - compute metrics across entities, groups, and hierarchical levels
+  - enforce correct aggregation semantics and alignment
+  - return consistent, tabular evaluation outputs suitable for reporting and selection
+
+- Diagnostics layer (structural + readiness diagnostics):
+  - FAS (Forecast Admissibility Surface) diagnostics on baseline forecasts (informative)
+  - DQC (Demand Quantization Compatibility) diagnostics
+  - FPC (Forecast Primitive Compatibility) diagnostics
+  - Governance diagnostics that compose DQC + FPC into an auditable, deterministic
+    GovernanceDecision artifact (e.g., snap requirements, tau interpretation, RAL policy)
+
+- Model comparison / selection utilities:
+  - compare candidate forecast outputs using consistent metric suites and aggregation
+  - provide selection helpers that remain evaluation-driven and transparent
+
+- Optional readiness adjustment utilities (RAL):
+  - provide a transparent, bounded, deterministic post-processing uplift mechanism
+    (fit + apply) for controlled readiness adjustment experiments
+  - emit before/after diagnostics for auditability
+  - (RAL here is an evaluation/analysis tool; execution policy remains downstream)
+
+---
+
+NON-RESPONSIBILITIES (STRICT)
+
+This repository MUST NOT:
+
+- Define or re-implement metric primitives (belongs in eb-metrics)
+  - e.g., do not duplicate CWSL/NSL/UD/HR@τ/FRS math beyond calling eb-metrics
+
+- Define EB artifact schemas or validation contracts (belongs in eb-contracts)
+
+- Perform feature engineering or data construction (belongs in eb-features / upstream)
+
+- Train forecasting models or implement model adapters (belongs in eb-adapters /
+  electric-barometer / upstream model code)
+
+- Perform general-purpose optimization or tuning loops
+  - bounded grid-search inside RAL is permitted only as a transparent, deterministic
+    evaluation-side tool, not as a production optimizer
+
+- Encode hidden governance thresholds as implicit defaults in evaluation logic
+  - thresholds must be explicit inputs or come from stable, named presets
+
+- Execute production decisions, serving logic, or fallback behavior
+
+---
+
+CORE INVARIANTS
+
+- Evaluation is descriptive, not binding.
+  Evaluation outputs (metrics, diagnostics) are inputs to decision systems; they do not
+  themselves authorize execution behavior.
+
+- Governance artifacts are auditable and deterministic.
+  GovernanceDecision outputs must be stable, explainable, and derived only from their
+  declared inputs (DQC results, FPC signals, explicit thresholds/presets).
+
+- DQC precedes FPC in interpretation.
+  When snapping/quantization is required, FPC interpretation must respect the
+  DQC-declared representation.
+
+- DataFrame semantics are explicit.
+  Grouping keys, time alignment, and aggregation rules must be explicit and tested;
+  evaluation must not silently change grain.
+
+- No schema drift.
+  Public entrypoints and outputs must remain stable and well-tested to prevent ecosystem
+  drift across packages.
+
+---
+
+SYSTEM RELATIONSHIP
+
+- This repository defers to `eb-integration/llm.system.txt` for:
+  - canonical pipeline ordering
+  - the rule that metrics are non-binding
+  - the rule that governance is the single binding decision layer at the system level
+
+- This repository consumes:
+  - eb-metrics for metric primitives and calibration helpers
+  - eb-contracts for canonical artifact schemas (when validating or producing contract
+    artifacts, do so by importing contracts rather than re-declaring schemas)
+
+---
+
+ALLOWED CHANGES
+
+- Adding/expanding DataFrame evaluation utilities (with tests)
+- Adding new diagnostics outputs, presets, and validation helpers (with tests)
+- Improving aggregation correctness, stability, and performance
+- Extending model comparison utilities (without adding model training)
+
+---
+
+DISALLOWED CHANGES
+
+- Duplicating metric math or embedding model-specific behavior
+- Introducing optimization engines, learned tuning, or opaque heuristics
+- Turning evaluation metrics into gates or pass/fail enforcement
+- Adding cross-repo responsibilities (contracts, features, adapters, serving)
+
+---
+
+INTERPRETATION RULE
+
+If the change is about applying metrics to forecasts in tabular workflows,
+diagnosing structural compatibility, or emitting auditable governance artifacts,
+it belongs here.
+If the change is about defining metrics, building models, engineering features,
+or executing decisions, it does not belong here.
