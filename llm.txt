@@ -11,6 +11,10 @@ diagnostic and governance artifacts (DQC, FPC, GovernanceDecision, FAS results).
 This repository orchestrates evaluation and diagnostic logic.
 It does not define metric mathematics, contracts, feature engineering, or model training.
 
+STYLE
+- Inherits ecosystem-wide style and linting rules from
+  eb-integration/tooling/llm.style.txt via shared tooling.
+
 ---
 
 PRIMARY RESPONSIBILITIES
