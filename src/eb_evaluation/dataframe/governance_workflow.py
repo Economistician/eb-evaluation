@@ -30,6 +30,8 @@ from eb_evaluation.diagnostics.dqc import DQCThresholds
 from eb_evaluation.diagnostics.fpc import FPCThresholds
 from eb_evaluation.diagnostics.presets import GovernancePreset
 
+__all__ = ["run_governance_workflow_df", "run_governance_workflow_df_dict"]
+
 
 def run_governance_workflow_df(
     *,
@@ -70,10 +72,11 @@ def run_governance_workflow_df(
     - If `decisions_df` is provided, the workflow will NOT recompute decisions; it will
       apply the provided decisions and (optionally) validate completeness.
     """
-    if len(keys) == 0:
+    keys_list = list(keys)
+    if len(keys_list) == 0:
         raise ValueError("`keys` must contain at least one grouping column.")
 
-    required = set(keys) | {actual_col, base_forecast_col, ral_forecast_col}
+    required = set(keys_list) | {actual_col, base_forecast_col, ral_forecast_col}
     missing = sorted(required - set(df.columns))
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
@@ -81,7 +84,7 @@ def run_governance_workflow_df(
     if decisions_df is None:
         decisions_df = evaluate_governance_panel_df(
             df=df,
-            keys=keys,
+            keys=keys_list,
             actual_col=actual_col,
             base_forecast_col=base_forecast_col,
             ral_forecast_col=ral_forecast_col,
@@ -93,7 +96,7 @@ def run_governance_workflow_df(
             dropna_keys=dropna_keys,
         )
     else:
-        missing_decision_keys = sorted(set(keys) - set(decisions_df.columns))
+        missing_decision_keys = sorted(set(keys_list) - set(decisions_df.columns))
         if missing_decision_keys:
             raise ValueError(
                 f"Provided decisions_df is missing required key columns: {missing_decision_keys}"
@@ -107,7 +110,7 @@ def run_governance_workflow_df(
         panel_governed = apply_ral(
             df=df,
             decisions=decisions_df,
-            key_cols=keys,
+            key_cols=keys_list,
             yhat_base_col=base_forecast_col,
             yhat_ral_col=ral_forecast_col,
             snap_mode=snap_mode,
@@ -121,14 +124,15 @@ def run_governance_workflow_df(
         # Normalize missing-decision errors to a stable message for callers/tests.
         msg = str(e)
         if require_complete_decisions and (
-            "missing governance decision rows" in msg or "Missing governance decision" in msg
+            "missing governance decision rows" in msg
+            or "missing governance decision row" in msg
+            or "Missing governance decision" in msg
         ):
             raise ValueError(f"Missing governance decisions: {msg}") from e
         raise
 
     if require_complete_decisions:
-        # If any stream rows failed to match a decision, snap_required will be NA.
-        # Fail loudly to avoid silent "policy missing" behavior.
+        # Secondary guard (in case apply_ral changes to not hard-fail on missing joins).
         if "snap_required" not in panel_governed.columns:
             raise ValueError(
                 "Governance decisions did not include 'snap_required' after join; "
@@ -137,8 +141,7 @@ def run_governance_workflow_df(
 
         snap_required = panel_governed["snap_required"]
         if bool(snap_required.isna().any()):
-            # Provide a compact preview of missing key combos.
-            missing_rows = panel_governed.loc[snap_required.isna(), list(keys)]
+            missing_rows = panel_governed.loc[snap_required.isna(), keys_list]
             preview = missing_rows.drop_duplicates().head(10).to_dict(orient="records")
             raise ValueError(
                 "Missing governance decisions for one or more key groups. "

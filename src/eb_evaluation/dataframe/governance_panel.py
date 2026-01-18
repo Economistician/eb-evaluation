@@ -75,6 +75,8 @@ from eb_evaluation.diagnostics.presets import GovernancePreset
 from eb_evaluation.diagnostics.results import GovernanceResult
 from eb_evaluation.diagnostics.run import run_governance_gate
 
+__all__ = ["evaluate_governance_panel_df"]
+
 
 def _as_reason_string(reasons: Sequence[str] | None) -> str:
     if not reasons:
