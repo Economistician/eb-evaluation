@@ -167,10 +167,138 @@ def test_segment_specific_uplift_and_fallback_to_global():
         "forecast"
     ].to_numpy(dtype=float)
 
-    # Row 0: cluster A → segment uplift
+    # Row 0: cluster A -> segment uplift
     assert pytest.approx(applied_uplift[0], rel=1e-6) == uplift_a
-    # Row 1: cluster B → segment uplift
+    # Row 1: cluster B -> segment uplift
     assert pytest.approx(applied_uplift[1], rel=1e-6) == uplift_b
-    # Row 2: cluster C (unseen) → global uplift
+    # Row 2: cluster C (unseen) -> global uplift
     assert ral.global_uplift_ is not None
     assert pytest.approx(applied_uplift[2], rel=1e-6) == ral.global_uplift_
+
+
+# -------------------------------------------------------------------
+# PR3: Canonical RAL application utilities (governance-aware apply)
+# -------------------------------------------------------------------
+
+
+def _make_apply_ral_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "forecast_entity_id": [1, 1, 2, 2],
+            "yhat_ral_raw": [-1.0, 3.2, 7.9, 8.1],
+        }
+    )
+
+
+def _make_decisions_df() -> pd.DataFrame:
+    # entity 1: continuous (no snap)
+    # entity 2: pack-aware (snap to unit=4)
+    return pd.DataFrame(
+        {
+            "forecast_entity_id": [1, 2],
+            "snap_required": [False, True],
+            "snap_unit": [np.nan, 4.0],
+            "recommended_mode": ["continuous", "pack_aware"],
+        }
+    )
+
+
+def test_apply_ral_continuous_nonneg_clip_applies_without_snapping() -> None:
+    """
+    Continuous path:
+    - no snapping
+    - nonneg clip to zero
+    """
+    from eb_evaluation.adjustment.ral import apply_ral
+
+    df = _make_apply_ral_df()
+    decisions = _make_decisions_df()
+
+    out = apply_ral(
+        df=df,
+        decisions=decisions,
+        join_keys=["forecast_entity_id"],
+        pred_col="yhat_ral_raw",
+        output_col="yhat_ral_governed",
+        snap_mode="ceil",
+        nonneg_mode="clip_zero",
+    )
+
+    # Entity 1 should not be snapped; only nonneg should apply.
+    sub = out.loc[out["forecast_entity_id"] == 1, "yhat_ral_governed"].to_numpy(dtype=float)
+    np.testing.assert_allclose(sub, np.asarray([0.0, 3.2], dtype=float), rtol=0, atol=1e-12)
+
+
+def test_apply_ral_pack_aware_snaps_to_grid_and_applies_nonneg() -> None:
+    """
+    Pack-aware path:
+    - snapping to grid applies to governed preds
+    - nonneg applies after snapping
+    """
+    from eb_evaluation.adjustment.ral import apply_ral
+
+    df = _make_apply_ral_df()
+    decisions = _make_decisions_df()
+
+    out = apply_ral(
+        df=df,
+        decisions=decisions,
+        join_keys=["forecast_entity_id"],
+        pred_col="yhat_ral_raw",
+        output_col="yhat_ral_governed",
+        snap_mode="ceil",
+        nonneg_mode="clip_zero",
+    )
+
+    # Entity 2 should be snapped to multiples of 4 with ceil snapping:
+    # 7.9 -> 8, 8.1 -> 12
+    sub = out.loc[out["forecast_entity_id"] == 2, "yhat_ral_governed"].to_numpy(dtype=float)
+    np.testing.assert_allclose(sub, np.asarray([8.0, 12.0], dtype=float), rtol=0, atol=1e-12)
+
+
+def test_apply_ral_round_mode_changes_snapped_value() -> None:
+    """
+    Snap-mode behavior should be testable: round should differ from ceil for 8.1.
+    """
+    from eb_evaluation.adjustment.ral import apply_ral
+
+    df = _make_apply_ral_df()
+    decisions = _make_decisions_df()
+
+    out_round = apply_ral(
+        df=df,
+        decisions=decisions,
+        join_keys=["forecast_entity_id"],
+        pred_col="yhat_ral_raw",
+        output_col="yhat_ral_governed",
+        snap_mode="round",
+        nonneg_mode="allow",
+    )
+
+    sub = out_round.loc[out_round["forecast_entity_id"] == 2, "yhat_ral_governed"].to_numpy(
+        dtype=float
+    )
+    # 7.9 rounds to 8, 8.1 rounds to 8 (nearest multiple of 4)
+    np.testing.assert_allclose(sub, np.asarray([8.0, 8.0], dtype=float), rtol=0, atol=1e-12)
+
+
+def test_apply_ral_raises_on_missing_decision_rows() -> None:
+    """
+    apply_ral should fail loudly if a join key doesn't find a governance decision.
+    This prevents silent "policy missing" behavior.
+    """
+    from eb_evaluation.adjustment.ral import apply_ral
+
+    df = _make_apply_ral_df()
+    decisions = _make_decisions_df().loc[_make_decisions_df()["forecast_entity_id"] == 1].copy()
+
+    with pytest.raises(ValueError):
+        _ = apply_ral(
+            df=df,
+            decisions=decisions,
+            join_keys=["forecast_entity_id"],
+            pred_col="yhat_ral_raw",
+            output_col="yhat_ral_governed",
+            snap_mode="ceil",
+            nonneg_mode="clip_zero",
+        )

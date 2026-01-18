@@ -9,15 +9,19 @@ Responsibilities
 - Fit a simple uplift policy via grid search that minimizes CWSL.
 - Apply learned uplift factors to new data (global or segmented).
 - Provide before/after diagnostics for auditability.
+- Provide a canonical apply_ral(...) utility that joins governance decisions and applies
+  governed post-processing (nonneg + snap-to-grid) to prediction columns.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Literal
 
 import numpy as np
 import pandas as pd
 
+from eb_evaluation.diagnostics.governance import snap_to_grid
 from eb_metrics.metrics import cwsl
 
 
@@ -273,3 +277,258 @@ class ReadinessAdjustmentLayer:
 
         result_df[output_col] = result_df[forecast_col].to_numpy(dtype=float) * uplift
         return result_df
+
+
+NonnegPolicy = Literal["allow", "clip_zero"]
+SnapMode = Literal["ceil", "round", "floor"]
+
+
+def _infer_nonneg_policy_from_recommendations(recs: Sequence[str] | None) -> NonnegPolicy:
+    if not recs:
+        return "allow"
+    for r in recs:
+        if r == "forecast_postprocess_nonneg(mode=clip_zero)":
+            return "clip_zero"
+    return "allow"
+
+
+def _infer_snap_mode_from_recommendations(
+    recs: Sequence[str] | None, *, default: SnapMode
+) -> SnapMode:
+    if not recs:
+        return default
+    prefix = "snap_forecasts_to_grid(mode="
+    for r in recs:
+        if r.startswith(prefix) and r.endswith(")"):
+            mode = r[len(prefix) : -1]
+            if mode in ("ceil", "round", "floor"):
+                return mode  # type: ignore[return-value]
+    return default
+
+
+def _apply_nonneg_policy(values: np.ndarray, *, policy: NonnegPolicy) -> np.ndarray:
+    if policy == "allow":
+        return values
+    return np.maximum(values, 0.0)
+
+
+def _apply_snap_policy_series(
+    values: pd.Series,
+    units: pd.Series,
+    *,
+    mode: SnapMode,
+) -> pd.Series:
+    """
+    Apply snap-to-grid with per-row (possibly varying) units.
+
+    If the unit is constant (typical), we snap in one pass. If it varies, we
+    snap per-unit group to avoid row-wise Python loops.
+    """
+    v = values.to_numpy(dtype=float, copy=False)
+    u = units.to_numpy(dtype=float, copy=False)
+
+    mask = np.isfinite(v) & np.isfinite(u) & (u > 0.0)
+    if not mask.any():
+        return values
+
+    uniq_units = np.unique(u[mask])
+    if uniq_units.size == 1:
+        unit = float(uniq_units[0])
+        snapped = np.asarray(snap_to_grid(v.tolist(), unit, mode=mode), dtype=float)
+        out = v.copy()
+        out[:] = snapped
+        return pd.Series(out, index=values.index, name=values.name)
+
+    out = v.copy()
+    for unit in uniq_units.tolist():
+        unit_f = float(unit)
+        idx = mask & (u == unit_f)
+        snapped_sub = np.asarray(snap_to_grid(v[idx].tolist(), unit_f, mode=mode), dtype=float)
+        out[idx] = snapped_sub
+    return pd.Series(out, index=values.index, name=values.name)
+
+
+def apply_ral(
+    df: pd.DataFrame,
+    *,
+    # --- legacy alias kwargs (kept for compatibility with older tests/callers) ---
+    join_keys: Sequence[str] | None = None,
+    pred_col: str | None = None,
+    output_col: str | None = None,
+    nonneg_mode: str | None = None,
+    # --- canonical inputs ---
+    decisions: pd.DataFrame | None = None,
+    key_cols: Sequence[str] = ("forecast_entity_id",),
+    yhat_base_col: str = "yhat_base",
+    yhat_ral_col: str | None = "yhat_ral",
+    uplift_col: str | None = None,
+    snap_required_col: str = "snap_required",
+    snap_unit_col: str = "snap_unit",
+    recommendations_col: str = "recommendations",
+    snap_mode: SnapMode = "ceil",
+    nonneg_policy: NonnegPolicy | None = None,
+    infer_policy_from_recommendations: bool = True,
+    out_base_col: str = "yhat_base_governed",
+    out_ral_col: str = "yhat_ral_governed",
+    out_audit_prefix: str = "ral_apply_",
+) -> pd.DataFrame:
+    """
+    Canonical RAL application utility:
+    - optionally joins governance decisions onto a panel,
+    - produces a raw RAL prediction column (from yhat_ral_col or uplift_col),
+    - applies governed nonnegativity + snap-to-grid policies,
+    - emits governed prediction columns + audit columns.
+
+    Notes
+    -----
+    - This function does *not* fit RAL. It applies already-produced predictions.
+    - If yhat_ral_col is None, uplift_col must be provided and we compute:
+        yhat_ral_raw = yhat_base * uplift
+    - If infer_policy_from_recommendations is True and recommendations exist,
+      policy is inferred from stable recommendation strings emitted by run.py.
+    """
+
+    # ---- apply legacy aliases (if provided) ----
+    if join_keys is not None:
+        key_cols = join_keys
+    if pred_col is not None:
+        # Legacy callers/tests pass the *prediction to govern* (not a baseline).
+        yhat_ral_col = pred_col
+        # If a baseline column isn't present, reuse the same prediction column so the
+        # function can still emit out_base_col deterministically.
+        if yhat_base_col not in df.columns:
+            yhat_base_col = pred_col
+    if output_col is not None:
+        out_ral_col = output_col
+    if nonneg_mode is not None and nonneg_policy is None:
+        # Map legacy run.py-style names -> policy
+        if nonneg_mode in ("none", "allow"):
+            nonneg_policy = "allow"
+        elif nonneg_mode in ("clip", "clip_zero"):
+            nonneg_policy = "clip_zero"
+        else:
+            raise ValueError(
+                "apply_ral: nonneg_mode must be one of {'none','clip'} "
+                "(or use nonneg_policy={'allow','clip_zero'})."
+            )
+
+    if yhat_base_col not in df.columns:
+        raise KeyError(f"apply_ral: missing required column {yhat_base_col!r} in df.")
+
+    keys = list(key_cols)
+    for k in keys:
+        if k not in df.columns:
+            raise KeyError(f"apply_ral: missing key column {k!r} in df.")
+
+    work = df.copy()
+
+    if decisions is not None:
+        for k in keys:
+            if k not in decisions.columns:
+                raise KeyError(f"apply_ral: missing key column {k!r} in decisions.")
+
+        merged = work.merge(decisions, on=keys, how="left", indicator=True)
+        missing = merged.loc[merged["_merge"] != "both", keys]
+        if not missing.empty:
+            # Fail loudly: prevent silent "policy missing" behavior.
+            missing_keys = missing.drop_duplicates().to_dict(orient="records")[
+                :10
+            ]  # cap for readability
+            raise ValueError(
+                "apply_ral: missing governance decision rows for some join keys. "
+                f"Examples: {missing_keys}"
+            )
+        work = merged.drop(columns=["_merge"])
+
+    # Build raw RAL prediction stream.
+    if yhat_ral_col is not None:
+        if yhat_ral_col not in work.columns:
+            raise KeyError(f"apply_ral: missing column {yhat_ral_col!r} in df.")
+        yhat_ral_raw = work[yhat_ral_col].to_numpy(dtype=float)
+    else:
+        if uplift_col is None:
+            raise ValueError("apply_ral: yhat_ral_col is None, so uplift_col must be provided.")
+        if uplift_col not in work.columns:
+            raise KeyError(f"apply_ral: missing uplift column {uplift_col!r} in df.")
+        yhat_ral_raw = work[yhat_base_col].to_numpy(dtype=float) * work[uplift_col].to_numpy(
+            dtype=float
+        )
+
+    yhat_base_raw = work[yhat_base_col].to_numpy(dtype=float)
+
+    # Determine effective policy:
+    # - If nonneg_policy explicitly provided, use it.
+    # - Else, optionally infer from recommendations (first-row), otherwise allow.
+    if recommendations_col in work.columns and infer_policy_from_recommendations:
+        recs_first = work[recommendations_col].iloc[0] if len(work) else None
+    else:
+        recs_first = None
+
+    nonneg_eff: NonnegPolicy
+    if nonneg_policy is not None:
+        nonneg_eff = nonneg_policy
+    else:
+        nonneg_eff = _infer_nonneg_policy_from_recommendations(recs_first)
+
+    snap_mode_eff: SnapMode = snap_mode
+    if infer_policy_from_recommendations and len(work):
+        snap_mode_eff = _infer_snap_mode_from_recommendations(recs_first, default=snap_mode)
+
+    # Apply nonnegativity first (matches run.py behavior: constrain before diagnostics/snapping).
+    yhat_base_g = _apply_nonneg_policy(yhat_base_raw.copy(), policy=nonneg_eff)
+    yhat_ral_g = _apply_nonneg_policy(yhat_ral_raw.copy(), policy=nonneg_eff)
+
+    work[out_base_col] = yhat_base_g
+    work[out_ral_col] = yhat_ral_g
+
+    # Apply snapping if required and unit available.
+    if snap_required_col in work.columns and snap_unit_col in work.columns:
+        snap_required_s = work[snap_required_col].astype(bool)
+        snap_unit_obj = pd.to_numeric(work[snap_unit_col], errors="coerce")
+        snap_unit_s = (
+            snap_unit_obj
+            if isinstance(snap_unit_obj, pd.Series)
+            else pd.Series(snap_unit_obj, index=work.index, name=snap_unit_col)
+        )
+
+        # Only snap rows where required + a finite positive unit exists.
+        need = snap_required_s & snap_unit_s.notna() & (snap_unit_s > 0.0)
+        if bool(need.any()):
+            base_series = work.loc[need, out_base_col]
+            ral_series = work.loc[need, out_ral_col]
+            unit_series = snap_unit_s.loc[need]
+
+            work.loc[need, out_base_col] = _apply_snap_policy_series(
+                base_series, unit_series, mode=snap_mode_eff
+            )
+            work.loc[need, out_ral_col] = _apply_snap_policy_series(
+                ral_series, unit_series, mode=snap_mode_eff
+            )
+
+            # If snapping can reintroduce negatives (e.g., round on negatives), re-apply nonneg.
+            if nonneg_eff != "allow":
+                idx = work.loc[need, out_base_col].index
+                work.loc[need, out_base_col] = pd.Series(
+                    _apply_nonneg_policy(
+                        work.loc[need, out_base_col].to_numpy(dtype=float),
+                        policy=nonneg_eff,
+                    ),
+                    index=idx,
+                    name=out_base_col,
+                )
+
+                idx2 = work.loc[need, out_ral_col].index
+                work.loc[need, out_ral_col] = pd.Series(
+                    _apply_nonneg_policy(
+                        work.loc[need, out_ral_col].to_numpy(dtype=float),
+                        policy=nonneg_eff,
+                    ),
+                    index=idx2,
+                    name=out_ral_col,
+                )
+
+    # Audit columns (stable, lightweight)
+    work[f"{out_audit_prefix}nonneg_policy"] = nonneg_eff
+    work[f"{out_audit_prefix}snap_mode"] = snap_mode_eff
+
+    return work
