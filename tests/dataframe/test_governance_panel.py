@@ -118,9 +118,8 @@ def test_evaluate_governance_panel_df_detects_snap_required_for_quantized_stream
     )  # policy is versioned; accept known values
     assert b["recommended_mode"] in ("pack_aware", "reroute_discrete")
 
-    # Stream A should usually not require snapping (continuous-like)
-    # We don't hard-require snap_required=False because DQC thresholds might change,
-    # but if it does not snap, it should be routed as continuous.
+    # Stream A should usually not require snapping (continuous-like).
+    # If it does not snap, it should be routed as continuous.
     if bool(a["snap_required"]) is False:
         assert a["recommended_mode"] == "continuous"
 

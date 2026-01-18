@@ -142,27 +142,31 @@ def evaluate_governance_panel_df(
     pandas.DataFrame
         One row per stream (key combination) summarizing governance results.
     """
-    if len(keys) == 0:
+    keys_list = list(keys)
+    if len(keys_list) == 0:
         raise ValueError("`keys` must contain at least one grouping column.")
 
-    required = set(keys) | {actual_col, base_forecast_col, ral_forecast_col}
+    if preset is not None and (dqc_thresholds is not None or fpc_thresholds is not None):
+        raise ValueError("Provide either `preset` or explicit thresholds, not both.")
+
+    required = set(keys_list) | {actual_col, base_forecast_col, ral_forecast_col}
     missing = sorted(required - set(df.columns))
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
 
     work = df
     if dropna_keys:
-        work = work.dropna(subset=list(keys))
+        work = work.dropna(subset=keys_list)
 
     out_rows: list[dict[str, Any]] = []
 
-    grouped = work.groupby(list(keys), dropna=not dropna_keys, sort=False)
+    grouped = work.groupby(keys_list, dropna=not dropna_keys, sort=False)
 
     for key_vals, g in grouped:
         if not isinstance(key_vals, tuple):
             key_vals = (key_vals,)
 
-        row: dict[str, Any] = dict(zip(keys, key_vals, strict=True))
+        row: dict[str, Any] = dict(zip(keys_list, key_vals, strict=True))
         row["n"] = len(g)
 
         y = g[actual_col].to_numpy(dtype=float)
@@ -173,7 +177,7 @@ def evaluate_governance_panel_df(
             y=y,
             yhat_base=yhat_base,
             yhat_ral=yhat_ral,
-            tau=tau,
+            tau=float(tau),
             cwsl_r=cwsl_r,
             preset=preset,
             dqc_thresholds=dqc_thresholds,
@@ -185,7 +189,7 @@ def evaluate_governance_panel_df(
 
         # Primary routing + policies
         row["recommended_mode"] = result.recommended_mode
-        row["snap_required"] = result.snap_required
+        row["snap_required"] = bool(result.snap_required)
         row["snap_unit"] = result.snap_unit
         row["tau_policy"] = result.tau_policy.value
         row["ral_policy"] = result.ral_policy.value
