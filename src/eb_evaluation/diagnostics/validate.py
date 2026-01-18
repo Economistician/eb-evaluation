@@ -46,6 +46,10 @@ def validate_fpc(
     return classify_fpc(signals=signals, thresholds=thresholds)
 
 
+def _as_float_list(x: Sequence[float]) -> list[float]:
+    return [float(v) for v in x]
+
+
 def validate_dqc(
     *,
     y: Sequence[float],
@@ -154,6 +158,7 @@ def validate_governance(
         fpc_signals_snapped=fpc_signals_snapped,
         dqc_thresholds=dqc_thr,
         fpc_thresholds=fpc_thr,
+        preset=preset if preset is not None else "balanced",
     )
 
 
@@ -181,10 +186,6 @@ class GateResult:
     decision: GovernanceDecision
     recommended_mode: RecommendedEvaluationMode
     recommendations: tuple[str, ...] = ()
-
-
-def _as_float_list(x: Sequence[float]) -> list[float]:
-    return [float(v) for v in x]
 
 
 def _validate_same_length(y: Sequence[float], yhat: Sequence[float], name: str) -> None:

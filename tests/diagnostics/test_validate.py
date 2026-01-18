@@ -316,6 +316,43 @@ def test_validate_governance_accepts_preset_and_matches_preset_thresholds() -> N
     assert by_preset.status == explicit.status
 
 
+def test_validate_governance_preset_does_not_emit_preset_reason_string() -> None:
+    """
+    validate_governance is a stable delegation layer and may resolve preset
+    thresholds explicitly. In that case, the downstream GovernanceDecision may
+    not record a `preset=...` reason, because explicit thresholds were provided
+    to the decision surface.
+
+    This test is a regression guard on *validate-layer behavior* (not the
+    underlying governance module).
+    """
+    y = [0.0] * 20 + [4.0] * 50 + [8.0] * 40 + [12.0] * 30
+
+    fpc_ok = FPCSignals(
+        nsl_base=0.08,
+        nsl_ral=0.18,
+        delta_nsl=0.10,
+        hr_base_tau=0.10,
+        hr_ral_tau=0.08,
+        delta_hr_tau=-0.02,
+        ud=3.0,
+        cwsl_base=None,
+        cwsl_ral=None,
+        delta_cwsl=None,
+        intervals=140,
+        shortfall_intervals=None,
+    )
+
+    decision = validate_governance(
+        y=y,
+        fpc_signals_raw=fpc_ok,
+        fpc_signals_snapped=fpc_ok,
+        preset="balanced",
+    )
+
+    assert not any(str(r).startswith("preset=") for r in getattr(decision, "reasons", ()))
+
+
 def test_validate_governance_rejects_preset_and_explicit_thresholds_together() -> None:
     """
     Contract: callers should choose either a preset or explicit thresholds.
