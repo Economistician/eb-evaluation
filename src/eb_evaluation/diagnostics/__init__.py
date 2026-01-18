@@ -23,6 +23,9 @@ classify_fpc
     observable signals.
 validate_fpc
     Stable public entrypoint for running FPC diagnostics.
+build_signals_from_series
+    Convenience builder for constructing `FPCSignals` from common raw series
+    inputs.
 
 DQCClass
     Enumeration of demand quantization compatibility states.
@@ -60,6 +63,8 @@ get_governance_preset
     Resolve a preset name into a GovernancePreset.
 preset_thresholds
     Resolve a preset name (or preset instance) into (DQCThresholds, FPCThresholds).
+preset_policy
+    Resolve a preset name (or preset instance) into governance policy knobs.
 
 GovernanceStatus
     Traffic-light governance status (green/yellow/red).
@@ -73,6 +78,9 @@ decide_governance
     Core governance decision engine combining DQC x FPC.
 validate_governance
     Stable public entrypoint for running combined DQC x FPC governance.
+
+snap_to_grid
+    Quantization utility that snaps values to a demand grid.
 
 GateResult
     Convenience orchestrator that computes DQC/FPC from raw series inputs and
@@ -131,6 +139,7 @@ from .fpc import (
     FPCResult,
     FPCSignals,
     FPCThresholds,
+    build_signals_from_series,
     classify_fpc,
 )
 from .governance import (
@@ -139,10 +148,12 @@ from .governance import (
     RALPolicy,
     TauPolicy,
     decide_governance,
+    snap_to_grid,
 )
 from .presets import (
     GovernancePreset,
     get_governance_preset,
+    preset_policy,
     preset_thresholds,
 )
 from .results import GovernanceResult
@@ -173,15 +184,18 @@ __all__ = [
     "RALPolicy",
     "TauPolicy",
     "build_fas_surface",
+    "build_signals_from_series",
     "classify_dqc",
     "classify_fpc",
     "compute_error_anatomy",
     "decide_governance",
     "dqc_to_dict",
     "get_governance_preset",
+    "preset_policy",
     "preset_thresholds",
     "run_governance_gate",
     "slice_keys",
+    "snap_to_grid",
     "valid_slice_modes",
     "validate_dqc",
     "validate_fpc",

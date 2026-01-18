@@ -41,8 +41,6 @@ __all__ = [
     "STANDARD_PANEL_LEVELS",
     "compute_cwsl_df",
     "evaluate_governance_panel_df",
-    "run_governance_workflow_df",
-    "run_governance_workflow_df_dict",
     "evaluate_groups_df",
     "evaluate_hierarchy_df",
     "evaluate_panel_df",
@@ -52,4 +50,6 @@ __all__ = [
     "levels_by_site_entity",
     "levels_overall",
     "levels_standard_panel",
+    "run_governance_workflow_df",
+    "run_governance_workflow_df_dict",
 ]

@@ -48,22 +48,22 @@ from __future__ import annotations
 
 from .dataframe import (
     compute_cwsl_df,
+    evaluate_governance_panel_df,
     evaluate_groups_df,
     evaluate_hierarchy_df,
     evaluate_panel_df,
     evaluate_panel_with_entity_R,
-    evaluate_governance_panel_df,
     run_governance_workflow_df,
     run_governance_workflow_df_dict,
 )
 
 __all__ = [
     "compute_cwsl_df",
+    "evaluate_governance_panel_df",
     "evaluate_groups_df",
     "evaluate_hierarchy_df",
     "evaluate_panel_df",
     "evaluate_panel_with_entity_R",
-    "evaluate_governance_panel_df",
     "run_governance_workflow_df",
     "run_governance_workflow_df_dict",
 ]

@@ -16,10 +16,12 @@ Key ideas
 Public API
 ----------
 - `ReadinessAdjustmentLayer`
+- `apply_ral`
 """
 
-from .ral import ReadinessAdjustmentLayer
+from .ral import ReadinessAdjustmentLayer, apply_ral
 
 __all__ = [
     "ReadinessAdjustmentLayer",
+    "apply_ral",
 ]
