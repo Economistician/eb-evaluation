@@ -21,6 +21,7 @@ DataFrame evaluation
     - Hierarchical evaluation across multiple aggregation levels
     - Long-form (tidy) panel outputs for plotting and reporting
     - Entity-aware evaluation using externally supplied entity-specific cost ratios
+    - Governance-oriented evaluation and workflow orchestration
 
 Model selection
     - Cost-aware comparison of forecast models
@@ -43,12 +44,17 @@ This package is intended to be used alongside ``eb_metrics`` and
 ``eb-adapters`` as part of the broader Electric Barometer ecosystem.
 """
 
+from __future__ import annotations
+
 from .dataframe import (
     compute_cwsl_df,
     evaluate_groups_df,
     evaluate_hierarchy_df,
     evaluate_panel_df,
     evaluate_panel_with_entity_R,
+    evaluate_governance_panel_df,
+    run_governance_workflow_df,
+    run_governance_workflow_df_dict,
 )
 
 __all__ = [
@@ -57,4 +63,7 @@ __all__ = [
     "evaluate_hierarchy_df",
     "evaluate_panel_df",
     "evaluate_panel_with_entity_R",
+    "evaluate_governance_panel_df",
+    "run_governance_workflow_df",
+    "run_governance_workflow_df_dict",
 ]
