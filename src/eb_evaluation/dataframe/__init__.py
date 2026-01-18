@@ -20,6 +20,10 @@ from __future__ import annotations
 
 from .entity import evaluate_panel_with_entity_R
 from .governance_panel import evaluate_governance_panel_df
+from .governance_workflow import (
+    run_governance_workflow_df,
+    run_governance_workflow_df_dict,
+)
 from .group import evaluate_groups_df
 from .hierarchy import evaluate_hierarchy_df
 from .levels import (
@@ -37,6 +41,8 @@ __all__ = [
     "STANDARD_PANEL_LEVELS",
     "compute_cwsl_df",
     "evaluate_governance_panel_df",
+    "run_governance_workflow_df",
+    "run_governance_workflow_df_dict",
     "evaluate_groups_df",
     "evaluate_hierarchy_df",
     "evaluate_panel_df",
