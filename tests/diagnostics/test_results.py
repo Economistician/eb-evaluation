@@ -165,3 +165,39 @@ def test_governance_result_from_gate_result_allows_reason_overrides() -> None:
     assert res.fpc_raw_reasons == ("override_raw",)
     assert res.fpc_snapped_reasons == ("incompatible",)
     assert res.recommendations == ("override_reco_1", "override_reco_2")
+
+
+def test_governance_result_from_gate_result_normalizes_non_tuple_inputs() -> None:
+    """
+    Validate _as_tuple_str behavior indirectly via from_gate_result overrides:
+    - str -> (str,)
+    - list[str] -> tuple[str,...]
+    - None -> ()
+    """
+    gate = _FakeGate(
+        recommended_mode="continuous",
+        recommendations=("evaluate_in_raw_units",),
+        dqc=_FakeDQC(dqc_class=DQCClass.CONTINUOUS_LIKE, reasons=("continuous_like",)),
+        fpc_raw=_FakeFPC(fpc_class=FPCClass.COMPATIBLE, reasons=("ok",)),
+        fpc_snapped=_FakeFPC(fpc_class=FPCClass.COMPATIBLE, reasons=("ok",)),
+        decision=_FakeDecision(
+            snap_required=False,
+            snap_unit=None,
+            tau_policy=TauPolicy.RAW_UNITS,
+            ral_policy=RALPolicy.ALLOW,
+            status=GovernanceStatus.GREEN,
+        ),
+    )
+
+    res = GovernanceResult.from_gate_result(
+        gate=gate,
+        dqc_reasons="one_reason",
+        fpc_raw_reasons=["a", "b"],
+        fpc_snapped_reasons=None,  # fallback to gate
+        recommendations=None,  # should become ()
+    )
+
+    assert res.dqc_reasons == ("one_reason",)
+    assert res.fpc_raw_reasons == ("a", "b")
+    assert res.fpc_snapped_reasons == ("ok",)
+    assert res.recommendations == ()

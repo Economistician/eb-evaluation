@@ -47,6 +47,8 @@ FASThresholds
     Interpretable threshold parameters governing FAS classification logic.
 slice_keys
     Resolve slice-key columns for a given FAS slice mode.
+valid_slice_modes
+    Return the stable set of supported FAS slice modes.
 compute_error_anatomy
     Compute baseline-derived error anatomy (tail/spike/zero/support) by slice.
 build_fas_surface
@@ -122,6 +124,7 @@ from .fas import (
     build_fas_surface,
     compute_error_anatomy,
     slice_keys,
+    valid_slice_modes,
 )
 from .fpc import (
     FPCClass,
@@ -179,6 +182,7 @@ __all__ = [
     "preset_thresholds",
     "run_governance_gate",
     "slice_keys",
+    "valid_slice_modes",
     "validate_dqc",
     "validate_fpc",
     "validate_governance",

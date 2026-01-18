@@ -212,6 +212,10 @@ def run_governance_gate(
             "`dqc_thresholds`/`fpc_thresholds`, not both."
         )
 
+    # Resolve thresholds:
+    # - If explicit thresholds provided, use them.
+    # - Else if preset provided, use preset thresholds.
+    # - Else fall back to component defaults (by passing None).
     eff_dqc = dqc_thresholds
     eff_fpc = fpc_thresholds
     if preset is not None:
@@ -235,14 +239,18 @@ def run_governance_gate(
     # This happens *before* computing FPC signals so diagnostics reflect the
     # same constrained forecasts you would actually score downstream.
     if nonneg_policy != "allow":
+        # IMPORTANT: tests expect "clip_zero" to be rendered as "mode=clip_zero"
+        # (not "mode=clip_zero" is already correct; but "clip" must normalize here).
         recommendations.append(f"forecast_postprocess_nonneg(mode={nonneg_policy})")
         yhat_base_list = _apply_nonneg(yhat_base_list, mode=nonneg_policy)
         yhat_ral_list = _apply_nonneg(yhat_ral_list, mode=nonneg_policy)
 
     # 1) DQC from realized demand (structure only)
+    # NOTE: classify_dqc should accept thresholds=None (use its internal defaults).
     dqc = classify_dqc(y=y_list, thresholds=eff_dqc)
 
     # 2) FPC raw signals + classification
+    # NOTE: classify_fpc should accept thresholds=None (use its internal defaults).
     raw_signals = build_signals_from_series(
         y=y_list,
         yhat_base=yhat_base_list,
@@ -279,12 +287,19 @@ def run_governance_gate(
         fpc_signals_snapped = None
 
     # 4) Governance decision contract
+    #
+    # IMPORTANT:
+    # - Only pass explicit threshold overrides through to governance when the caller
+    #   actually provided them. If we always pass eff_* (including preset-derived),
+    #   governance will treat them as explicit overrides and will suppress the preset
+    #   audit reason ("preset=..."), breaking test_governance expectations.
     decision = decide_governance(
         y=y_list,
         fpc_signals_raw=raw_signals,
         fpc_signals_snapped=fpc_signals_snapped,
-        dqc_thresholds=eff_dqc,
-        fpc_thresholds=eff_fpc,
+        dqc_thresholds=dqc_thresholds,
+        fpc_thresholds=fpc_thresholds,
+        preset=preset or "balanced",
     )
 
     # 5) Recommended routing mode

@@ -17,6 +17,7 @@ from eb_evaluation.diagnostics.fas import (
     build_fas_surface,
     compute_error_anatomy,
     slice_keys,
+    valid_slice_modes,
 )
 
 
@@ -33,6 +34,10 @@ def test_slice_keys_modes() -> None:
         slice_keys("nope")  # type: ignore[arg-type]
 
 
+def test_valid_slice_modes_is_stable() -> None:
+    assert valid_slice_modes() == ("entity", "entity_interval", "site_entity_interval")
+
+
 def test_compute_error_anatomy_requires_required_columns() -> None:
     df = pd.DataFrame(
         {
@@ -43,6 +48,89 @@ def test_compute_error_anatomy_requires_required_columns() -> None:
     # Missing yhat_col
     with pytest.raises(KeyError, match="Missing required columns"):
         compute_error_anatomy(df, yhat_col="y_hat", keys=["forecast_entity_id"])
+
+
+def test_compute_error_anatomy_rejects_duplicate_keys() -> None:
+    df = pd.DataFrame(
+        {
+            "forecast_entity_id": [1, 1],
+            "y": [0.0, 1.0],
+            "y_hat": [0.0, 1.0],
+        }
+    )
+    with pytest.raises(ValueError, match="keys must be unique"):
+        compute_error_anatomy(
+            df,
+            y_col="y",
+            yhat_col="y_hat",
+            keys=["forecast_entity_id", "forecast_entity_id"],
+        )
+
+
+def test_compute_error_anatomy_rejects_duplicate_columns() -> None:
+    # Duplicate y_hat columns -> df["y_hat"] becomes a DataFrame in pandas
+    df = pd.DataFrame(
+        {
+            "forecast_entity_id": [1, 1],
+            "y": [0.0, 1.0],
+            "y_hat": [0.0, 1.0],
+        }
+    )
+    df["y_hat_dup"] = df["y_hat"]
+    df = df.rename(columns={"y_hat_dup": "y_hat"})  # create duplicate label
+
+    with pytest.raises(ValueError, match="df\\.columns must be unique"):
+        compute_error_anatomy(df, y_col="y", yhat_col="y_hat", keys=["forecast_entity_id"])
+
+
+def test_compute_error_anatomy_coerces_numeric_and_drops_bad_rows() -> None:
+    # One row contains non-numeric y_hat; it should be coerced to NaN and dropped.
+    df = pd.DataFrame(
+        {
+            "forecast_entity_id": [1, 1, 1],
+            "y": [1.0, 2.0, 3.0],
+            "y_hat": [1.0, "bad", 4.0],
+        }
+    )
+
+    anatomy = compute_error_anatomy(
+        df,
+        y_col="y",
+        yhat_col="y_hat",
+        keys=["forecast_entity_id"],
+        spike_ge=10.0,
+    )
+
+    row = anatomy.loc[anatomy["forecast_entity_id"] == "1"].iloc[0]
+    # Should have dropped the "bad" row -> only 2 valid rows remain.
+    assert int(row["n_valid"]) == 2
+    assert float(row["spike_ge"]) == pytest.approx(10.0)
+
+
+def test_compute_error_anatomy_coerces_keys_to_string_for_joinability() -> None:
+    # Mixed int/str keys are common in real pipelines (CSV/Parquet/Snowflake).
+    # FAS should normalize keys to StringDtype to avoid mixed-type join/sort errors.
+    df = pd.DataFrame(
+        {
+            "forecast_entity_id": [1, "1", 2, "2"],
+            "y": [1.0, 1.0, 2.0, 2.0],
+            "y_hat": [1.0, 1.0, 2.0, 2.0],
+        }
+    )
+
+    anatomy = compute_error_anatomy(
+        df,
+        y_col="y",
+        yhat_col="y_hat",
+        keys=["forecast_entity_id"],
+        spike_ge=10.0,
+    )
+
+    assert "forecast_entity_id" in anatomy.columns
+    # We coerce keys to pandas StringDtype in compute_error_anatomy.
+    assert str(anatomy["forecast_entity_id"].dtype) == "string"
+    # Both groups should exist as string keys "1" and "2".
+    assert set(anatomy["forecast_entity_id"].tolist()) == {"1", "2"}
 
 
 def test_compute_error_anatomy_outputs_expected_columns_and_values() -> None:
@@ -89,7 +177,7 @@ def test_compute_error_anatomy_outputs_expected_columns_and_values() -> None:
     assert anatomy["spike_ge"].nunique() == 1
     assert float(anatomy["spike_ge"].iloc[0]) == pytest.approx(10.0)
 
-    row1 = anatomy.loc[anatomy["forecast_entity_id"] == 1].iloc[0]
+    row1 = anatomy.loc[anatomy["forecast_entity_id"] == "1"].iloc[0]
     assert int(row1["n_valid"]) == 4
     # 2 zeros out of 4
     assert row1["zero_rate"] == pytest.approx(0.5)
@@ -105,7 +193,7 @@ def test_compute_error_anatomy_outputs_expected_columns_and_values() -> None:
     assert row1["p90_shortfall"] == pytest.approx(0.0)
     assert row1["p95_shortfall"] == pytest.approx(0.0)
 
-    row2 = anatomy.loc[anatomy["forecast_entity_id"] == 2].iloc[0]
+    row2 = anatomy.loc[anatomy["forecast_entity_id"] == "2"].iloc[0]
     assert int(row2["n_valid"]) == 4
     assert row2["zero_rate"] == pytest.approx(0.0)
     # two spikes (10,10) out of 4
@@ -131,6 +219,41 @@ def test_build_fas_surface_missing_required_columns_raises() -> None:
         }
     )
     with pytest.raises(KeyError, match="Anatomy missing required columns"):
+        build_fas_surface(anatomy=anatomy, keys=["forecast_entity_id"])
+
+
+def test_build_fas_surface_rejects_duplicate_keys() -> None:
+    anatomy = pd.DataFrame(
+        {
+            "forecast_entity_id": [1],
+            "n_valid": [500],
+            "zero_rate": [0.0],
+            "spike_rate": [0.0],
+            "p90_ae": [0.0],
+            "p95_ae": [0.0],
+            "mae": [0.0],
+        }
+    )
+    with pytest.raises(ValueError, match="keys must be unique"):
+        build_fas_surface(anatomy=anatomy, keys=["forecast_entity_id", "forecast_entity_id"])
+
+
+def test_build_fas_surface_rejects_duplicate_columns() -> None:
+    anatomy = pd.DataFrame(
+        {
+            "forecast_entity_id": [1],
+            "n_valid": [500],
+            "zero_rate": [0.0],
+            "spike_rate": [0.0],
+            "p90_ae": [0.0],
+            "p95_ae": [0.0],
+            "mae": [0.0],
+        }
+    )
+    anatomy["mae_dup"] = anatomy["mae"]
+    anatomy = anatomy.rename(columns={"mae_dup": "mae"})  # create duplicate label
+
+    with pytest.raises(ValueError, match="df\\.columns must be unique"):
         build_fas_surface(anatomy=anatomy, keys=["forecast_entity_id"])
 
 
@@ -170,16 +293,19 @@ def test_build_fas_surface_classification_allowed_conditional_blocked() -> None:
     by_id = {int(r["forecast_entity_id"]): r for _, r in fas.iterrows()}
 
     assert by_id[101]["fas_class"] == "ALLOWED"
+    assert by_id[101]["fas_status"] == "ALLOWED"
     assert by_id[101]["fas_allowed"] is True
     assert by_id[101]["fas_conditional"] is False
     assert by_id[101]["fas_blocked"] is False
 
     assert by_id[202]["fas_class"] == "CONDITIONAL"
+    assert by_id[202]["fas_status"] == "CONDITIONAL"
     assert by_id[202]["fas_allowed"] is False
     assert by_id[202]["fas_conditional"] is True
     assert by_id[202]["fas_blocked"] is False
 
     assert by_id[303]["fas_class"] == "BLOCKED"
+    assert by_id[303]["fas_status"] == "BLOCKED"
     assert by_id[303]["fas_allowed"] is False
     assert by_id[303]["fas_conditional"] is False
     assert by_id[303]["fas_blocked"] is True
@@ -207,6 +333,29 @@ def test_build_fas_surface_min_valid_rows_forces_conditional() -> None:
     thr = FASThresholds(min_valid_rows=200)
     fas = build_fas_surface(anatomy=anatomy, keys=["forecast_entity_id"], thr=thr)
     assert fas.iloc[0]["fas_class"] == "CONDITIONAL"
+    assert fas.iloc[0]["fas_status"] == "CONDITIONAL"
+
+
+def test_fas_flags_are_mutually_consistent() -> None:
+    anatomy = pd.DataFrame(
+        {
+            "forecast_entity_id": [1, 2, 3],
+            "n_valid": [500, 500, 500],
+            "n_nonzero": [500, 500, 500],
+            "zero_rate": [0.0, 0.0, 0.0],
+            "spike_rate": [0.0, 0.06, 0.31],
+            "p90_ae": [0.0, 0.0, 0.0],
+            "p95_ae": [0.0, 11.0, 0.0],
+            "mae": [0.0, 1.0, 2.0],
+        }
+    )
+    fas = build_fas_surface(anatomy=anatomy, keys=["forecast_entity_id"])
+
+    # Exactly one of the three flags should be True per row.
+    row_sums = (
+        fas[["fas_allowed", "fas_conditional", "fas_blocked"]].astype(int).sum(axis=1).tolist()
+    )
+    assert row_sums == [1, 1, 1]
 
 
 def test_thr_fingerprint_changes_when_thresholds_change() -> None:

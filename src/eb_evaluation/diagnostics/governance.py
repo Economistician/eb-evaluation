@@ -225,6 +225,24 @@ def build_fpc_signals(
     )
 
 
+def _preset_reason_value(preset: str | GovernancePreset) -> str:
+    """
+    Normalize a preset into a stable, human-readable reason token.
+
+    We normalize to lowercase to keep reasons consistent across:
+    - string presets ("balanced")
+    - GovernancePreset instances (name may vary by implementation)
+    """
+    if isinstance(preset, str):
+        return preset.strip().lower()
+
+    name = getattr(preset, "name", None)
+    if isinstance(name, str) and name.strip():
+        return name.strip().lower()
+
+    return str(preset).strip().lower()
+
+
 def decide_governance(
     *,
     y: Sequence[float],
@@ -306,10 +324,11 @@ def decide_governance(
         if snap_required:
             ral_policy = RALPolicy.CAUTION_AFTER_SNAP
             reasons.append("marginal_after_snap")
+            status = GovernanceStatus.YELLOW
         else:
             ral_policy = RALPolicy.DISALLOW
             reasons.append("marginal_raw_disallow")
-        status = GovernanceStatus.YELLOW if snap_required else GovernanceStatus.RED
+            status = GovernanceStatus.RED
 
     else:  # INCOMPATIBLE
         ral_policy = RALPolicy.DISALLOW
@@ -319,8 +338,7 @@ def decide_governance(
     # Helpful annotation for auditability:
     # Only record the preset when *no* explicit threshold override is provided.
     if dqc_thresholds is None and fpc_thresholds is None:
-        preset_name = preset if isinstance(preset, str) else preset.name
-        reasons.append(f"preset={preset_name}")
+        reasons.append(f"preset={_preset_reason_value(preset)}")
 
     return GovernanceDecision(
         dqc=dqc,

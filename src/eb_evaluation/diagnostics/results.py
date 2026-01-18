@@ -29,13 +29,14 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Final, Protocol
+from typing import Any, Final, Protocol, TypeGuard
 
 from .dqc import DQCClass
 from .fpc import FPCClass
 from .governance import GovernanceStatus, RALPolicy, TauPolicy
 
 _REASON_SEP: Final[str] = "|"
+_UNSET: Final[object] = object()
 
 
 class _DQCResultLike(Protocol):
@@ -149,6 +150,36 @@ def _reason_string(reasons: tuple[str, ...]) -> str:
     return _REASON_SEP.join(reasons)
 
 
+class _EnumLike(Protocol):
+    """
+    Structural protocol for enum-like objects that expose a `.value` attribute.
+    """
+
+    @property
+    def value(self) -> object: ...
+
+
+def _is_enum_like(x: object) -> TypeGuard[_EnumLike]:
+    # Keep it structural and lightweight; no enum imports.
+    return hasattr(x, "value")
+
+
+def _enum_value(x: object) -> object:
+    """
+    Best-effort normalization for enum-like objects.
+
+    Returns:
+    - x.value if present (typical Enum)
+    - x otherwise
+
+    This stays deliberately minimal to keep the module pure and avoid
+    any dependency on enum module internals.
+    """
+    if _is_enum_like(x):
+        return x.value
+    return x
+
+
 @dataclass(frozen=True, slots=True)
 class GovernanceResult:
     """
@@ -223,12 +254,12 @@ class GovernanceResult:
             "recommended_mode": self.recommended_mode,
             "snap_required": self.snap_required,
             "snap_unit": self.snap_unit,
-            "tau_policy": self.tau_policy.value,
-            "ral_policy": self.ral_policy.value,
-            "status": self.status.value,
-            "dqc_class": self.dqc_class.value,
-            "fpc_raw_class": self.fpc_raw_class.value,
-            "fpc_snapped_class": self.fpc_snapped_class.value,
+            "tau_policy": _enum_value(self.tau_policy),
+            "ral_policy": _enum_value(self.ral_policy),
+            "status": _enum_value(self.status),
+            "dqc_class": _enum_value(self.dqc_class),
+            "fpc_raw_class": _enum_value(self.fpc_raw_class),
+            "fpc_snapped_class": _enum_value(self.fpc_snapped_class),
             "dqc_reasons": self.dqc_reasons,
             "fpc_raw_reasons": self.fpc_raw_reasons,
             "fpc_snapped_reasons": self.fpc_snapped_reasons,
@@ -247,30 +278,20 @@ class GovernanceResult:
         dqc_reasons: object | None = None,
         fpc_raw_reasons: object | None = None,
         fpc_snapped_reasons: object | None = None,
-        recommendations: object | None = None,
+        recommendations: object = _UNSET,
     ) -> GovernanceResult:
         """
         Build a GovernanceResult from a run-level GateResult-like object.
 
-        This is a *best-effort* adapter intended to avoid tight coupling to any
-        specific GateResult dataclass layout. It expects the following attribute
-        structure (as in diagnostics/run.py):
-
-        - gate.recommended_mode: str
-        - gate.recommendations: Sequence[str]
-        - gate.dqc.dqc_class: DQCClass
-        - gate.dqc.reasons: Sequence[str]
-        - gate.fpc_raw.fpc_class: FPCClass
-        - gate.fpc_raw.reasons: Sequence[str]
-        - gate.fpc_snapped.fpc_class: FPCClass
-        - gate.fpc_snapped.reasons: Sequence[str]
-        - gate.decision.snap_required: bool
-        - gate.decision.snap_unit: float | None
-        - gate.decision.tau_policy: TauPolicy
-        - gate.decision.ral_policy: RALPolicy
-        - gate.decision.status: GovernanceStatus
-
-        If you supply explicit *_reasons arguments, those override values read from `gate`.
+        Override semantics
+        ------------------
+        - For DQC/FPC reasons:
+            * pass None to fall back to gate.<component>.reasons
+            * pass a value to override (str, sequence[str], etc.)
+        - For recommendations:
+            * omit the argument to fall back to gate.recommendations
+            * pass None to explicitly clear recommendations (-> ())
+            * pass a value to override (str, sequence[str], etc.)
         """
         recommended_mode = gate.recommended_mode
 
@@ -290,14 +311,22 @@ class GovernanceResult:
             if fpc_snapped_reasons is not None
             else getattr(fpc_snapped, "reasons", ())
         )
-        recs_eff = _as_tuple_str(
-            recommendations if recommendations is not None else getattr(gate, "recommendations", ())
-        )
+
+        if recommendations is _UNSET:
+            recs_eff = _as_tuple_str(getattr(gate, "recommendations", ()))
+        elif recommendations is None:
+            recs_eff = ()
+        else:
+            recs_eff = _as_tuple_str(recommendations)
+
+        # snap_unit: keep None as None, otherwise coerce to float (best-effort).
+        snap_unit = getattr(decision, "snap_unit", None)
+        snap_unit_eff = None if snap_unit is None else float(snap_unit)
 
         return cls(
             recommended_mode=str(recommended_mode),
             snap_required=bool(decision.snap_required),
-            snap_unit=decision.snap_unit,
+            snap_unit=snap_unit_eff,
             tau_policy=decision.tau_policy,
             ral_policy=decision.ral_policy,
             status=decision.status,

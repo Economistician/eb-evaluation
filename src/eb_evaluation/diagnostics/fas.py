@@ -29,7 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -86,6 +86,15 @@ def slice_keys(
     raise ValueError(f"Unknown slice mode: {mode}")
 
 
+def valid_slice_modes() -> tuple[str, ...]:
+    """
+    Return the supported slice mode strings.
+
+    This exists to make slice-mode discovery programmatic and stable for callers.
+    """
+    return ("entity", "entity_interval", "site_entity_interval")
+
+
 def _safe_nanquantile(x: np.ndarray, q: float) -> float:
     """
     Robust quantile helper:
@@ -96,6 +105,63 @@ def _safe_nanquantile(x: np.ndarray, q: float) -> float:
     if finite.size == 0:
         return float("nan")
     return float(np.nanquantile(finite, q))
+
+
+def _require_unique_columns(df: pd.DataFrame, *, context: str) -> None:
+    """
+    Guardrail: duplicate column labels can cause df[col] to return a DataFrame,
+    which then breaks arithmetic and aggregation in confusing ways.
+    """
+    if not df.columns.is_unique:
+        dupes = df.columns[df.columns.duplicated()].tolist()
+        raise ValueError(f"{context}: df.columns must be unique; found duplicate columns: {dupes}")
+
+
+def _require_unique_keys(keys: list[str], *, context: str) -> None:
+    """
+    Guardrail: duplicate keys in the slice-key list can cause ambiguous groupby
+    behavior and subtle join bugs.
+    """
+    seen: set[str] = set()
+    dupes: list[str] = []
+    for k in keys:
+        if k in seen and k not in dupes:
+            dupes.append(k)
+        seen.add(k)
+    if dupes:
+        raise ValueError(f"{context}: keys must be unique; found duplicates: {dupes}")
+
+
+def _coerce_numeric_series(df: pd.DataFrame, col: str, *, context: str) -> pd.Series:
+    """
+    Coerce a dataframe column to numeric, raising a clear error if the column
+    is not a Series (e.g., due to duplicate column names) or if coercion fails.
+    """
+    s = df[col]
+    if not isinstance(s, pd.Series):
+        raise ValueError(
+            f"{context}: expected df['{col}'] to be a Series, but got {type(s).__name__}. "
+            "This often happens when the dataframe has duplicate column names."
+        )
+    # pandas typing can return an "array-like" union in stubs; at runtime it's a Series.
+    return cast(pd.Series, pd.to_numeric(s, errors="coerce"))
+
+
+def _coerce_key_series(df: pd.DataFrame, col: str, *, context: str) -> pd.Series:
+    """
+    Coerce a slice key column into a stable, join-friendly dtype.
+
+    We intentionally coerce keys to pandas' StringDtype to prevent mixed-type
+    key columns (e.g., ints + strs) from causing downstream join/sort failures.
+    This also makes artifacts more portable across CSV/Parquet/Snowflake paths.
+    """
+    s = df[col]
+    if not isinstance(s, pd.Series):
+        raise ValueError(
+            f"{context}: expected df['{col}'] to be a Series, but got {type(s).__name__}. "
+            "This often happens when the dataframe has duplicate column names."
+        )
+    return s.astype("string")
 
 
 def compute_error_anatomy(
@@ -113,16 +179,30 @@ def compute_error_anatomy(
 
     Notes:
     - Rows with NaN in y or yhat are dropped before anatomy aggregation.
+    - Slice keys are coerced to StringDtype for stability and joinability.
     - Returns both symmetric absolute-error anatomy and shortfall (underbuild)
       anatomy suitable for production-management contexts.
     - Includes a constant spike_ge column for auditability.
     """
+    _require_unique_keys(keys, context="compute_error_anatomy")
+
     missing_cols = [c for c in [y_col, yhat_col, *keys] if c not in df.columns]
     if missing_cols:
         raise KeyError(f"Missing required columns in df: {missing_cols}")
 
-    # Filter to valid rows for residual anatomy.
+    _require_unique_columns(df, context="compute_error_anatomy")
+
+    # Filter to required columns first.
     work = df.loc[:, [*keys, y_col, yhat_col]].copy()
+
+    # Coerce slice keys defensively to avoid mixed-type key bugs downstream.
+    for k in keys:
+        work[k] = _coerce_key_series(work, k, context="compute_error_anatomy")
+
+    # Coerce numeric defensively; any non-numeric becomes NaN and gets dropped.
+    work[y_col] = _coerce_numeric_series(work, y_col, context="compute_error_anatomy")
+    work[yhat_col] = _coerce_numeric_series(work, yhat_col, context="compute_error_anatomy")
+
     work = work.dropna(subset=[y_col, yhat_col])
 
     # Residuals
@@ -183,10 +263,14 @@ def build_fas_surface(
     If 'spike_ge' exists in anatomy, it is included in the thresholds fingerprint
     + JSON payload for full auditability.
     """
+    _require_unique_keys(keys, context="build_fas_surface")
+
     required = set(keys) | {"n_valid", "zero_rate", "spike_rate", "p95_ae"}
     missing = required - set(anatomy.columns)
     if missing:
         raise KeyError(f"Anatomy missing required columns: {sorted(missing)}")
+
+    _require_unique_columns(anatomy, context="build_fas_surface")
 
     fas = anatomy.copy()
 
@@ -267,6 +351,9 @@ def build_fas_surface(
 
     fas["fas_class"] = fas_class
 
+    # Canonical status column for downstream use (stable, ergonomic).
+    fas["fas_status"] = fas["fas_class"]
+
     # Audit payload: thresholds + spike_ge (if present).
     payload: dict[str, Any] = {**thr.__dict__}
     if "spike_ge" in fas.columns:
@@ -282,9 +369,11 @@ def build_fas_surface(
     fas["fas_blocked"] = fas["fas_class"].eq(_FAS_CLASS_BLOCKED)
 
     # Output columns: preserve original core + carry useful diagnostics if present.
+    # NOTE: Ensure stable schema even if anatomy omitted some optional diagnostics columns.
     base_out_cols = [
         *keys,
         "fas_class",
+        "fas_status",
         "fas_allowed",
         "fas_conditional",
         "fas_blocked",
