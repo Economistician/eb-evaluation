@@ -15,4 +15,5 @@ jobs:
     with:
       python-version: "3.12"
       build-command: "python -m build --sdist --wheel"
+      skip-existing: true
     secrets: inherit
