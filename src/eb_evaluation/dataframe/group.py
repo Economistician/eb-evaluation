@@ -142,16 +142,14 @@ def evaluate_groups_df(
         co_value = g[co].to_numpy(dtype=float) if isinstance(co, str) else co
 
         row["CWSL"] = _safe_metric(
-            lambda y_true=y_true,
-            y_pred=y_pred,
-            cu_value=cu_value,
-            co_value=co_value,
-            sample_weight=sample_weight: cwsl(
-                y_true=y_true,
-                y_pred=y_pred,
-                cu=cu_value,
-                co=co_value,
-                sample_weight=sample_weight,
+            lambda y_true=y_true, y_pred=y_pred, cu_value=cu_value, co_value=co_value, sample_weight=sample_weight: (
+                cwsl(
+                    y_true=y_true,
+                    y_pred=y_pred,
+                    cu=cu_value,
+                    co=co_value,
+                    sample_weight=sample_weight,
+                )
             )
         )
         row["NSL"] = _safe_metric(
@@ -179,16 +177,14 @@ def evaluate_groups_df(
             )
         )
         row["FRS"] = _safe_metric(
-            lambda y_true=y_true,
-            y_pred=y_pred,
-            cu_value=cu_value,
-            co_value=co_value,
-            sample_weight=sample_weight: frs(
-                y_true=y_true,
-                y_pred=y_pred,
-                cu=cu_value,
-                co=co_value,
-                sample_weight=sample_weight,
+            lambda y_true=y_true, y_pred=y_pred, cu_value=cu_value, co_value=co_value, sample_weight=sample_weight: (
+                frs(
+                    y_true=y_true,
+                    y_pred=y_pred,
+                    cu=cu_value,
+                    co=co_value,
+                    sample_weight=sample_weight,
+                )
             )
         )
 

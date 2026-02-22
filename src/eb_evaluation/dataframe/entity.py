@@ -193,16 +193,14 @@ def evaluate_panel_with_entity_R(
         }
 
         row["CWSL"] = _safe_metric(
-            lambda y_true=y_true,
-            y_pred=y_pred,
-            cu_arr=cu_arr,
-            co_arr=co_arr,
-            sample_weight=sample_weight: cwsl(
-                y_true=y_true,
-                y_pred=y_pred,
-                cu=cu_arr,
-                co=co_arr,
-                sample_weight=sample_weight,
+            lambda y_true=y_true, y_pred=y_pred, cu_arr=cu_arr, co_arr=co_arr, sample_weight=sample_weight: (
+                cwsl(
+                    y_true=y_true,
+                    y_pred=y_pred,
+                    cu=cu_arr,
+                    co=co_arr,
+                    sample_weight=sample_weight,
+                )
             )
         )
         row["NSL"] = _safe_metric(
@@ -230,16 +228,14 @@ def evaluate_panel_with_entity_R(
             )
         )
         row["FRS"] = _safe_metric(
-            lambda y_true=y_true,
-            y_pred=y_pred,
-            cu_arr=cu_arr,
-            co_arr=co_arr,
-            sample_weight=sample_weight: frs(
-                y_true=y_true,
-                y_pred=y_pred,
-                cu=cu_arr,
-                co=co_arr,
-                sample_weight=sample_weight,
+            lambda y_true=y_true, y_pred=y_pred, cu_arr=cu_arr, co_arr=co_arr, sample_weight=sample_weight: (
+                frs(
+                    y_true=y_true,
+                    y_pred=y_pred,
+                    cu=cu_arr,
+                    co=co_arr,
+                    sample_weight=sample_weight,
+                )
             )
         )
 
