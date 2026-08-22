@@ -14,10 +14,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Hashable
 
-import numpy as np
 import pandas as pd
 
-from eb_metrics.metrics import cwsl, frs, hr_at_tau, mae, mape, nsl, rmse, ud, wmape
+from eb_metrics.metrics import cwsl, hr_at_tau, mae, mape, nsl, rmse, ud, wmape
+
+from .group import _safe_compose_frs
 
 __all__ = ["evaluate_panel_with_entity_R"]
 
@@ -186,33 +187,33 @@ def evaluate_panel_with_entity_R(
         else:
             sample_weight = None
 
-        # Build per-row cu/co arrays (constant within entity)
-        cu_arr = np.full_like(y_true, fill_value=R_e * co_e, dtype=float)
-        co_arr = np.full_like(y_true, fill_value=co_e, dtype=float)
+        cu_e = R_e * co_e
 
         row: dict[str, float | Hashable] = {
             entity_col: entity_id,
             "R": R_e,
-            "cu": R_e * co_e,
+            "cu": cu_e,
             "co": co_e,
         }
 
-        row["CWSL"] = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred, cu_arr=cu_arr, co_arr=co_arr, sample_weight=sample_weight: (
+        cwsl_val = _safe_metric(
+            lambda y_true=y_true, y_pred=y_pred, cu_e=cu_e, co_e=co_e, sample_weight=sample_weight: (
                 cwsl(
                     y_true=y_true,
                     y_pred=y_pred,
-                    cu=cu_arr,
-                    co=co_arr,
+                    cu=cu_e,
+                    co=co_e,
                     sample_weight=sample_weight,
                 )
             )
         )
-        row["NSL"] = _safe_metric(
+        nsl_val = _safe_metric(
             lambda y_true=y_true, y_pred=y_pred, sample_weight=sample_weight: nsl(
                 y_true=y_true, y_pred=y_pred, sample_weight=sample_weight
             )
         )
+        row["CWSL"] = cwsl_val
+        row["NSL"] = nsl_val
         row["UD"] = _safe_metric(
             lambda y_true=y_true, y_pred=y_pred, sample_weight=sample_weight: ud(
                 y_true=y_true, y_pred=y_pred, sample_weight=sample_weight
@@ -232,18 +233,7 @@ def evaluate_panel_with_entity_R(
                 sample_weight=sample_weight,
             )
         )
-        row["FRS"] = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred, cu_arr=cu_arr, co_arr=co_arr, sample_weight=sample_weight: (
-                frs(
-                    y_true=y_true,
-                    y_pred=y_pred,
-                    cu=cu_arr,
-                    co=co_arr,
-                    cwsl_max=cwsl_max,
-                    sample_weight=sample_weight,
-                )
-            )
-        )
+        row["FRS"] = _safe_compose_frs(nsl_val, cwsl_val, cwsl_max)
 
         # Symmetric metrics: call unweighted to match eb_metrics signatures.
         row["MAE"] = _safe_metric(

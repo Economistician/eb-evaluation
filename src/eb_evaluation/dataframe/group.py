@@ -12,9 +12,23 @@ RMSE, MAPE) for each group.
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
-from eb_metrics.metrics import cwsl, frs, hr_at_tau, mae, mape, nsl, rmse, ud, wmape
+
+def _compose_frs(nsl_val: float, cwsl_val: float, cwsl_max: float) -> float:
+    """FRS = NSL - min(1, CWSL / CWSL_max) from already-computed components."""
+    cwsl_max_val = float(cwsl_max)
+    if not np.isfinite(cwsl_max_val) or cwsl_max_val <= 0.0:
+        raise ValueError("cwsl_max must be finite and strictly greater than 0.")
+    return float(nsl_val - min(1.0, cwsl_val / cwsl_max_val))
+
+
+def _safe_compose_frs(nsl_val: float, cwsl_val: float, cwsl_max: float) -> float:
+    try:
+        return _compose_frs(nsl_val, cwsl_val, cwsl_max)
+    except ValueError:
+        return float("nan")
 
 
 def evaluate_groups_df(
@@ -44,6 +58,12 @@ def evaluate_groups_df(
     - MAPE
 
     Cost parameters can be provided either globally (scalar) or per-row (column name).
+
+    Interval-level shortfall, overbuild, and coverage masks are computed once at
+    the panel level; groups are reduced with a single ``groupby.sum()``. Groups
+    that would make a metric raise ``ValueError`` (zero demand with positive
+    cost, non-finite or negative demand/forecast, zero total weight, etc.)
+    receive NaN for that metric only.
 
     Parameters
     ----------
@@ -99,8 +119,7 @@ def evaluate_groups_df(
       computed unweighted here.
     - Symmetric diagnostics (MAE, RMSE, MAPE) are computed unweighted to match the
       current ``eb_metrics`` signatures.
-    - Metrics are evaluated group-by-group; a failure in one group does not prevent
-      evaluation of other groups.
+    - FRS is composed from the group's NSL and CWSL: ``NSL - min(1, CWSL / CWSL_max)``.
     """
     if df.empty:
         raise ValueError("df is empty.")
@@ -119,91 +138,175 @@ def evaluate_groups_df(
     if sample_weight_col is not None and sample_weight_col not in df.columns:
         raise KeyError(f"sample_weight_col {sample_weight_col!r} not found in df")
 
-    results: list[dict] = []
+    y_true = df[actual_col].to_numpy(dtype=float)
+    y_pred = df[forecast_col].to_numpy(dtype=float)
 
-    def _safe_metric(fn) -> float:
-        """Compute a metric for a single group, returning NaN on ValueError."""
-        try:
-            return float(fn())
-        except ValueError:
-            return float("nan")
+    if sample_weight_col is not None:
+        w = df[sample_weight_col].to_numpy(dtype=float)
+    else:
+        w = None
 
-    grouped = df.groupby(group_cols, sort=False)
+    if isinstance(cu, str):
+        cu_arr = df[cu].to_numpy(dtype=float)
+        cu_scalar = None
+    else:
+        cu_arr = None
+        cu_as = np.asarray(cu, dtype=float)
+        if cu_as.ndim == 0:
+            cu_scalar = float(cu_as)
+        else:
+            raise ValueError("cu must be a scalar or a column name.")
 
-    for key, g in grouped:
-        if not isinstance(key, tuple):
-            key = (key,)
+    if isinstance(co, str):
+        co_arr = df[co].to_numpy(dtype=float)
+        co_scalar = None
+    else:
+        co_arr = None
+        co_as = np.asarray(co, dtype=float)
+        if co_as.ndim == 0:
+            co_scalar = float(co_as)
+        else:
+            raise ValueError("co must be a scalar or a column name.")
 
-        row: dict = dict(zip(group_cols, key, strict=False))
+    delta = y_true - y_pred
+    shortfall = np.maximum(delta, 0.0)
+    overbuild = shortfall - delta
+    abs_err = np.abs(delta)
 
-        y_true = g[actual_col].to_numpy(dtype=float)
-        y_pred = g[forecast_col].to_numpy(dtype=float)
+    if cu_scalar is not None and co_scalar is not None:
+        cost = cu_scalar * shortfall + co_scalar * overbuild
+    elif cu_scalar is not None:
+        cost = cu_scalar * shortfall + co_arr * overbuild
+    elif co_scalar is not None:
+        cost = cu_arr * shortfall + co_scalar * overbuild
+    else:
+        cost = cu_arr * shortfall + co_arr * overbuild
 
-        sample_weight = (
-            g[sample_weight_col].to_numpy(dtype=float) if sample_weight_col is not None else None
-        )
+    nsl_hit = (y_pred >= y_true).astype(np.float64)
+    hr_hit = (abs_err <= float(tau)).astype(np.float64)
+    sf_flag = (delta > 0).astype(np.float64)
+    nonzero_y = y_true != 0
+    mape_term = np.zeros_like(y_true)
+    mape_term[nonzero_y] = abs_err[nonzero_y] / np.abs(y_true[nonzero_y])
 
-        cu_value = g[cu].to_numpy(dtype=float) if isinstance(cu, str) else cu
-        co_value = g[co].to_numpy(dtype=float) if isinstance(co, str) else co
+    svc_bad = ~np.isfinite(y_true) | ~np.isfinite(y_pred) | (y_true < 0) | (y_pred < 0)
+    if w is not None:
+        w_bad = ~np.isfinite(w) | (w < 0)
+    else:
+        w_bad = np.zeros(len(df), dtype=bool)
 
-        row["CWSL"] = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred, cu_value=cu_value, co_value=co_value, sample_weight=sample_weight: (
-                cwsl(
-                    y_true=y_true,
-                    y_pred=y_pred,
-                    cu=cu_value,
-                    co=co_value,
-                    sample_weight=sample_weight,
-                )
-            )
-        )
-        row["NSL"] = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred, sample_weight=sample_weight: nsl(
-                y_true=y_true, y_pred=y_pred, sample_weight=sample_weight
-            )
-        )
-        row["UD"] = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred, sample_weight=sample_weight: ud(
-                y_true=y_true, y_pred=y_pred, sample_weight=sample_weight
-            )
-        )
+    cost_bad = np.zeros(len(df), dtype=bool)
+    if cu_scalar is not None:
+        if (not np.isfinite(cu_scalar)) or cu_scalar < 0:
+            cost_bad[:] = True
+    else:
+        cost_bad |= ~np.isfinite(cu_arr) | (cu_arr < 0)
+    if co_scalar is not None:
+        if (not np.isfinite(co_scalar)) or co_scalar < 0:
+            cost_bad[:] = True
+    else:
+        cost_bad |= ~np.isfinite(co_arr) | (co_arr < 0)
 
-        # wMAPE in eb_metrics does not take sample_weight, so call unweighted.
-        row["wMAPE"] = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred: wmape(y_true=y_true, y_pred=y_pred)
-        )
+    tau_bad = (not np.isfinite(float(tau))) or float(tau) < 0
 
-        row["HR@tau"] = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred, tau=tau, sample_weight=sample_weight: hr_at_tau(
-                y_true=y_true,
-                y_pred=y_pred,
-                tau=tau,
-                sample_weight=sample_weight,
-            )
-        )
-        row["FRS"] = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred, cu_value=cu_value, co_value=co_value, sample_weight=sample_weight: (
-                frs(
-                    y_true=y_true,
-                    y_pred=y_pred,
-                    cu=cu_value,
-                    co=co_value,
-                    cwsl_max=cwsl_max,
-                    sample_weight=sample_weight,
-                )
-            )
-        )
+    if w is None:
+        w_cost = cost
+        w_y = y_true
+        w_nsl = nsl_hit
+        w_hr = hr_hit
+        w_sf = sf_flag
+        w_short = shortfall
+        w_mass = None
+    else:
+        w_cost = w * cost
+        w_y = w * y_true
+        w_nsl = w * nsl_hit
+        w_hr = w * hr_hit
+        w_sf = w * sf_flag
+        w_short = w * shortfall
+        w_mass = w
 
-        row["MAE"] = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred: mae(y_true=y_true, y_pred=y_pred)
-        )
-        row["RMSE"] = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred: rmse(y_true=y_true, y_pred=y_pred)
-        )
-        row["MAPE"] = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred: mape(y_true=y_true, y_pred=y_pred)
-        )
+    feat_cols: dict[str, np.ndarray] = {
+        **{c: df[c].to_numpy() for c in group_cols},
+        "w_cost": w_cost,
+        "w_y": w_y,
+        "w_nsl": w_nsl,
+        "w_hr": w_hr,
+        "w_sf": w_sf,
+        "w_short": w_short,
+    }
+    if w_mass is not None:
+        feat_cols["w_mass"] = w_mass
+    feat_cols.update(
+        {
+            "abs_err": abs_err,
+            "sq_err": delta * delta,
+            "abs_y": np.abs(y_true),
+            "mape_term": mape_term,
+            "mape_n": nonzero_y.astype(np.float64),
+            "svc_bad": svc_bad.astype(np.float64),
+            "w_bad": w_bad.astype(np.float64),
+            "cost_bad": cost_bad.astype(np.float64),
+        }
+    )
+    feat = pd.DataFrame(feat_cols)
 
-        results.append(row)
+    grouped = feat.groupby(group_cols, sort=False)
+    agg = grouped.sum(numeric_only=True)
+    n_g = grouped.size().astype(np.float64)
 
-    return pd.DataFrame(results)
+    demand = agg["w_y"].to_numpy(dtype=float)
+    tot_cost = agg["w_cost"].to_numpy(dtype=float)
+    n_arr = n_g.to_numpy(dtype=float)
+    w_sum = n_arr if w_mass is None else agg["w_mass"].to_numpy(dtype=float)
+    w_sf_sum = agg["w_sf"].to_numpy(dtype=float)
+
+    svc_invalid = agg["svc_bad"].to_numpy(dtype=float) > 0
+    w_invalid = agg["w_bad"].to_numpy(dtype=float) > 0
+    cost_invalid = agg["cost_bad"].to_numpy(dtype=float) > 0
+    service_blocked = svc_invalid | w_invalid
+
+    cwsl_out = np.where(demand > 0, tot_cost / demand, np.where(tot_cost == 0.0, 0.0, np.nan))
+    cwsl_out = np.where(service_blocked | cost_invalid, np.nan, cwsl_out)
+
+    nsl_out = np.where((w_sum > 0) & ~service_blocked, agg["w_nsl"].to_numpy(dtype=float) / w_sum, np.nan)
+
+    ud_raw = np.divide(
+        agg["w_short"].to_numpy(dtype=float),
+        w_sf_sum,
+        out=np.zeros(w_sf_sum.shape, dtype=float),
+        where=w_sf_sum > 0,
+    )
+    ud_out = np.where((w_sum > 0) & ~service_blocked, ud_raw, np.nan)
+
+    hr_ok = (w_sum > 0) & ~service_blocked
+    if tau_bad:
+        hr_out = np.full(len(agg), np.nan)
+    else:
+        hr_out = np.where(hr_ok, agg["w_hr"].to_numpy(dtype=float) / w_sum, np.nan)
+
+    cwsl_max_val = float(cwsl_max)
+    if not np.isfinite(cwsl_max_val) or cwsl_max_val <= 0.0:
+        frs_out = np.full(len(agg), np.nan)
+    else:
+        frs_out = nsl_out - np.minimum(1.0, cwsl_out / cwsl_max_val)
+
+    mae_out = agg["abs_err"].to_numpy(dtype=float) / n_arr
+    rmse_out = np.sqrt(agg["sq_err"].to_numpy(dtype=float) / n_arr)
+    abs_y = agg["abs_y"].to_numpy(dtype=float)
+    wmape_out = np.where(abs_y == 0.0, np.nan, 100.0 * agg["abs_err"].to_numpy(dtype=float) / abs_y)
+    mape_n = agg["mape_n"].to_numpy(dtype=float)
+    mape_out = np.where(mape_n == 0.0, np.nan, 100.0 * agg["mape_term"].to_numpy(dtype=float) / mape_n)
+
+    out = agg.reset_index()
+    result = out.loc[:, group_cols].copy()
+    result["CWSL"] = cwsl_out
+    result["NSL"] = nsl_out
+    result["UD"] = ud_out
+    result["wMAPE"] = wmape_out
+    result["HR@tau"] = hr_out
+    result["FRS"] = frs_out
+    result["MAE"] = mae_out
+    result["RMSE"] = rmse_out
+    result["MAPE"] = mape_out
+    return result

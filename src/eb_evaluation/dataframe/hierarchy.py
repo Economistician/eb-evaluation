@@ -18,7 +18,9 @@ from collections.abc import Sequence
 
 import pandas as pd
 
-from eb_metrics.metrics import cwsl, frs, hr_at_tau, nsl, ud, wmape
+from eb_metrics.metrics import cwsl, hr_at_tau, nsl, ud, wmape
+
+from .group import _compose_frs
 
 
 def evaluate_hierarchy_df(
@@ -153,13 +155,15 @@ def evaluate_hierarchy_df(
                 df[sample_weight_col].to_numpy(dtype=float) if sample_weight_col is not None else None
             )
 
+            cwsl_val = cwsl(
+                y_true=y_true, y_pred=y_pred, cu=cu, co=co, sample_weight=sample_weight
+            )
+            nsl_val = nsl(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight)
             metrics_row = {
                 "n_intervals": len(df),
-                "total_demand": float(df[actual_col].sum()),
-                "cwsl": cwsl(
-                    y_true=y_true, y_pred=y_pred, cu=cu, co=co, sample_weight=sample_weight
-                ),
-                "nsl": nsl(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight),
+                "total_demand": float(y_true.sum()),
+                "cwsl": cwsl_val,
+                "nsl": nsl_val,
                 "ud": ud(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight),
                 "wmape": wmape(y_true=y_true, y_pred=y_pred),
             }
@@ -168,14 +172,7 @@ def evaluate_hierarchy_df(
                     y_true=y_true, y_pred=y_pred, tau=tau, sample_weight=sample_weight
                 )
 
-            metrics_row["frs"] = frs(
-                y_true=y_true,
-                y_pred=y_pred,
-                cu=cu,
-                co=co,
-                cwsl_max=cwsl_max,
-                sample_weight=sample_weight,
-            )
+            metrics_row["frs"] = _compose_frs(nsl_val, cwsl_val, cwsl_max)
 
             results[level_name] = pd.DataFrame([metrics_row])
             continue
@@ -196,13 +193,15 @@ def evaluate_hierarchy_df(
                 else None
             )
 
+            cwsl_val = cwsl(
+                y_true=y_true, y_pred=y_pred, cu=cu, co=co, sample_weight=sample_weight
+            )
+            nsl_val = nsl(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight)
             row = {
                 "n_intervals": len(df_g),
-                "total_demand": float(df_g[actual_col].sum()),
-                "cwsl": cwsl(
-                    y_true=y_true, y_pred=y_pred, cu=cu, co=co, sample_weight=sample_weight
-                ),
-                "nsl": nsl(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight),
+                "total_demand": float(y_true.sum()),
+                "cwsl": cwsl_val,
+                "nsl": nsl_val,
                 "ud": ud(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight),
                 "wmape": wmape(y_true=y_true, y_pred=y_pred),
             }
@@ -211,14 +210,7 @@ def evaluate_hierarchy_df(
                     y_true=y_true, y_pred=y_pred, tau=tau, sample_weight=sample_weight
                 )
 
-            row["frs"] = frs(
-                y_true=y_true,
-                y_pred=y_pred,
-                cu=cu,
-                co=co,
-                cwsl_max=cwsl_max,
-                sample_weight=sample_weight,
-            )
+            row["frs"] = _compose_frs(nsl_val, cwsl_val, cwsl_max)
 
             # Attach grouping keys (ensure values are treated as scalars for type-checkers)
             for col, value in zip(group_cols, keys, strict=False):

@@ -118,7 +118,7 @@ def test_evaluate_groups_df_matches_direct_calculation_for_one_group():
     row = out.loc[(out["store_id"] == 1) & (out["item_id"] == "A"), :].iloc[0]
 
     for metric, val in expected.items():
-        assert np.isclose(row[metric], val)
+        assert np.isclose(row[metric], val, rtol=1e-12, atol=1e-12), metric
 
 
 def test_evaluate_groups_df_supports_per_row_cu_co_and_changes_results():

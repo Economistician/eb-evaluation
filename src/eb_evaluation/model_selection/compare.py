@@ -32,7 +32,6 @@ import pandas as pd
 
 from eb_metrics.metrics import (
     cwsl,
-    frs,
     hr_at_tau,
     mae,
     mape,
@@ -109,6 +108,10 @@ def compare_forecasts(
     if not forecasts:
         raise ValueError("forecasts mapping is empty; provide at least one model.")
 
+    cwsl_max_val = float(cwsl_max)
+    if not np.isfinite(cwsl_max_val) or cwsl_max_val <= 0.0:
+        raise ValueError("cwsl_max must be finite and strictly greater than 0.")
+
     n = y_true_arr.shape[0]
 
     # Normalize any array-like costs/weights/tau to NumPy arrays to satisfy eb_metrics typing
@@ -148,17 +151,19 @@ def compare_forecasts(
                 f"Forecast {model_name!r} must be 1D with length {n}; got shape {y_pred_arr.shape}"
             )
 
+        cwsl_val = float(
+            cwsl(
+                y_true_arr,
+                y_pred_arr,
+                cu=cu_val,
+                co=co_val,
+                sample_weight=sample_weight_val,
+            )
+        )
+        nsl_val = float(nsl(y_true_arr, y_pred_arr, sample_weight=sample_weight_val))
         metrics_row = {
-            "CWSL": float(
-                cwsl(
-                    y_true_arr,
-                    y_pred_arr,
-                    cu=cu_val,
-                    co=co_val,
-                    sample_weight=sample_weight_val,
-                )
-            ),
-            "NSL": float(nsl(y_true_arr, y_pred_arr, sample_weight=sample_weight_val)),
+            "CWSL": cwsl_val,
+            "NSL": nsl_val,
             "UD": float(ud(y_true_arr, y_pred_arr, sample_weight=sample_weight_val)),
             # wMAPE in eb_metrics is unweighted
             "wMAPE": float(wmape(y_true_arr, y_pred_arr)),
@@ -170,16 +175,7 @@ def compare_forecasts(
                     sample_weight=sample_weight_val,
                 )
             ),
-            "FRS": float(
-                frs(
-                    y_true_arr,
-                    y_pred_arr,
-                    cu=cu_val,
-                    co=co_val,
-                    cwsl_max=cwsl_max,
-                    sample_weight=sample_weight_val,
-                )
-            ),
+            "FRS": float(nsl_val - min(1.0, cwsl_val / cwsl_max_val)),
             # Symmetric metrics are currently unweighted in eb_metrics
             "MAE": float(mae(y_true_arr, y_pred_arr)),
             "RMSE": float(rmse(y_true_arr, y_pred_arr)),
