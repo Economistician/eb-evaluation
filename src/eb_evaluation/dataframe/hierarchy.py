@@ -31,6 +31,7 @@ def evaluate_hierarchy_df(
     tau: float | None = None,
     *,
     cwsl_max: float,
+    sample_weight_col: str | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Evaluate EB metrics at multiple hierarchy levels.
 
@@ -83,6 +84,10 @@ def evaluate_hierarchy_df(
         Required upper bound for FRS scaling: the largest economically meaningful CWSL
         for the application. Must be finite and strictly greater than 0. There is no
         default.
+    sample_weight_col : str | None, default=None
+        Optional column of non-negative sample weights. If provided, weights are
+        passed through to CWSL, NSL, UD, HR@tau, and FRS. ``wmape`` remains
+        unweighted.
 
     Returns
     -------
@@ -132,6 +137,9 @@ def evaluate_hierarchy_df(
     if missing:
         raise KeyError(f"DataFrame is missing required columns: {sorted(missing)}")
 
+    if sample_weight_col is not None and sample_weight_col not in df.columns:
+        raise KeyError(f"sample_weight_col {sample_weight_col!r} not found in df")
+
     results: dict[str, pd.DataFrame] = {}
 
     for level_name, group_cols in levels.items():
@@ -141,20 +149,32 @@ def evaluate_hierarchy_df(
             # Single overall group
             y_true = df[actual_col].to_numpy(dtype=float)
             y_pred = df[forecast_col].to_numpy(dtype=float)
+            sample_weight = (
+                df[sample_weight_col].to_numpy(dtype=float) if sample_weight_col is not None else None
+            )
 
             metrics_row = {
                 "n_intervals": len(df),
                 "total_demand": float(df[actual_col].sum()),
-                "cwsl": cwsl(y_true=y_true, y_pred=y_pred, cu=cu, co=co),
-                "nsl": nsl(y_true=y_true, y_pred=y_pred),
-                "ud": ud(y_true=y_true, y_pred=y_pred),
+                "cwsl": cwsl(
+                    y_true=y_true, y_pred=y_pred, cu=cu, co=co, sample_weight=sample_weight
+                ),
+                "nsl": nsl(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight),
+                "ud": ud(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight),
                 "wmape": wmape(y_true=y_true, y_pred=y_pred),
             }
             if tau is not None:
-                metrics_row["hr_at_tau"] = hr_at_tau(y_true=y_true, y_pred=y_pred, tau=tau)
+                metrics_row["hr_at_tau"] = hr_at_tau(
+                    y_true=y_true, y_pred=y_pred, tau=tau, sample_weight=sample_weight
+                )
 
             metrics_row["frs"] = frs(
-                y_true=y_true, y_pred=y_pred, cu=cu, co=co, cwsl_max=cwsl_max
+                y_true=y_true,
+                y_pred=y_pred,
+                cu=cu,
+                co=co,
+                cwsl_max=cwsl_max,
+                sample_weight=sample_weight,
             )
 
             results[level_name] = pd.DataFrame([metrics_row])
@@ -170,19 +190,35 @@ def evaluate_hierarchy_df(
 
             y_true = df_g[actual_col].to_numpy(dtype=float)
             y_pred = df_g[forecast_col].to_numpy(dtype=float)
+            sample_weight = (
+                df_g[sample_weight_col].to_numpy(dtype=float)
+                if sample_weight_col is not None
+                else None
+            )
 
             row = {
                 "n_intervals": len(df_g),
                 "total_demand": float(df_g[actual_col].sum()),
-                "cwsl": cwsl(y_true=y_true, y_pred=y_pred, cu=cu, co=co),
-                "nsl": nsl(y_true=y_true, y_pred=y_pred),
-                "ud": ud(y_true=y_true, y_pred=y_pred),
+                "cwsl": cwsl(
+                    y_true=y_true, y_pred=y_pred, cu=cu, co=co, sample_weight=sample_weight
+                ),
+                "nsl": nsl(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight),
+                "ud": ud(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight),
                 "wmape": wmape(y_true=y_true, y_pred=y_pred),
             }
             if tau is not None:
-                row["hr_at_tau"] = hr_at_tau(y_true=y_true, y_pred=y_pred, tau=tau)
+                row["hr_at_tau"] = hr_at_tau(
+                    y_true=y_true, y_pred=y_pred, tau=tau, sample_weight=sample_weight
+                )
 
-            row["frs"] = frs(y_true=y_true, y_pred=y_pred, cu=cu, co=co, cwsl_max=cwsl_max)
+            row["frs"] = frs(
+                y_true=y_true,
+                y_pred=y_pred,
+                cu=cu,
+                co=co,
+                cwsl_max=cwsl_max,
+                sample_weight=sample_weight,
+            )
 
             # Attach grouping keys (ensure values are treated as scalars for type-checkers)
             for col, value in zip(group_cols, keys, strict=False):

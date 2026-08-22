@@ -21,7 +21,22 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-from math import fabs, isnan
+from math import isnan
+
+from eb_metrics.metrics import cwsl, hr_at_tau, nsl, ud as ud_metric
+
+
+def _eb_metric(fn, *args, **kwargs) -> float:
+    """Call an ``eb_metrics`` primitive; return NaN if inputs are out of domain.
+
+    Service metrics reject negative forecasts. FPC may still be asked to
+    diagnose unconstrained primitives (governance ``nonneg_mode="none"``),
+    in which case the signal is recorded as missing rather than raising.
+    """
+    try:
+        return float(fn(*args, **kwargs))
+    except ValueError:
+        return float("nan")
 
 
 class FPCClass(str, Enum):
@@ -176,64 +191,6 @@ def classify_fpc(
     )
 
 
-# ---------------------------------------------------------------------
-# Helper utilities (pure Python)
-# ---------------------------------------------------------------------
-
-
-def _mean(values: Sequence[float]) -> float:
-    if not values:
-        return float("nan")
-    return sum(values) / float(len(values))
-
-
-def compute_nsl(y: Sequence[float], yhat: Sequence[float]) -> float:
-    if len(y) != len(yhat) or not y:
-        return float("nan")
-    return sum(1 for yi, yhi in zip(y, yhat, strict=True) if yhi >= yi) / float(len(y))
-
-
-def compute_ud(y: Sequence[float], yhat: Sequence[float]) -> float:
-    if len(y) != len(yhat) or not y:
-        return float("nan")
-    shortfalls = [yi - yhi for yi, yhi in zip(y, yhat, strict=True) if yi > yhi]
-    return _mean(shortfalls) if shortfalls else 0.0
-
-
-def compute_hr_tau(y: Sequence[float], yhat: Sequence[float], tau: float) -> float:
-    if len(y) != len(yhat) or not y:
-        return float("nan")
-    return sum(1 for yi, yhi in zip(y, yhat, strict=True) if fabs(yhi - yi) <= tau) / float(len(y))
-
-
-def compute_cwsl(
-    y: Sequence[float],
-    yhat: Sequence[float],
-    *,
-    r: float,
-    c_over: float = 1.0,
-) -> float:
-    if len(y) != len(yhat) or not y:
-        return float("nan")
-
-    c_under = r * c_over
-    short_sum = 0.0
-    over_sum = 0.0
-    y_sum = 0.0
-
-    for yi, yhi in zip(y, yhat, strict=True):
-        y_sum += yi
-        if yi > yhi:
-            short_sum += yi - yhi
-        else:
-            over_sum += yhi - yi
-
-    if y_sum <= 0:
-        return float("nan")
-
-    return (c_under * short_sum + c_over * over_sum) / y_sum
-
-
 def build_signals_from_series(
     *,
     y: Sequence[float],
@@ -269,20 +226,20 @@ def build_signals_from_series(
     if cwsl_r is None and cost_ratio is not None:
         cwsl_r = cost_ratio
 
-    nsl_base = compute_nsl(y, yhat_base)
-    nsl_ral = compute_nsl(y, yhat_ral)
+    nsl_base = _eb_metric(nsl, y, yhat_base)
+    nsl_ral = _eb_metric(nsl, y, yhat_ral)
     delta_nsl = nsl_ral - nsl_base
 
-    hr_base = compute_hr_tau(y, yhat_base, tau)
-    hr_ral = compute_hr_tau(y, yhat_ral, tau)
+    hr_base = _eb_metric(hr_at_tau, y, yhat_base, tau=tau)
+    hr_ral = _eb_metric(hr_at_tau, y, yhat_ral, tau=tau)
     delta_hr = hr_ral - hr_base
 
-    ud_val = ud if ud is not None else compute_ud(y, yhat_base)
+    ud_val = ud if ud is not None else _eb_metric(ud_metric, y, yhat_base)
 
     cwsl_base = cwsl_ral = delta_cwsl = None
     if cwsl_r is not None:
-        cwsl_base = compute_cwsl(y, yhat_base, r=cwsl_r)
-        cwsl_ral = compute_cwsl(y, yhat_ral, r=cwsl_r)
+        cwsl_base = _eb_metric(cwsl, y, yhat_base, cu=cwsl_r, co=1.0)
+        cwsl_ral = _eb_metric(cwsl, y, yhat_ral, cu=cwsl_r, co=1.0)
         delta_cwsl = cwsl_ral - cwsl_base
 
     return FPCSignals(

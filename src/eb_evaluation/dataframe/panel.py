@@ -38,6 +38,7 @@ def evaluate_panel_df(
     tau: float | None = None,
     *,
     cwsl_max: float,
+    sample_weight_col: str | None = None,
 ) -> pd.DataFrame:
     """Evaluate metrics at multiple levels and return a long-form panel DataFrame.
 
@@ -78,6 +79,9 @@ def evaluate_panel_df(
         Required upper bound for FRS scaling, passed through to
         ``evaluate_hierarchy_df``. Must be finite and strictly greater than 0.
         There is no default.
+    sample_weight_col : str | None, default=None
+        Optional column of non-negative sample weights, passed through to
+        ``evaluate_hierarchy_df``.
 
     Returns
     -------
@@ -109,6 +113,7 @@ def evaluate_panel_df(
         co=co,
         tau=tau,
         cwsl_max=cwsl_max,
+        sample_weight_col=sample_weight_col,
     )
 
     stacked_frames: list[pd.DataFrame] = []
