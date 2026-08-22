@@ -27,6 +27,7 @@ def evaluate_groups_df(
     co: float | str = 1.0,
     tau: float = 2.0,
     sample_weight_col: str | None = None,
+    cwsl_max: float,
 ) -> pd.DataFrame:
     """Evaluate core EB metrics per group from a DataFrame.
 
@@ -69,6 +70,10 @@ def evaluate_groups_df(
     sample_weight_col : str | None, default=None
         Optional column name containing non-negative sample weights per row. If provided,
         weights are passed into metrics that accept a ``sample_weight`` argument.
+    cwsl_max : float
+        Required upper bound for FRS scaling: the largest economically meaningful CWSL
+        for the application. Must be finite and strictly greater than 0. There is no
+        default.
 
     Returns
     -------
@@ -183,6 +188,7 @@ def evaluate_groups_df(
                     y_pred=y_pred,
                     cu=cu_value,
                     co=co_value,
+                    cwsl_max=cwsl_max,
                     sample_weight=sample_weight,
                 )
             )

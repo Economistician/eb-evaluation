@@ -7,6 +7,8 @@ import pandas as pd
 
 from eb_evaluation.dataframe import evaluate_hierarchy_df, evaluate_panel_df
 
+CWSL_MAX = 0.30
+
 
 def _build_sample_df() -> pd.DataFrame:
     """
@@ -54,6 +56,7 @@ def test_evaluate_panel_df_basic_structure():
             cu=cu,
             co=co,
             tau=tau,
+            cwsl_max=CWSL_MAX,
         ),
     )
 
@@ -103,6 +106,7 @@ def test_evaluate_panel_df_matches_hierarchy_values():
             cu=cu,
             co=co,
             tau=tau,
+            cwsl_max=CWSL_MAX,
         ),
     )
 
@@ -117,6 +121,7 @@ def test_evaluate_panel_df_matches_hierarchy_values():
             cu=cu,
             co=co,
             tau=tau,
+            cwsl_max=CWSL_MAX,
         ),
     )
 

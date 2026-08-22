@@ -29,6 +29,8 @@ def evaluate_hierarchy_df(
     cu,
     co,
     tau: float | None = None,
+    *,
+    cwsl_max: float,
 ) -> dict[str, pd.DataFrame]:
     """Evaluate EB metrics at multiple hierarchy levels.
 
@@ -77,6 +79,10 @@ def evaluate_hierarchy_df(
         and ``eb_metrics.metrics.frs``.
     tau : float | None, default=None
         Tolerance parameter for HR@tau. If ``None``, HR@tau is omitted from outputs.
+    cwsl_max : float
+        Required upper bound for FRS scaling: the largest economically meaningful CWSL
+        for the application. Must be finite and strictly greater than 0. There is no
+        default.
 
     Returns
     -------
@@ -147,7 +153,9 @@ def evaluate_hierarchy_df(
             if tau is not None:
                 metrics_row["hr_at_tau"] = hr_at_tau(y_true=y_true, y_pred=y_pred, tau=tau)
 
-            metrics_row["frs"] = frs(y_true=y_true, y_pred=y_pred, cu=cu, co=co)
+            metrics_row["frs"] = frs(
+                y_true=y_true, y_pred=y_pred, cu=cu, co=co, cwsl_max=cwsl_max
+            )
 
             results[level_name] = pd.DataFrame([metrics_row])
             continue
@@ -174,7 +182,7 @@ def evaluate_hierarchy_df(
             if tau is not None:
                 row["hr_at_tau"] = hr_at_tau(y_true=y_true, y_pred=y_pred, tau=tau)
 
-            row["frs"] = frs(y_true=y_true, y_pred=y_pred, cu=cu, co=co)
+            row["frs"] = frs(y_true=y_true, y_pred=y_pred, cu=cu, co=co, cwsl_max=cwsl_max)
 
             # Attach grouping keys (ensure values are treated as scalars for type-checkers)
             for col, value in zip(group_cols, keys, strict=False):

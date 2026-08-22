@@ -57,6 +57,7 @@ def test_compare_forecasts_basic_ranking():
         co=co,
         sample_weight=None,
         tau=2.0,
+        cwsl_max=0.30,
     )
 
     # Index and key columns are present
@@ -81,6 +82,7 @@ def test_compare_forecasts_validates_inputs():
             forecasts=forecasts,
             cu=cu,
             co=co,
+            cwsl_max=0.30,
         )
 
     with pytest.raises(ValueError):
@@ -89,6 +91,7 @@ def test_compare_forecasts_validates_inputs():
             forecasts={},
             cu=cu,
             co=co,
+            cwsl_max=0.30,
         )
 
 

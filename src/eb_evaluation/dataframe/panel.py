@@ -36,6 +36,8 @@ def evaluate_panel_df(
     cu,
     co,
     tau: float | None = None,
+    *,
+    cwsl_max: float,
 ) -> pd.DataFrame:
     """Evaluate metrics at multiple levels and return a long-form panel DataFrame.
 
@@ -72,6 +74,10 @@ def evaluate_panel_df(
         Overbuild (excess) cost coefficient passed through to CWSL/FRS evaluations.
     tau : float | None, default=None
         Tolerance parameter for HR@tau. If ``None``, HR@tau is omitted.
+    cwsl_max : float
+        Required upper bound for FRS scaling, passed through to
+        ``evaluate_hierarchy_df``. Must be finite and strictly greater than 0.
+        There is no default.
 
     Returns
     -------
@@ -102,6 +108,7 @@ def evaluate_panel_df(
         cu=cu,
         co=co,
         tau=tau,
+        cwsl_max=cwsl_max,
     )
 
     stacked_frames: list[pd.DataFrame] = []

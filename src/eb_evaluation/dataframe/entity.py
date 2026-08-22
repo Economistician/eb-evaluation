@@ -33,6 +33,7 @@ def evaluate_panel_with_entity_R(
     co_col: str = "co",
     tau: float = 2.0,
     sample_weight_col: str | None = None,
+    cwsl_max: float,
 ) -> pd.DataFrame:
     r"""
     Evaluate an entity-interval panel using entity-level cost ratios.
@@ -94,6 +95,10 @@ def evaluate_panel_with_entity_R(
         Absolute-error tolerance parameter for the hit-rate metric HR@$\tau$.
     sample_weight_col : str | None, default=None
         Optional column in ``df`` of non-negative sample weights.
+    cwsl_max : float
+        Required upper bound for FRS scaling: the largest economically meaningful CWSL
+        for the application. Must be finite and strictly greater than 0. There is no
+        default.
 
     Returns
     -------
@@ -234,6 +239,7 @@ def evaluate_panel_with_entity_R(
                     y_pred=y_pred,
                     cu=cu_arr,
                     co=co_arr,
+                    cwsl_max=cwsl_max,
                     sample_weight=sample_weight,
                 )
             )

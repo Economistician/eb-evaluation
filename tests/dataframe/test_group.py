@@ -18,6 +18,8 @@ from eb_metrics.metrics import (
     wmape,
 )
 
+CWSL_MAX = 0.30
+
 
 def test_evaluate_groups_df_produces_expected_columns():
     """
@@ -39,6 +41,7 @@ def test_evaluate_groups_df_produces_expected_columns():
         evaluate_groups_df(
             df=df,
             group_cols=["store_id", "item_id"],
+            cwsl_max=CWSL_MAX,
         ),
     )
 
@@ -89,6 +92,7 @@ def test_evaluate_groups_df_matches_direct_calculation_for_one_group():
             cu=cu,
             co=co,
             tau=tau,
+            cwsl_max=CWSL_MAX,
         ),
     )
 
@@ -105,7 +109,7 @@ def test_evaluate_groups_df_matches_direct_calculation_for_one_group():
         "UD": ud(y_true, y_pred),
         "wMAPE": wmape(y_true, y_pred),
         "HR@tau": hr_at_tau(y_true, y_pred, tau=tau),
-        "FRS": frs(y_true, y_pred, cu=cu, co=co),
+        "FRS": frs(y_true, y_pred, cu=cu, co=co, cwsl_max=CWSL_MAX),
         "MAE": mae(y_true, y_pred),
         "RMSE": rmse(y_true, y_pred),
         "MAPE": mape(y_true, y_pred),
@@ -162,6 +166,7 @@ def test_evaluate_groups_df_supports_per_row_cu_co_and_changes_results():
             cu="cu",  # per-row cost
             co="co",
             tau=2.0,
+            cwsl_max=CWSL_MAX,
         ),
     )
 

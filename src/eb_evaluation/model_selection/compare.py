@@ -50,6 +50,8 @@ def compare_forecasts(
     co: float | ArrayLike,
     sample_weight: ArrayLike | None = None,
     tau: float | ArrayLike = 2.0,
+    *,
+    cwsl_max: float,
 ) -> pd.DataFrame:
     r"""
     Compare multiple forecast models on the same target series.
@@ -82,6 +84,10 @@ def compare_forecasts(
         in ``eb_metrics`` (e.g., wMAPE, MAE, RMSE, MAPE) are computed without weights.
     tau : float or array-like, default=2.0
         Tolerance parameter for HR@tau. May be scalar or per-interval.
+    cwsl_max : float
+        Required upper bound for FRS scaling: the largest economically meaningful CWSL
+        for the application. Must be finite and strictly greater than 0. There is no
+        default.
 
     Returns
     -------
@@ -170,6 +176,7 @@ def compare_forecasts(
                     y_pred_arr,
                     cu=cu_val,
                     co=co_val,
+                    cwsl_max=cwsl_max,
                     sample_weight=sample_weight_val,
                 )
             ),

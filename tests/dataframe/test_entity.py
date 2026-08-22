@@ -18,6 +18,8 @@ from eb_metrics.metrics import (
     wmape,
 )
 
+CWSL_MAX = 0.30
+
 
 def _build_entity_panel() -> pd.DataFrame:
     """
@@ -79,6 +81,7 @@ def test_evaluate_panel_with_entity_R_basic_structure():
             R_col="R",
             co_col="co",
             tau=2.0,
+            cwsl_max=CWSL_MAX,
         ),
     )
 
@@ -137,6 +140,7 @@ def test_evaluate_panel_with_entity_R_matches_direct_metrics_for_single_entity()
             R_col="R",
             co_col="co",
             tau=2.0,
+            cwsl_max=CWSL_MAX,
         ),
     )
 
@@ -160,7 +164,7 @@ def test_evaluate_panel_with_entity_R_matches_direct_metrics_for_single_entity()
         "UD": ud(y_true, y_pred),
         "wMAPE": wmape(y_true, y_pred),
         "HR@tau": hr_at_tau(y_true, y_pred, tau=2.0),
-        "FRS": frs(y_true, y_pred, cu=cu_arr, co=co_arr),
+        "FRS": frs(y_true, y_pred, cu=cu_arr, co=co_arr, cwsl_max=CWSL_MAX),
         "MAE": mae(y_true, y_pred),
         "RMSE": rmse(y_true, y_pred),
         "MAPE": mape(y_true, y_pred),
@@ -210,6 +214,7 @@ def test_evaluate_panel_with_entity_R_respects_R_cost_ratio_behavior():
             R_col="R",
             co_col="co",
             tau=2.0,
+            cwsl_max=CWSL_MAX,
         ),
     )
 

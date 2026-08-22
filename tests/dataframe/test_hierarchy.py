@@ -16,6 +16,8 @@ from eb_metrics.metrics import (
     wmape,
 )
 
+CWSL_MAX = 0.30
+
 
 def _build_sample_df() -> pd.DataFrame:
     """
@@ -63,6 +65,7 @@ def test_evaluate_hierarchy_df_returns_all_levels():
             cu=cu,
             co=co,
             tau=tau,
+            cwsl_max=CWSL_MAX,
         ),
     )
 
@@ -109,6 +112,7 @@ def test_evaluate_hierarchy_df_overall_level_matches_direct_metrics():
             cu=cu,
             co=co,
             tau=tau,
+            cwsl_max=CWSL_MAX,
         ),
     )
 
@@ -126,7 +130,7 @@ def test_evaluate_hierarchy_df_overall_level_matches_direct_metrics():
         "ud": ud(y_true, y_pred),
         "wmape": wmape(y_true, y_pred),
         "hr_at_tau": hr_at_tau(y_true, y_pred, tau=tau),
-        "frs": frs(y_true, y_pred, cu=cu, co=co),
+        "frs": frs(y_true, y_pred, cu=cu, co=co, cwsl_max=CWSL_MAX),
         "n_intervals": len(df),
         "total_demand": float(df["actual_qty"].sum()),
     }
@@ -159,6 +163,7 @@ def test_evaluate_hierarchy_df_group_level_matches_direct_metrics_for_store():
             cu=cu,
             co=co,
             tau=tau,
+            cwsl_max=CWSL_MAX,
         ),
     )
 
@@ -180,7 +185,7 @@ def test_evaluate_hierarchy_df_group_level_matches_direct_metrics_for_store():
         "ud": ud(y_true, y_pred),
         "wmape": wmape(y_true, y_pred),
         "hr_at_tau": hr_at_tau(y_true, y_pred, tau=tau),
-        "frs": frs(y_true, y_pred, cu=cu, co=co),
+        "frs": frs(y_true, y_pred, cu=cu, co=co, cwsl_max=CWSL_MAX),
         "n_intervals": len(g),
         "total_demand": float(g["actual_qty"].sum()),
     }
