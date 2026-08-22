@@ -267,7 +267,7 @@ class ReadinessAdjustmentLayer:
                 )
 
             merged = result_df.merge(self.uplift_table_, on=seg_cols, how="left")
-            uplift = merged["uplift"].to_numpy(dtype=float)
+            uplift = np.array(merged["uplift"].to_numpy(dtype=float), copy=True)
 
             mask_nan = ~np.isfinite(uplift)
             if mask_nan.any():
