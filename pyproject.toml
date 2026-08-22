@@ -108,3 +108,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 addopts = "-ra"
+markers = [
+  "scale: multi-million-row throughput benchmarks (7k nodes × 15 series × 28-day window)",
+]
