@@ -56,25 +56,35 @@ using Electric Barometer metrics in a DataFrame-first workflow.
 
 ```python
 import pandas as pd
-from eb_evaluation.dataframe import compute_cwsl_df
+from eb_evaluation import compute_cwsl_df, evaluate_groups_df
 
-# Example evaluation data
 df = pd.DataFrame({
     "entity_id": ["A", "A", "B", "B"],
-    "date": pd.to_datetime(["2024-01-01", "2024-01-02"] * 2),
     "actual": [10, 12, 7, 9],
     "prediction": [9, 11, 8, 10],
 })
 
-# Compute Cost-Weighted Service Loss (CWSL)
-results = compute_cwsl_df(
+# Single-slice CWSL (scalar)
+loss = compute_cwsl_df(
     df,
-    actual_col="actual",
-    prediction_col="prediction",
-    entity_col="entity_id",
-    time_col="date",
+    y_true_col="actual",
+    y_pred_col="prediction",
+    cu=2.0,
+    co=1.0,
 )
 
+# Per-entity metrics, including FRS (requires cwsl_max)
+results = evaluate_groups_df(
+    df,
+    group_cols=["entity_id"],
+    actual_col="actual",
+    forecast_col="prediction",
+    cu=2.0,
+    co=1.0,
+    cwsl_max=0.30,
+)
+
+print(loss)
 print(results)
 ```
 
