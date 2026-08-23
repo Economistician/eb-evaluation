@@ -63,7 +63,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from math import isnan
 
 from .dqc import DQCClass, DQCResult, DQCSignals, DQCThresholds, classify_dqc
@@ -72,7 +72,7 @@ from .fpc import FPCClass, FPCResult, FPCSignals, FPCThresholds, classify_fpc
 from .presets import GovernancePreset, preset_thresholds
 
 
-class GovernanceStatus(str, Enum):
+class GovernanceStatus(StrEnum):
     """Traffic-light status for downstream gating."""
 
     GREEN = "green"
@@ -80,14 +80,14 @@ class GovernanceStatus(str, Enum):
     RED = "red"
 
 
-class TauPolicy(str, Enum):
+class TauPolicy(StrEnum):
     """How to interpret tolerance τ downstream."""
 
     RAW_UNITS = "raw_units"
     GRID_UNITS = "grid_units"
 
 
-class RALPolicy(str, Enum):
+class RALPolicy(StrEnum):
     """Whether readiness adjustment is allowed downstream."""
 
     ALLOW = "allow"

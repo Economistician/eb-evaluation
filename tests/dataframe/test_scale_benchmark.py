@@ -1,8 +1,8 @@
 """
-High-scale panel benchmark: 7,000 nodes × 15 series × 28 days.
+High-scale panel benchmark: 7,000 nodes x 15 series x 28 days.
 
 The production grain for a rolling 28-day window is *daily aggregated
-summaries* (one row per node × series × day), not the raw intra-day
+summaries* (one row per node x series x day), not the raw intra-day
 fact table. ``evaluate_groups_df`` is then grouped by
 ``["node_id", "series_id"]`` so each of the 105,000 streams gets one
 CWSL / NSL / UD / FRS row over the window.
@@ -20,7 +20,8 @@ import pandas as pd
 import pytest
 
 from eb_evaluation.dataframe import evaluate_groups_df
-from eb_metrics.metrics import cwsl, frs, hr_at_tau, nsl, ud
+from eb_evaluation.dataframe.group import _compose_frs
+from eb_metrics.metrics import cwsl, hr_at_tau, nsl, ud
 
 N_NODES = 7_000
 N_SERIES = 15
@@ -37,7 +38,7 @@ INPUT_BUDGET_MB = 128.0
 
 
 def _build_daily_window() -> pd.DataFrame:
-    """Contiguous 28-day summaries for every node × series stream."""
+    """Contiguous 28-day summaries for every node x series stream."""
     rng = np.random.default_rng(20260822)
     node_id = np.repeat(np.arange(N_NODES, dtype=np.int32), N_SERIES * N_DAYS)
     series_id = np.tile(
@@ -81,7 +82,8 @@ def test_daily_window_groups_by_node_and_series_is_subsecond() -> None:
     frs_val = nsl_val - min(1.0, cwsl_val / CWSL_MAX)
     primitive_s = time.perf_counter() - t0
 
-    assert np.isfinite([cwsl_val, nsl_val, ud_val, frs_val]).all()
+    primitive_vals = np.asarray([cwsl_val, nsl_val, ud_val, frs_val], dtype=np.float64)
+    assert bool(np.isfinite(primitive_vals).all())
     assert primitive_s < PRIMITIVE_BUDGET_S
 
     t0 = time.perf_counter()
@@ -91,7 +93,8 @@ def test_daily_window_groups_by_node_and_series_is_subsecond() -> None:
     assert set(GROUP_COLS).issubset(grouped.columns)
     assert len(grouped) == N_STREAMS
     assert grouped.duplicated(GROUP_COLS).sum() == 0
-    assert grouped[["CWSL", "NSL", "UD", "FRS"]].notna().all().all()
+    metric_ok = np.asarray(grouped.loc[:, ["CWSL", "NSL", "UD", "FRS"]].notna(), dtype=bool)
+    assert bool(metric_ok.all())
     assert groups_s < GROUPS_BUDGET_S
 
     # One stream must match a direct eb_metrics call on that 28-day slice.
@@ -104,15 +107,13 @@ def test_daily_window_groups_by_node_and_series_is_subsecond() -> None:
     yhat_s = slice_df["forecast_qty"].to_numpy(dtype=float)
     assert len(y_s) == N_DAYS
 
-    row = grouped.loc[
-        (grouped["node_id"] == node_id) & (grouped["series_id"] == series_id)
-    ].iloc[0]
+    row = grouped.loc[(grouped["node_id"] == node_id) & (grouped["series_id"] == series_id)].iloc[0]
     expected = {
         "CWSL": cwsl(y_s, yhat_s, cu=2.0, co=1.0),
         "NSL": nsl(y_s, yhat_s),
         "UD": ud(y_s, yhat_s),
         "HR@tau": hr_at_tau(y_s, yhat_s, tau=2.0),
-        "FRS": frs(y_s, yhat_s, cu=2.0, co=1.0, cwsl_max=CWSL_MAX),
+        "FRS": _compose_frs(nsl(y_s, yhat_s), cwsl(y_s, yhat_s, cu=2.0, co=1.0), CWSL_MAX),
     }
     for name, value in expected.items():
         assert np.isclose(row[name], value, rtol=1e-12, atol=1e-12), name

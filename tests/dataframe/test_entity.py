@@ -6,9 +6,9 @@ import numpy as np
 import pandas as pd
 
 from eb_evaluation.dataframe import evaluate_panel_with_entity_R
+from eb_evaluation.dataframe.group import _compose_frs
 from eb_metrics.metrics import (
     cwsl,
-    frs,
     hr_at_tau,
     mae,
     mape,
@@ -164,7 +164,11 @@ def test_evaluate_panel_with_entity_R_matches_direct_metrics_for_single_entity()
         "UD": ud(y_true, y_pred),
         "wMAPE": wmape(y_true, y_pred),
         "HR@tau": hr_at_tau(y_true, y_pred, tau=2.0),
-        "FRS": frs(y_true, y_pred, cu=cu_arr, co=co_arr, cwsl_max=CWSL_MAX),
+        "FRS": _compose_frs(
+            nsl(y_true, y_pred),
+            cwsl(y_true, y_pred, cu=cu_arr, co=co_arr),
+            CWSL_MAX,
+        ),
         "MAE": mae(y_true, y_pred),
         "RMSE": rmse(y_true, y_pred),
         "MAPE": mape(y_true, y_pred),

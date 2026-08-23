@@ -7,9 +7,9 @@ import numpy as np
 import pandas as pd
 
 from eb_evaluation.dataframe import evaluate_hierarchy_df
+from eb_evaluation.dataframe.group import _compose_frs
 from eb_metrics.metrics import (
     cwsl,
-    frs,
     hr_at_tau,
     nsl,
     ud,
@@ -130,9 +130,9 @@ def test_evaluate_hierarchy_df_overall_level_matches_direct_metrics():
         "ud": ud(y_true, y_pred),
         "wmape": wmape(y_true, y_pred),
         "hr_at_tau": hr_at_tau(y_true, y_pred, tau=tau),
-        "frs": frs(y_true, y_pred, cu=cu, co=co, cwsl_max=CWSL_MAX),
+        "frs": _compose_frs(nsl(y_true, y_pred), cwsl(y_true, y_pred, cu=cu, co=co), CWSL_MAX),
         "n_intervals": len(df),
-        "total_demand": float(df["actual_qty"].sum()),
+        "total_demand": float(np.asarray(df["actual_qty"].to_numpy(dtype=float)).sum()),
     }
 
     row = overall_df.iloc[0]
@@ -185,9 +185,9 @@ def test_evaluate_hierarchy_df_group_level_matches_direct_metrics_for_store():
         "ud": ud(y_true, y_pred),
         "wmape": wmape(y_true, y_pred),
         "hr_at_tau": hr_at_tau(y_true, y_pred, tau=tau),
-        "frs": frs(y_true, y_pred, cu=cu, co=co, cwsl_max=CWSL_MAX),
+        "frs": _compose_frs(nsl(y_true, y_pred), cwsl(y_true, y_pred, cu=cu, co=co), CWSL_MAX),
         "n_intervals": len(g),
-        "total_demand": float(g["actual_qty"].sum()),
+        "total_demand": float(np.asarray(g["actual_qty"].to_numpy(dtype=float)).sum()),
     }
 
     row = by_store.loc[by_store["store_id"] == 1, :].iloc[0]

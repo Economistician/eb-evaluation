@@ -10,7 +10,9 @@ implementation is stable and auditable.
 from __future__ import annotations
 
 import json
+from typing import Any
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -21,6 +23,16 @@ from eb_evaluation.diagnostics.fas import (
     slice_keys,
     valid_slice_modes,
 )
+
+
+def _as_scalar(value: Any) -> Any:
+    arr = np.asarray(value)
+    return arr.reshape(-1)[0]
+
+
+def _rows_by_key(df: pd.DataFrame, key: str) -> dict[Any, pd.Series]:
+    keys = df[key].to_numpy()
+    return {keys[i]: df.iloc[i] for i in range(len(df))}
 
 
 def test_slice_keys_modes() -> None:
@@ -292,25 +304,25 @@ def test_build_fas_surface_classification_allowed_conditional_blocked() -> None:
 
     fas = build_fas_surface(anatomy=anatomy, keys=["forecast_entity_id"], thr=thr)
 
-    by_id = {int(r["forecast_entity_id"]): r for _, r in fas.iterrows()}
+    by_id = {int(_as_scalar(k)): r for k, r in _rows_by_key(fas, "forecast_entity_id").items()}
 
     assert by_id[101]["fas_class"] == "ALLOWED"
     assert by_id[101]["fas_status"] == "ALLOWED"
-    assert by_id[101]["fas_allowed"] is True
-    assert by_id[101]["fas_conditional"] is False
-    assert by_id[101]["fas_blocked"] is False
+    assert bool(_as_scalar(by_id[101]["fas_allowed"])) is True
+    assert bool(_as_scalar(by_id[101]["fas_conditional"])) is False
+    assert bool(_as_scalar(by_id[101]["fas_blocked"])) is False
 
     assert by_id[202]["fas_class"] == "CONDITIONAL"
     assert by_id[202]["fas_status"] == "CONDITIONAL"
-    assert by_id[202]["fas_allowed"] is False
-    assert by_id[202]["fas_conditional"] is True
-    assert by_id[202]["fas_blocked"] is False
+    assert bool(_as_scalar(by_id[202]["fas_allowed"])) is False
+    assert bool(_as_scalar(by_id[202]["fas_conditional"])) is True
+    assert bool(_as_scalar(by_id[202]["fas_blocked"])) is False
 
     assert by_id[303]["fas_class"] == "BLOCKED"
     assert by_id[303]["fas_status"] == "BLOCKED"
-    assert by_id[303]["fas_allowed"] is False
-    assert by_id[303]["fas_conditional"] is False
-    assert by_id[303]["fas_blocked"] is True
+    assert bool(_as_scalar(by_id[303]["fas_allowed"])) is False
+    assert bool(_as_scalar(by_id[303]["fas_conditional"])) is False
+    assert bool(_as_scalar(by_id[303]["fas_blocked"])) is True
 
     # Audit fields present and stable shape
     assert "thr_fingerprint" in fas.columns
@@ -453,18 +465,18 @@ def test_all_nan_slice_is_preserved_and_conditional() -> None:
         keys=["forecast_entity_id"],
         spike_ge=10.0,
     )
-    by_id = {str(r["forecast_entity_id"]): r for _, r in anatomy.iterrows()}
+    by_id = {str(_as_scalar(k)): r for k, r in _rows_by_key(anatomy, "forecast_entity_id").items()}
     assert set(by_id) == {"1", "2"}
-    assert int(by_id["1"]["n_valid"]) == 2
-    assert int(by_id["2"]["n_valid"]) == 0
-    assert pd.isna(by_id["2"]["spike_rate"])
-    assert pd.isna(by_id["2"]["p95_ae"])
+    assert int(_as_scalar(by_id["1"]["n_valid"])) == 2
+    assert int(_as_scalar(by_id["2"]["n_valid"])) == 0
+    assert bool(pd.isna(_as_scalar(by_id["2"]["spike_rate"])))
+    assert bool(pd.isna(_as_scalar(by_id["2"]["p95_ae"])))
 
     fas = build_fas_surface(anatomy=anatomy, keys=["forecast_entity_id"])
     row2 = fas.loc[fas["forecast_entity_id"] == "2"].iloc[0]
     assert row2["fas_class"] == "CONDITIONAL"
-    assert bool(row2["fas_conditional"]) is True
-    assert bool(row2["fas_blocked"]) is False
+    assert bool(_as_scalar(row2["fas_conditional"])) is True
+    assert bool(_as_scalar(row2["fas_blocked"])) is False
 
 
 def test_spike_rate_excludes_error_equal_to_spike_ge() -> None:

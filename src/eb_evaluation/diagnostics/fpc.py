@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from math import isnan
 
 from eb_metrics.metrics import cwsl, hr_at_tau, nsl, ud as ud_metric
@@ -27,7 +27,7 @@ def _eb_metric(fn, *args, **kwargs) -> float:
         return float("nan")
 
 
-class FPCClass(str, Enum):
+class FPCClass(StrEnum):
     """Compatibility taxonomy for forecast primitives."""
 
     COMPATIBLE = "compatible"

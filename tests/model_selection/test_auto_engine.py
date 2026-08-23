@@ -113,7 +113,7 @@ def test_prophet_only_included_for_slow_when_available(monkeypatch):
     # If prophet is installed but misconfigured, AutoEngine intentionally skips it;
     # in that case, this assertion could be flaky. Prefer to skip if Prophet isn't importable.
     try:
-        import prophet
+        import prophet  # type: ignore[reportMissingImports]
     except Exception:
         pytest.skip("prophet is not importable in this test environment")
 

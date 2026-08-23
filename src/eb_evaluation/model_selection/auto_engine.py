@@ -240,7 +240,9 @@ class AutoEngine:
         # Optional: Prophet via adapter (slow only by default; time-series oriented)
         if self._has_package("prophet") and self.speed in {"slow"}:
             try:  # pragma: no cover - depends on optional pkg
-                from eb_adapters.models.prophet import ProphetAdapter
+                from eb_adapters.models.prophet import (  # type: ignore[reportMissingImports]
+                    ProphetAdapter,
+                )
 
                 models["prophet"] = ProphetAdapter()
             except Exception:

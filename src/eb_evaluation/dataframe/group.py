@@ -7,6 +7,7 @@ per group, delegating primitives to ``eb_metrics.metrics``.
 from __future__ import annotations
 
 import numpy as np
+from numpy.typing import NDArray
 import pandas as pd
 
 
@@ -108,10 +109,9 @@ def evaluate_groups_df(
     y_true = df[actual_col].to_numpy(dtype=float)
     y_pred = df[forecast_col].to_numpy(dtype=float)
 
-    if sample_weight_col is not None:
-        w = df[sample_weight_col].to_numpy(dtype=float)
-    else:
-        w = None
+    w: NDArray[np.float64] | None = (
+        df[sample_weight_col].to_numpy(dtype=float) if sample_weight_col is not None else None
+    )
 
     if isinstance(cu, str):
         cu_arr = df[cu].to_numpy(dtype=float)
@@ -157,21 +157,18 @@ def evaluate_groups_df(
     mape_term[nonzero_y] = abs_err[nonzero_y] / np.abs(y_true[nonzero_y])
 
     svc_bad = ~np.isfinite(y_true) | ~np.isfinite(y_pred) | (y_true < 0) | (y_pred < 0)
-    if w is not None:
-        w_bad = ~np.isfinite(w) | (w < 0)
-    else:
-        w_bad = np.zeros(len(df), dtype=bool)
+    w_bad = ~np.isfinite(w) | (w < 0) if w is not None else np.zeros(len(df), dtype=bool)
 
     cost_bad = np.zeros(len(df), dtype=bool)
     if cu_scalar is not None:
         if (not np.isfinite(cu_scalar)) or cu_scalar < 0:
             cost_bad[:] = True
-    else:
+    elif cu_arr is not None:
         cost_bad |= ~np.isfinite(cu_arr) | (cu_arr < 0)
     if co_scalar is not None:
         if (not np.isfinite(co_scalar)) or co_scalar < 0:
             cost_bad[:] = True
-    else:
+    elif co_arr is not None:
         cost_bad |= ~np.isfinite(co_arr) | (co_arr < 0)
 
     tau_bad = (not np.isfinite(float(tau))) or float(tau) < 0
@@ -219,14 +216,13 @@ def evaluate_groups_df(
     feat = pd.DataFrame(feat_cols)
 
     grouped = feat.groupby(group_cols, sort=False)
-    agg = grouped.sum(numeric_only=True)
-    n_g = grouped.size().astype(np.float64)
+    agg = pd.DataFrame(grouped.sum(numeric_only=True))
+    n_g = pd.Series(grouped.size(), dtype=np.float64)
 
     demand = agg["w_y"].to_numpy(dtype=float)
     tot_cost = agg["w_cost"].to_numpy(dtype=float)
     n_arr = n_g.to_numpy(dtype=float)
     w_sum = n_arr if w_mass is None else agg["w_mass"].to_numpy(dtype=float)
-    w_sf_sum = agg["w_sf"].to_numpy(dtype=float)
 
     svc_invalid = agg["svc_bad"].to_numpy(dtype=float) > 0
     w_invalid = agg["w_bad"].to_numpy(dtype=float) > 0
@@ -240,13 +236,9 @@ def evaluate_groups_df(
         (w_sum > 0) & ~service_blocked, agg["w_nsl"].to_numpy(dtype=float) / w_sum, np.nan
     )
 
-    ud_raw = np.divide(
-        agg["w_short"].to_numpy(dtype=float),
-        w_sf_sum,
-        out=np.zeros(w_sf_sum.shape, dtype=float),
-        where=w_sf_sum > 0,
+    ud_out = np.where(
+        (w_sum > 0) & ~service_blocked, agg["w_short"].to_numpy(dtype=float) / w_sum, np.nan
     )
-    ud_out = np.where((w_sum > 0) & ~service_blocked, ud_raw, np.nan)
 
     hr_ok = (w_sum > 0) & ~service_blocked
     if tau_bad:

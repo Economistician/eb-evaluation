@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from math import fabs, isnan
 
 
-class DQCClass(str, Enum):
+class DQCClass(StrEnum):
     """Compatibility taxonomy for demand resolution / quantization."""
 
     CONTINUOUS_LIKE = "continuous_like"

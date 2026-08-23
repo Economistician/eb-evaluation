@@ -197,7 +197,11 @@ def evaluate_panel_with_entity_R(
         }
 
         cwsl_val = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred, cu_e=cu_e, co_e=co_e, sample_weight=sample_weight: (
+            lambda y_true=y_true,
+            y_pred=y_pred,
+            cu_e=cu_e,
+            co_e=co_e,
+            sample_weight=sample_weight: (
                 cwsl(
                     y_true=y_true,
                     y_pred=y_pred,
