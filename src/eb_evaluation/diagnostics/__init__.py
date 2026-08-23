@@ -147,7 +147,9 @@ from .fpc import (
 )
 from .governance import (
     GovernanceDecision,
+    GovernanceRALPolicy,
     GovernanceStatus,
+    GovernanceTauPolicy,
     RALPolicy,
     TauPolicy,
     decide_governance,
@@ -183,8 +185,10 @@ __all__ = [
     "GateResult",
     "GovernanceDecision",
     "GovernancePreset",
+    "GovernanceRALPolicy",
     "GovernanceResult",
     "GovernanceStatus",
+    "GovernanceTauPolicy",
     "RALPolicy",
     "TauPolicy",
     "build_fas_surface",

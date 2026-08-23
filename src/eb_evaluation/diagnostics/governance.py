@@ -81,19 +81,32 @@ class GovernanceStatus(StrEnum):
 
 
 class TauPolicy(StrEnum):
-    """How to interpret tolerance τ downstream."""
+    """How to interpret tolerance τ downstream.
+
+    Distinct from ``eb_optimization.TauPolicyArtifact``, the frozen τ-calibration
+    policy produced by optimization.
+    """
 
     RAW_UNITS = "raw_units"
     GRID_UNITS = "grid_units"
 
 
 class RALPolicy(StrEnum):
-    """Whether readiness adjustment is allowed downstream."""
+    """Whether readiness adjustment is allowed downstream.
+
+    Distinct from ``eb_optimization.RALPolicyArtifact``, the multiplicative
+    uplift artifact produced by optimization.
+    """
 
     ALLOW = "allow"
     ALLOW_AFTER_SNAP = "allow_after_snap"
     CAUTION_AFTER_SNAP = "caution_after_snap"
     DISALLOW = "disallow"
+
+
+# Explicit names for importers that also bind eb-optimization policy artifacts.
+GovernanceTauPolicy = TauPolicy
+GovernanceRALPolicy = RALPolicy
 
 
 @dataclass(frozen=True)

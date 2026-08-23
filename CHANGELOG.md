@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `FASClass` is a public ALLOWED / CONDITIONAL / BLOCKED enum and an optional upstream binding input to `decide_governance` (`BLOCKED` short-circuits; `CONDITIONAL` downgrades permissive RAL).
 - Re-exported core DQC, FPC, FAS, and governance diagnostics from the package root.
+- Public aliases `GovernanceRALPolicy` and `GovernanceTauPolicy` for the governance enums, distinct from `eb-optimization` policy artifacts.
 
 ### Fixed
 

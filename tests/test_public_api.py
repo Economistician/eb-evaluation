@@ -19,9 +19,16 @@ def test_root_reexports_core_diagnostics() -> None:
         "decide_governance",
         "validate_governance",
         "run_governance_gate",
+        "RALPolicy",
+        "TauPolicy",
+        "GovernanceRALPolicy",
+        "GovernanceTauPolicy",
+        "DQCResult",
         "__version__",
     )
     for name in names:
         assert name in m.__all__
         assert hasattr(m, name)
     assert isinstance(m.__version__, str) and m.__version__
+    assert m.GovernanceRALPolicy is m.RALPolicy
+    assert m.GovernanceTauPolicy is m.TauPolicy

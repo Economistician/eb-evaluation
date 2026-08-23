@@ -90,7 +90,11 @@ class DQCThresholds:
 
 @dataclass(frozen=True)
 class DQCResult:
-    """Result container for DQC classification + rationale."""
+    """Result container for DQC classification + rationale.
+
+    Distinct from ``eb_optimization.policies.DQCResultSummary``, the lightweight
+    policy-facing DQC summary used for snap enforcement.
+    """
 
     dqc_class: DQCClass
     signals: DQCSignals
