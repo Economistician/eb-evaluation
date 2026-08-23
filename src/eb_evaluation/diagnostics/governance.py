@@ -64,7 +64,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from math import isnan
+from math import isfinite, isnan
 
 from .dqc import DQCClass, DQCResult, DQCSignals, DQCThresholds, classify_dqc
 from .fas import FASClass
@@ -131,6 +131,27 @@ class GovernanceDecision:
 def _as_list(y: Sequence[float] | Iterable[float]) -> list[float]:
     # Accept numpy arrays, pandas series, etc.
     return list(y)
+
+
+def _require_finite_positive_snap_unit(unit: float | None) -> float:
+    """Require a usable grid unit when DQC says snapping is required."""
+    if unit is None:
+        raise ValueError(
+            "DQC requires snapping but snap_unit is missing; "
+            "refusing fail-open unsnapped forecasts."
+        )
+    try:
+        value = float(unit)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"DQC requires snapping but snap_unit is invalid ({unit!r}); "
+            "refusing fail-open unsnapped forecasts."
+        ) from exc
+    if not isfinite(value) or value <= 0.0:
+        raise ValueError(
+            f"DQC requires snapping but snap_unit must be finite and > 0; got {unit!r}."
+        )
+    return value
 
 
 def snap_to_grid(values: Sequence[float], unit: float, *, mode: str = "ceil") -> list[float]:
@@ -378,6 +399,8 @@ def decide_governance(
     # 3) Snap requirement + tolerance policy
     snap_required = dqc.dqc_class in (DQCClass.QUANTIZED, DQCClass.PIECEWISE_PACKED)
     snap_unit = dqc.signals.granularity if snap_required else None
+    if snap_required:
+        snap_unit = _require_finite_positive_snap_unit(snap_unit)
     tau_policy = TauPolicy.GRID_UNITS if snap_required else TauPolicy.RAW_UNITS
 
     # 4) RAL policy + status

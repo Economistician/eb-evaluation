@@ -177,7 +177,7 @@ def test_run_governance_gate_nonneg_clip_adds_recommendation_and_preserves_routi
     assert gate.recommended_mode in ("continuous", "reroute_discrete")
 
 
-def test_run_governance_gate_nonneg_allow_does_not_add_recommendation() -> None:
+def test_run_governance_gate_nonneg_allow_records_allow_recommendation() -> None:
     y = [0.1 * i for i in range(1, 51)]
     yhat_base = list(y)
     yhat_ral = list(y)
@@ -191,7 +191,7 @@ def test_run_governance_gate_nonneg_allow_does_not_add_recommendation() -> None:
         nonneg_mode="allow",
     )
 
-    assert not any("forecast_postprocess_nonneg(" in r for r in gate.recommendations)
+    assert any(r == "forecast_postprocess_nonneg(mode=allow)" for r in gate.recommendations)
 
 
 def test_run_governance_gate_omitted_preset_applies_balanced_clip_zero() -> None:

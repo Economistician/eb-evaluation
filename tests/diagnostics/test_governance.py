@@ -496,3 +496,36 @@ def test_governance_fas_class_none_matches_omitted() -> None:
     assert omitted.fas_class is None
     assert omitted.ral_policy == RALPolicy.ALLOW
     assert omitted.status == GovernanceStatus.GREEN
+
+
+def test_decide_governance_quantized_without_unit_raises() -> None:
+    from eb_evaluation.diagnostics.dqc import DQCClass, DQCResult, DQCSignals
+
+    fake = DQCResult(
+        dqc_class=DQCClass.QUANTIZED,
+        signals=DQCSignals(
+            n_obs=10,
+            nonzero_obs=10,
+            granularity=None,
+            multiple_rate=1.0,
+            support_size=3,
+            zero_mass=0.0,
+            small_value_mass=0.0,
+            offgrid_mad=0.0,
+            candidate_units=(1.0,),
+            unit_scores=((1.0, 1.0),),
+        ),
+        reasons=("forced_quantized_without_unit",),
+    )
+    raw = _signals(
+        nsl_base=0.10,
+        nsl_ral=0.20,
+        hr_base_tau=0.20,
+        hr_ral_tau=0.25,
+        ud=1.0,
+    )
+    with (
+        patch("eb_evaluation.diagnostics.governance.classify_dqc", return_value=fake),
+        pytest.raises(ValueError, match="snap_unit"),
+    ):
+        decide_governance(y=[1.0, 2.0, 3.0], fpc_signals_raw=raw)

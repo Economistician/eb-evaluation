@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from eb_evaluation.adjustment.ral import NonnegPolicy, SnapMode, apply_ral
@@ -137,6 +138,36 @@ def run_governance_workflow_df(
                 "Missing governance decisions for one or more key groups. "
                 f"Missing key preview (up to 10): {preview}"
             )
+
+        required = snap_required.fillna(False).astype(bool)
+        if bool(required.any()):
+            if "snap_unit" not in panel_governed.columns:
+                raise ValueError(
+                    "snap_required is True but snap_unit is missing; "
+                    "refusing fail-open unsnapped forecasts."
+                )
+            units_obj = pd.to_numeric(panel_governed["snap_unit"], errors="coerce")
+            units = (
+                units_obj
+                if isinstance(units_obj, pd.Series)
+                else pd.Series(units_obj, index=panel_governed.index, name="snap_unit")
+            )
+            unit_vals = units.to_numpy(dtype=float)
+            unit_ok = pd.Series(
+                np.isfinite(unit_vals) & (unit_vals > 0.0), index=panel_governed.index
+            )
+            invalid = required & ~unit_ok
+            if bool(invalid.any()):
+                preview = (
+                    panel_governed.loc[invalid, keys_list]
+                    .drop_duplicates()
+                    .head(10)
+                    .to_dict(orient="records")
+                )
+                raise ValueError(
+                    "snap_required is True but snap_unit is missing or not finite and > 0. "
+                    f"Key preview (up to 10): {preview}"
+                )
 
     return panel_governed, decisions_df
 

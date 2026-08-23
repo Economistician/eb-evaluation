@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Default governance gate applies the `balanced` nonnegativity policy (`clip_zero`) when `preset` is omitted, so audit reasons and scored forecasts cannot disagree.
 - `snap_to_grid` raises on non-positive or NaN units instead of passing forecasts through.
 - FPC treats missing/NaN core signals as `INCOMPATIBLE` and lets metric domain errors raise.
+- `decide_governance` and `apply_ral` fail closed when snapping is required without a finite positive `snap_unit`.
+- `apply_ral(nonneg_mode="none")` and missing recommendation payloads follow the balanced `clip_zero` policy, matching the governance gate.
 
 ### Changed
 

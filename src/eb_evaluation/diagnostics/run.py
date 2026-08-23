@@ -232,10 +232,9 @@ def run_governance_gate(
     # Optional post-process (governed): enforce nonnegativity on forecasts.
     # This happens *before* computing FPC signals so diagnostics reflect the
     # same constrained forecasts you would actually score downstream.
+    # Always emit the resolved policy so apply_ral can reconstruct the same constraint.
+    recommendations.append(f"forecast_postprocess_nonneg(mode={nonneg_policy})")
     if nonneg_policy != "allow":
-        # IMPORTANT: tests expect "clip_zero" to be rendered as "mode=clip_zero"
-        # (not "mode=clip_zero" is already correct; but "clip" must normalize here).
-        recommendations.append(f"forecast_postprocess_nonneg(mode={nonneg_policy})")
         yhat_base_list = _apply_nonneg(yhat_base_list, mode=nonneg_policy)
         yhat_ral_list = _apply_nonneg(yhat_ral_list, mode=nonneg_policy)
 

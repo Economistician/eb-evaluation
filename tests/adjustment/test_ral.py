@@ -302,3 +302,43 @@ def test_apply_ral_raises_on_missing_decision_rows() -> None:
             snap_mode="ceil",
             nonneg_mode="clip_zero",
         )
+
+
+def test_apply_ral_nonneg_none_clips_like_balanced_preset() -> None:
+    from eb_evaluation.adjustment.ral import apply_ral
+
+    df = _make_apply_ral_df()
+    decisions = _make_decisions_df()
+
+    out = apply_ral(
+        df=df,
+        decisions=decisions,
+        join_keys=["forecast_entity_id"],
+        pred_col="yhat_ral_raw",
+        output_col="yhat_ral_governed",
+        snap_mode="ceil",
+        nonneg_mode="none",
+    )
+
+    sub = out.loc[out["forecast_entity_id"] == 1, "yhat_ral_governed"].to_numpy(dtype=float)
+    np.testing.assert_allclose(sub, np.asarray([0.0, 3.2], dtype=float), rtol=0, atol=1e-12)
+    assert (out["ral_apply_nonneg_policy"] == "clip_zero").all()
+
+
+def test_apply_ral_raises_when_snap_required_without_valid_unit() -> None:
+    from eb_evaluation.adjustment.ral import apply_ral
+
+    df = _make_apply_ral_df()
+    decisions = _make_decisions_df()
+    decisions.loc[decisions["forecast_entity_id"] == 2, "snap_unit"] = np.nan
+
+    with pytest.raises(ValueError, match="snap_unit"):
+        apply_ral(
+            df=df,
+            decisions=decisions,
+            join_keys=["forecast_entity_id"],
+            pred_col="yhat_ral_raw",
+            output_col="yhat_ral_governed",
+            snap_mode="ceil",
+            nonneg_mode="clip_zero",
+        )

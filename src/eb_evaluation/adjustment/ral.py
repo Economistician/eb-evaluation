@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 from eb_evaluation.diagnostics.governance import snap_to_grid
+from eb_evaluation.diagnostics.presets import preset_policy
 from eb_metrics.metrics import cwsl
 
 
@@ -282,14 +283,33 @@ class ReadinessAdjustmentLayer:
 NonnegPolicy = Literal["allow", "clip_zero"]
 SnapMode = Literal["ceil", "round", "floor"]
 
+# apply_ral(nonneg_mode="none") and missing recommendation payloads follow the
+# balanced preset, matching run_governance_gate.
+_DEFAULT_APPLY_NONNEG: NonnegPolicy = preset_policy("balanced")
 
-def _infer_nonneg_policy_from_recommendations(recs: Sequence[str] | None) -> NonnegPolicy:
-    if not recs:
+
+def _recommendation_blob(recs: object | None) -> str:
+    if recs is None:
+        return ""
+    if isinstance(recs, str):
+        return recs
+    if isinstance(recs, Sequence) and not isinstance(recs, bytes | bytearray):
+        return " ".join(str(item) for item in recs)
+    return str(recs)
+
+
+def _infer_nonneg_policy_from_recommendations(recs: Sequence[str] | str | None) -> NonnegPolicy:
+    """Resolve apply-path nonnegativity from gate recommendation payload.
+
+    Missing or unrecognized payloads fail closed to the balanced preset
+    (``clip_zero``). Explicit ``mode=allow`` is honored.
+    """
+    blob = _recommendation_blob(recs)
+    if "forecast_postprocess_nonneg(mode=allow)" in blob:
         return "allow"
-    for r in recs:
-        if r == "forecast_postprocess_nonneg(mode=clip_zero)":
-            return "clip_zero"
-    return "allow"
+    if "forecast_postprocess_nonneg(mode=clip_zero)" in blob:
+        return "clip_zero"
+    return _DEFAULT_APPLY_NONNEG
 
 
 def _infer_snap_mode_from_recommendations(
@@ -401,14 +421,17 @@ def apply_ral(
     if output_col is not None:
         out_ral_col = output_col
     if nonneg_mode is not None and nonneg_policy is None:
-        # Map legacy run.py-style names -> policy
-        if nonneg_mode in ("none", "allow"):
+        # Map run.py-style names onto the stable policy vocabulary.
+        # "none" follows the balanced preset (clip_zero), matching the gate.
+        if nonneg_mode == "none":
+            nonneg_policy = _DEFAULT_APPLY_NONNEG
+        elif nonneg_mode == "allow":
             nonneg_policy = "allow"
         elif nonneg_mode in ("clip", "clip_zero"):
             nonneg_policy = "clip_zero"
         else:
             raise ValueError(
-                "apply_ral: nonneg_mode must be one of {'none','clip'} "
+                "apply_ral: nonneg_mode must be one of {'none','allow','clip','clip_zero'} "
                 "(or use nonneg_policy={'allow','clip_zero'})."
             )
 
@@ -457,8 +480,8 @@ def apply_ral(
     yhat_base_raw = work[yhat_base_col].to_numpy(dtype=float)
 
     # Determine effective policy:
-    # - If nonneg_policy explicitly provided, use it.
-    # - Else, optionally infer from recommendations (first-row), otherwise allow.
+    # - Explicit nonneg_policy wins.
+    # - Else infer from gate recommendations (missing payload => balanced clip_zero).
     if recommendations_col in work.columns and infer_policy_from_recommendations:
         recs_first = work[recommendations_col].iloc[0] if len(work) else None
     else:
@@ -467,8 +490,10 @@ def apply_ral(
     nonneg_eff: NonnegPolicy
     if nonneg_policy is not None:
         nonneg_eff = nonneg_policy
-    else:
+    elif infer_policy_from_recommendations:
         nonneg_eff = _infer_nonneg_policy_from_recommendations(recs_first)
+    else:
+        nonneg_eff = _DEFAULT_APPLY_NONNEG
 
     snap_mode_eff: SnapMode = snap_mode
     if infer_policy_from_recommendations and len(work):
@@ -481,46 +506,61 @@ def apply_ral(
     work[out_base_col] = yhat_base_g
     work[out_ral_col] = yhat_ral_g
 
-    # Apply snapping if required and unit available.
-    if snap_required_col in work.columns and snap_unit_col in work.columns:
-        snap_required_s = work[snap_required_col].astype(bool)
-        snap_unit_obj = pd.to_numeric(work[snap_unit_col], errors="coerce")
-        snap_unit_s = (
-            snap_unit_obj
-            if isinstance(snap_unit_obj, pd.Series)
-            else pd.Series(snap_unit_obj, index=work.index, name=snap_unit_col)
-        )
+    # Apply snapping when required. Missing/invalid units fail closed.
+    if snap_required_col in work.columns:
+        snap_required_s = work[snap_required_col].astype("boolean")
+        required = snap_required_s.fillna(False).astype(bool)
+        if bool(required.any()):
+            if snap_unit_col not in work.columns:
+                raise ValueError(
+                    "apply_ral: snap_required is True but snap_unit column is missing; "
+                    "refusing fail-open unsnapped forecasts."
+                )
+            snap_unit_obj = pd.to_numeric(work[snap_unit_col], errors="coerce")
+            snap_unit_s = (
+                snap_unit_obj
+                if isinstance(snap_unit_obj, pd.Series)
+                else pd.Series(snap_unit_obj, index=work.index, name=snap_unit_col)
+            )
+            unit_vals = snap_unit_s.to_numpy(dtype=float)
+            unit_ok = pd.Series(
+                np.isfinite(unit_vals) & (unit_vals > 0.0),
+                index=work.index,
+            )
+            invalid = required & ~unit_ok
+            if bool(invalid.any()):
+                raise ValueError(
+                    "apply_ral: snap_required is True but snap_unit is missing or not "
+                    "finite and > 0; refusing fail-open unsnapped forecasts."
+                )
 
-        # Only snap rows where required + a finite positive unit exists.
-        need = snap_required_s & snap_unit_s.notna() & (snap_unit_s > 0.0)
-        if bool(need.any()):
-            base_series = work.loc[need, out_base_col]
-            ral_series = work.loc[need, out_ral_col]
-            unit_series = snap_unit_s.loc[need]
+            base_series = work.loc[required, out_base_col]
+            ral_series = work.loc[required, out_ral_col]
+            unit_series = snap_unit_s.loc[required]
 
-            work.loc[need, out_base_col] = _apply_snap_policy_series(
+            work.loc[required, out_base_col] = _apply_snap_policy_series(
                 base_series, unit_series, mode=snap_mode_eff
             )
-            work.loc[need, out_ral_col] = _apply_snap_policy_series(
+            work.loc[required, out_ral_col] = _apply_snap_policy_series(
                 ral_series, unit_series, mode=snap_mode_eff
             )
 
             # If snapping can reintroduce negatives (e.g., round on negatives), re-apply nonneg.
             if nonneg_eff != "allow":
-                idx = work.loc[need, out_base_col].index
-                work.loc[need, out_base_col] = pd.Series(
+                idx = work.loc[required, out_base_col].index
+                work.loc[required, out_base_col] = pd.Series(
                     _apply_nonneg_policy(
-                        work.loc[need, out_base_col].to_numpy(dtype=float),
+                        work.loc[required, out_base_col].to_numpy(dtype=float),
                         policy=nonneg_eff,
                     ),
                     index=idx,
                     name=out_base_col,
                 )
 
-                idx2 = work.loc[need, out_ral_col].index
-                work.loc[need, out_ral_col] = pd.Series(
+                idx2 = work.loc[required, out_ral_col].index
+                work.loc[required, out_ral_col] = pd.Series(
                     _apply_nonneg_policy(
-                        work.loc[need, out_ral_col].to_numpy(dtype=float),
+                        work.loc[required, out_ral_col].to_numpy(dtype=float),
                         policy=nonneg_eff,
                     ),
                     index=idx2,
