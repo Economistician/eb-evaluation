@@ -233,18 +233,29 @@ class ReadinessAdjustmentLayer:
         """Apply learned uplift factors to produce readiness forecasts.
 
         This is not a production writer. Callers must pass a joined governance
-        ``decisions`` table or an explicit ``apply_mask``. Ungated calls raise
-        so ``apply_ral`` remains the sole fail-closed apply path.
+        ``decisions`` table. ``apply_mask`` cannot authorize writes without
+        ``decisions``. Ungated calls raise so ``apply_ral`` remains the sole
+        fail-closed apply path.
 
         If called before explicit fit(), this can still work for global uplift by
         implicitly fitting on the provided dataframe (requires an actual column),
         but only when costs (cu/co) are set.
         """
-        if decisions is None and apply_mask is None:
+        if decisions is None:
             raise ValueError(
                 "ReadinessAdjustmentLayer.transform requires a joined governance "
-                "decisions table or apply_mask; ungated transform is not a "
-                "production writer. Use apply_ral as the sole fail-closed apply path."
+                "decisions table. apply_mask cannot authorize writes without "
+                "decisions. Use electric_barometer.apply_ral "
+                "(or eb_evaluation.apply_ral) with a valid governance "
+                "decisions dataframe."
+            )
+        missing_decision_cols = [c for c in REQUIRED_DECISION_COLUMNS if c not in decisions.columns]
+        if missing_decision_cols:
+            raise ValueError(
+                "ReadinessAdjustmentLayer.transform decisions are missing required "
+                f"governance columns: {missing_decision_cols}. "
+                "Use electric_barometer.apply_ral (or eb_evaluation.apply_ral) "
+                "with a valid governance decisions dataframe."
             )
 
         if forecast_col not in df.columns:
@@ -467,12 +478,26 @@ def _transform_authorization_mask(
     key_cols: Sequence[str] | None,
     apply_mask: pd.Series | None,
 ) -> np.ndarray:
-    """Authorize RAL.transform rows from a decisions join and/or explicit mask."""
+    """Authorize RAL.transform rows from a required decisions join.
+
+    ``apply_mask`` may further restrict authorized rows but cannot replace
+    ``decisions``.
+    """
+    if decisions is None:
+        raise ValueError(
+            "ReadinessAdjustmentLayer.transform requires a joined governance "
+            "decisions table. Use electric_barometer.apply_ral "
+            "(or eb_evaluation.apply_ral) with a valid governance "
+            "decisions dataframe."
+        )
     authorized = np.ones(len(frame), dtype=bool)
-    if decisions is not None:
-        keys = list(key_cols) if key_cols is not None else []
-        if len(keys) == 0:
-            raise ValueError("`key_cols` is required when `decisions` is provided.")
+    keys = list(key_cols) if key_cols is not None else []
+    if len(keys) == 0:
+        if len(decisions.index) != 1:
+            raise ValueError("`key_cols` is required when `decisions` has more than one row.")
+        blocked = _adjustment_blocked_mask(decisions)
+        authorized = authorized & (not bool(blocked.iloc[0]))
+    else:
         missing_frame = [c for c in keys if c not in frame.columns]
         missing_decisions = [c for c in keys if c not in decisions.columns]
         if missing_frame or missing_decisions:
@@ -572,7 +597,7 @@ def apply_ral(
     recommendations_col: str = "recommendations",
     snap_mode: SnapMode = "ceil",
     nonneg_policy: NonnegPolicy | None = None,
-    infer_policy_from_recommendations: bool = True,
+    infer_policy_from_recommendations: bool = False,
     out_base_col: str = "yhat_base_governed",
     out_ral_col: str = "yhat_ral_governed",
     out_audit_prefix: str = "ral_apply_",
@@ -591,10 +616,12 @@ def apply_ral(
       ``fas_class``, ``dqc_class``, and ``snap_required``. Ungated calls raise.
     - If yhat_ral_col is None, uplift_col must be provided and we compute:
         yhat_ral_raw = yhat_base * uplift
-    - If infer_policy_from_recommendations is True and recommendations exist,
-      snap and nonneg policies are inferred **per row** from recommendation
-      strings emitted by run.py (comma-joined strings or sequences). Mixed
-      entity policies are not collapsed to the first row.
+    - Snap mode defaults to ``ceil``. Recommendation inference is off unless
+      ``infer_policy_from_recommendations`` is explicitly True. When enabled
+      and recommendations exist, snap and nonneg policies are inferred
+      **per row** from recommendation strings emitted by run.py
+      (comma-joined strings or sequences). Mixed entity policies are not
+      collapsed to the first row.
     - When joined decisions mark ``ral_policy=disallow``, ``status=red``,
       ``fas_class=BLOCKED`` (including NA/empty FAS), or ``dqc_class=UNKNOWN``,
       ``out_ral_col`` is copied from the governed baseline so readiness

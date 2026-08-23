@@ -223,7 +223,7 @@ def run_governance_workflow_df(
     # apply step
     snap_mode: SnapMode = "ceil",
     nonneg_policy: NonnegPolicy | None = None,
-    infer_policy_from_recommendations: bool = True,
+    infer_policy_from_recommendations: bool = False,
     out_base_col: str | None = None,
     out_ral_col: str | None = None,
     out_audit_prefix: str = "ral_apply_",
@@ -255,6 +255,8 @@ def run_governance_workflow_df(
       non-finite rows, or fewer than 8 finite aligned rows, fail closed.
     - FAS review is mandatory. Omitted or null ``fas_class`` / ``fas_class_col``
       fail closed as ``fas_class=BLOCKED``, ``status=red``, ``ral_policy=disallow``.
+    - ``apply_ral`` snap mode stays ``ceil`` unless the caller sets
+      ``infer_policy_from_recommendations=True``.
     """
     keys_list = list(keys)
     if len(keys_list) == 0:
@@ -391,7 +393,7 @@ def run_governance_workflow_df_dict(
     decisions_df: pd.DataFrame | None = None,
     snap_mode: SnapMode = "ceil",
     nonneg_policy: NonnegPolicy | None = None,
-    infer_policy_from_recommendations: bool = True,
+    infer_policy_from_recommendations: bool = False,
     out_base_col: str | None = None,
     out_ral_col: str | None = None,
     out_audit_prefix: str = "ral_apply_",

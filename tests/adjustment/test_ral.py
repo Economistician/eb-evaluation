@@ -31,9 +31,17 @@ def _make_segmented_df() -> pd.DataFrame:
     )
 
 
-def _authorize_all(df: pd.DataFrame) -> pd.Series:
-    """Explicit mask so transform is not an ungated production writer."""
-    return pd.Series(True, index=df.index)
+def _approved_decisions() -> pd.DataFrame:
+    """Single-row approved governance table for global transform tests."""
+    return pd.DataFrame(
+        {
+            "ral_policy": ["allow"],
+            "status": ["green"],
+            "fas_class": ["ALLOWED"],
+            "dqc_class": ["CONTINUOUS"],
+            "snap_required": [False],
+        }
+    )
 
 
 def test_global_uplift_reduces_cwsl_and_adds_column():
@@ -48,7 +56,7 @@ def test_global_uplift_reduces_cwsl_and_adds_column():
         uplift_max=1.2,
         grid_step=0.01,
     )
-    ral.transform(df, forecast_col="forecast", apply_mask=_authorize_all(df))
+    ral.transform(df, forecast_col="forecast", decisions=_approved_decisions())
 
     # Assertions
     assert ral.global_uplift_ is not None
@@ -61,7 +69,7 @@ def test_global_uplift_reduces_cwsl_and_adds_column():
     y_pred = df["forecast"].to_numpy(dtype=float)
     base_cwsl = cwsl(y_true=y_true, y_pred=y_pred, cu=cu, co=co)
 
-    df_adj = ral.transform(df, forecast_col="forecast", apply_mask=_authorize_all(df))
+    df_adj = ral.transform(df, forecast_col="forecast", decisions=_approved_decisions())
     y_adj = df_adj["readiness_forecast"].to_numpy(dtype=float)
     adj_cwsl = cwsl(y_true=y_true, y_pred=y_adj, cu=cu, co=co)
 
@@ -80,7 +88,7 @@ def test_transform_raises_if_not_fit():
     df = _make_global_df()
     ral = ReadinessAdjustmentLayer()
     with pytest.raises(RuntimeError):
-        _ = ral.transform(df, forecast_col="forecast", apply_mask=_authorize_all(df))
+        _ = ral.transform(df, forecast_col="forecast", decisions=_approved_decisions())
 
 
 def test_transform_raises_without_governance_authorization():
@@ -89,6 +97,12 @@ def test_transform_raises_without_governance_authorization():
     ral.fit(df, forecast_col="forecast", actual_col="actual")
     with pytest.raises(ValueError, match="apply_ral"):
         _ = ral.transform(df, forecast_col="forecast")
+    with pytest.raises(ValueError, match="apply_ral"):
+        _ = ral.transform(
+            df,
+            forecast_col="forecast",
+            apply_mask=pd.Series(True, index=df.index),
+        )
 
 
 def test_transform_disallow_decisions_copy_baseline():
@@ -111,6 +125,9 @@ def test_transform_disallow_decisions_copy_baseline():
             "cluster": ["A", "B"],
             "ral_policy": ["allow", "disallow"],
             "status": ["green", "red"],
+            "fas_class": ["ALLOWED", "ALLOWED"],
+            "dqc_class": ["CONTINUOUS", "CONTINUOUS"],
+            "snap_required": [False, False],
         }
     )
     out = ral.transform(
@@ -218,7 +235,7 @@ def test_segment_specific_uplift_and_fallback_to_global():
         df_future,
         forecast_col="forecast",
         segment_cols=["cluster"],
-        apply_mask=_authorize_all(df_future),
+        decisions=_approved_decisions(),
     )
 
     # Extract applied uplift per row
@@ -454,6 +471,35 @@ def test_apply_ral_parses_comma_joined_recommendation_string() -> None:
         atol=1e-12,
     )
     assert (entity2["ral_apply_snap_mode"] == "round").all()
+
+
+def test_apply_ral_default_keeps_ceil_when_recommendations_say_round() -> None:
+    from eb_evaluation.adjustment.ral import apply_ral
+
+    df = _make_apply_ral_df()
+    decisions = _make_decisions_df()
+    decisions["recommendations"] = [
+        "forecast_postprocess_nonneg(mode=clip_zero)",
+        "forecast_postprocess_nonneg(mode=clip_zero), snap_forecasts_to_grid(mode=round)",
+    ]
+
+    out = apply_ral(
+        df=df,
+        decisions=decisions,
+        join_keys=["forecast_entity_id"],
+        pred_col="yhat_ral_raw",
+        output_col="yhat_ral_governed",
+        snap_mode="ceil",
+    )
+
+    entity2 = out.loc[out["forecast_entity_id"] == 2]
+    np.testing.assert_allclose(
+        entity2["yhat_ral_governed"].to_numpy(dtype=float),
+        np.asarray([8.0, 12.0], dtype=float),
+        rtol=0,
+        atol=1e-12,
+    )
+    assert (entity2["ral_apply_snap_mode"] == "ceil").all()
 
 
 def test_apply_ral_parses_key_value_recommendation_pairs() -> None:

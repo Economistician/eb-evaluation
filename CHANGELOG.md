@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.9] - 2026-08-23
 
+### Changed
+
+- `apply_ral`, `run_governance_workflow_df`, and `run_governance_workflow_df_dict` default `infer_policy_from_recommendations` to `False`, so snap mode stays `ceil` unless an operator opts in.
+- `ReadinessAdjustmentLayer.transform` requires a valid approved governance decisions table. `apply_mask` cannot authorize writes without `decisions`.
+
 ### Fixed
 
 - `evaluate_governance_panel_df` and `run_governance_workflow_df` require FAS review. Omitted or null FAS fail-closes as `fas_class=BLOCKED`, `status=red`, `ral_policy=disallow`.
