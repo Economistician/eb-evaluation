@@ -314,6 +314,13 @@ _BLOCKED_STATUSES = ("red",)
 _BLOCKED_FAS_CLASSES = ("blocked",)
 _BLOCKED_DQC_CLASSES = ("unknown",)
 _RECOMMENDATION_SEP = ","
+REQUIRED_DECISION_COLUMNS = (
+    "ral_policy",
+    "status",
+    "fas_class",
+    "dqc_class",
+    "snap_required",
+)
 
 
 def _is_missing_scalar(value: object) -> bool:
@@ -422,14 +429,34 @@ def _adjustment_blocked_mask(work: pd.DataFrame) -> pd.Series:
     """True where RAL must not be applied (DISALLOW, RED, FAS BLOCKED, or DQC UNKNOWN)."""
     blocked = pd.Series(False, index=work.index)
     if "ral_policy" in work.columns:
-        blocked = blocked | work["ral_policy"].map(_enum_token).isin(_BLOCKED_RAL_POLICIES)
+        tokens = work["ral_policy"].map(_enum_token)
+        blocked = blocked | tokens.isin(_BLOCKED_RAL_POLICIES) | (tokens == "")
     if "status" in work.columns:
-        blocked = blocked | work["status"].map(_enum_token).isin(_BLOCKED_STATUSES)
+        tokens = work["status"].map(_enum_token)
+        blocked = blocked | tokens.isin(_BLOCKED_STATUSES) | (tokens == "")
     if "fas_class" in work.columns:
         blocked = blocked | work["fas_class"].map(_enum_token).isin(_BLOCKED_FAS_CLASSES)
     if "dqc_class" in work.columns:
-        blocked = blocked | work["dqc_class"].map(_enum_token).isin(_BLOCKED_DQC_CLASSES)
+        tokens = work["dqc_class"].map(_enum_token)
+        blocked = blocked | tokens.isin(_BLOCKED_DQC_CLASSES) | (tokens == "")
     return blocked.astype(bool)
+
+
+def _require_decisions_table(decisions: pd.DataFrame | None) -> pd.DataFrame:
+    """Refuse ungated apply_ral; callers must run the governance gate first."""
+    if decisions is None:
+        raise ValueError(
+            "apply_ral requires a non-null governance decisions table with "
+            "columns ral_policy, status, fas_class, dqc_class, and snap_required. "
+            "Run evaluate_governance_panel_df or run_governance_gate first."
+        )
+    missing = [c for c in REQUIRED_DECISION_COLUMNS if c not in decisions.columns]
+    if missing:
+        raise ValueError(
+            "apply_ral decisions are missing required governance columns: "
+            f"{missing}. Run evaluate_governance_panel_df or run_governance_gate first."
+        )
+    return decisions
 
 
 def _transform_authorization_mask(
@@ -546,7 +573,7 @@ def apply_ral(
 ) -> pd.DataFrame:
     """
     Canonical RAL application utility:
-    - optionally joins governance decisions onto a panel,
+    - joins a required governance decisions table onto a panel,
     - produces a raw RAL prediction column (from yhat_ral_col or uplift_col),
     - applies governed nonnegativity + snap-to-grid policies,
     - emits governed prediction columns + audit columns.
@@ -554,6 +581,8 @@ def apply_ral(
     Notes
     -----
     - This function does *not* fit RAL. It applies already-produced predictions.
+    - ``decisions`` is required and must include ``ral_policy``, ``status``,
+      ``fas_class``, ``dqc_class``, and ``snap_required``. Ungated calls raise.
     - If yhat_ral_col is None, uplift_col must be provided and we compute:
         yhat_ral_raw = yhat_base * uplift
     - If infer_policy_from_recommendations is True and recommendations exist,
@@ -564,6 +593,7 @@ def apply_ral(
       ``fas_class=BLOCKED``, or ``dqc_class=UNKNOWN``, ``out_ral_col`` is copied
       from the governed baseline so readiness adjustment is not applied.
     """
+    decisions = _require_decisions_table(decisions)
 
     # ---- apply legacy aliases (if provided) ----
     if join_keys is not None:
@@ -602,26 +632,25 @@ def apply_ral(
 
     work = df.copy()
 
-    if decisions is not None:
-        for k in keys:
-            if k not in decisions.columns:
-                raise KeyError(f"apply_ral: missing key column {k!r} in decisions.")
+    for k in keys:
+        if k not in decisions.columns:
+            raise KeyError(f"apply_ral: missing key column {k!r} in decisions.")
 
-        overlap = [c for c in decisions.columns if c in work.columns and c not in keys]
-        if overlap:
-            work = work.drop(columns=overlap)
-        merged = work.merge(decisions, on=keys, how="left", indicator=True)
-        missing = merged.loc[merged["_merge"] != "both", keys]
-        if not missing.empty:
-            # Fail loudly: prevent silent "policy missing" behavior.
-            missing_keys = missing.drop_duplicates().to_dict(orient="records")[
-                :10
-            ]  # cap for readability
-            raise ValueError(
-                "apply_ral: missing governance decision rows for some join keys. "
-                f"Examples: {missing_keys}"
-            )
-        work = merged.drop(columns=["_merge"])
+    overlap = [c for c in decisions.columns if c in work.columns and c not in keys]
+    if overlap:
+        work = work.drop(columns=overlap)
+    merged = work.merge(decisions, on=keys, how="left", indicator=True)
+    missing = merged.loc[merged["_merge"] != "both", keys]
+    if not missing.empty:
+        # Fail loudly: prevent silent "policy missing" behavior.
+        missing_keys = missing.drop_duplicates().to_dict(orient="records")[
+            :10
+        ]  # cap for readability
+        raise ValueError(
+            "apply_ral: missing governance decision rows for some join keys. "
+            f"Examples: {missing_keys}"
+        )
+    work = merged.drop(columns=["_merge"])
 
     # Build raw RAL prediction stream.
     if yhat_ral_col is not None:

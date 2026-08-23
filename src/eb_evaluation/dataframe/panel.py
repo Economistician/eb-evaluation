@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+import numpy as np
 import pandas as pd
 
 from eb_evaluation.diagnostics.dqc import DQCClass, DQCThresholds
@@ -211,8 +212,13 @@ def run_governance_panel_df(
 
         row: dict[str, object] = dict(zip(group_cols_list, keys_tuple, strict=True))
 
-        # Align series by dropping any row where any input is null.
-        sub = g.loc[:, [actual_col, forecast_base_col, forecast_ral_col]].dropna(how="any")
+        # Align series by dropping any row where any input is null or non-finite.
+        stream_cols = [actual_col, forecast_base_col, forecast_ral_col]
+        sub = g.loc[:, stream_cols].copy()
+        for col in stream_cols:
+            sub[col] = pd.to_numeric(sub[col], errors="coerce")
+        finite_mask = np.isfinite(sub.to_numpy(dtype=float)).all(axis=1)
+        sub = sub.loc[finite_mask]
         n_used = len(sub)
         row["n_points_used"] = n_used
 

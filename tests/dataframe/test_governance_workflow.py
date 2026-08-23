@@ -252,3 +252,62 @@ def test_run_governance_workflow_df_nan_stream_fails_closed() -> None:
         atol=1e-12,
     )
     assert not panel["ral_apply_ral_applied"].to_numpy(dtype=bool).any()
+
+
+def test_run_governance_workflow_df_injected_decisions_missing_controls_fail_closed() -> None:
+    df = _build_sample_panel_df()
+    decisions = pd.DataFrame(
+        {
+            "site_id": [1, 2],
+            "forecast_entity_id": [10, 20],
+        }
+    )
+    panel, out_decisions = run_governance_workflow_df(
+        df=df,
+        keys=["site_id", "forecast_entity_id"],
+        actual_col="y",
+        base_forecast_col="yhat_base",
+        ral_forecast_col="yhat_ral",
+        tau=2.0,
+        decisions_df=decisions,
+    )
+    assert (out_decisions["ral_policy"] == "disallow").all()
+    assert (out_decisions["status"] == "red").all()
+    assert (out_decisions["dqc_class"] == "unknown").all()
+    np.testing.assert_allclose(
+        panel["yhat_ral_governed"].to_numpy(dtype=float),
+        panel["yhat_base_governed"].to_numpy(dtype=float),
+        rtol=0,
+        atol=1e-12,
+    )
+    assert not panel["ral_apply_ral_applied"].to_numpy(dtype=bool).any()
+
+
+def test_run_governance_workflow_df_injected_decisions_na_controls_fail_closed() -> None:
+    df = _build_sample_panel_df()
+    decisions = pd.DataFrame(
+        {
+            "site_id": [1, 2],
+            "forecast_entity_id": [10, 20],
+            "ral_policy": ["allow", np.nan],
+            "status": ["green", "green"],
+            "fas_class": ["ALLOWED", "ALLOWED"],
+            "dqc_class": ["continuous_like", "quantized"],
+            "snap_required": [False, True],
+            "snap_unit": [np.nan, 4.0],
+        }
+    )
+    panel, out_decisions = run_governance_workflow_df(
+        df=df,
+        keys=["site_id", "forecast_entity_id"],
+        actual_col="y",
+        base_forecast_col="yhat_base",
+        ral_forecast_col="yhat_ral",
+        tau=2.0,
+        decisions_df=decisions,
+    )
+    row_na = out_decisions[out_decisions["forecast_entity_id"] == 20].iloc[0]
+    assert row_na["ral_policy"] == "disallow"
+    assert row_na["status"] == "red"
+    blocked = panel.loc[panel["forecast_entity_id"] == 20]
+    assert not blocked["ral_apply_ral_applied"].to_numpy(dtype=bool).any()

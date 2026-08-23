@@ -258,6 +258,10 @@ def _make_decisions_df() -> pd.DataFrame:
             "snap_required": [False, True],
             "snap_unit": [np.nan, 4.0],
             "recommended_mode": ["continuous", "pack_aware"],
+            "ral_policy": ["allow", "allow"],
+            "status": ["green", "green"],
+            "fas_class": ["ALLOWED", "ALLOWED"],
+            "dqc_class": ["continuous_like", "quantized"],
         }
     )
 
@@ -507,13 +511,23 @@ def test_apply_ral_dqc_class_implies_snap_without_snap_required_column() -> None
         {
             "forecast_entity_id": [2, 2],
             "yhat_ral_raw": [7.9, 8.1],
-            "dqc_class": ["quantized", "quantized"],
-            "snap_unit": [4.0, 4.0],
+        }
+    )
+    decisions = pd.DataFrame(
+        {
+            "forecast_entity_id": [2],
+            "ral_policy": ["allow"],
+            "status": ["green"],
+            "fas_class": ["ALLOWED"],
+            "dqc_class": ["quantized"],
+            "snap_required": [False],
+            "snap_unit": [4.0],
         }
     )
 
     out = apply_ral(
         df=df,
+        decisions=decisions,
         join_keys=["forecast_entity_id"],
         pred_col="yhat_ral_raw",
         output_col="yhat_ral_governed",
@@ -536,13 +550,23 @@ def test_apply_ral_raises_when_dqc_implies_snap_without_unit() -> None:
         {
             "forecast_entity_id": [2, 2],
             "yhat_ral_raw": [7.9, 8.1],
-            "dqc_class": ["piecewise_packed", "piecewise_packed"],
+        }
+    )
+    decisions = pd.DataFrame(
+        {
+            "forecast_entity_id": [2],
+            "ral_policy": ["allow"],
+            "status": ["green"],
+            "fas_class": ["ALLOWED"],
+            "dqc_class": ["piecewise_packed"],
+            "snap_required": [False],
         }
     )
 
     with pytest.raises(ValueError, match="snap_unit"):
         apply_ral(
             df=df,
+            decisions=decisions,
             join_keys=["forecast_entity_id"],
             pred_col="yhat_ral_raw",
             output_col="yhat_ral_governed",
@@ -570,6 +594,7 @@ def test_apply_ral_disallow_red_or_fas_blocked_copies_baseline() -> None:
             "ral_policy": ["disallow", "allow"],
             "status": ["red", "green"],
             "fas_class": ["BLOCKED", "ALLOWED"],
+            "dqc_class": ["continuous_like", "continuous_like"],
         }
     )
 
@@ -613,12 +638,21 @@ def test_apply_ral_unknown_dqc_copies_baseline() -> None:
             "forecast_entity_id": [1, 1],
             "yhat_base": [1.0, 2.0],
             "yhat_ral": [9.0, 10.0],
-            "dqc_class": ["unknown", "unknown"],
-            "snap_required": [False, False],
+        }
+    )
+    decisions = pd.DataFrame(
+        {
+            "forecast_entity_id": [1],
+            "ral_policy": ["allow"],
+            "status": ["green"],
+            "fas_class": ["ALLOWED"],
+            "dqc_class": ["unknown"],
+            "snap_required": [False],
         }
     )
     out = apply_ral(
         df=df,
+        decisions=decisions,
         join_keys=["forecast_entity_id"],
         yhat_base_col="yhat_base",
         yhat_ral_col="yhat_ral",
@@ -632,3 +666,36 @@ def test_apply_ral_unknown_dqc_copies_baseline() -> None:
         atol=1e-12,
     )
     assert not out["ral_apply_ral_applied"].to_numpy(dtype=bool).any()
+
+
+def test_apply_ral_raises_without_decisions() -> None:
+    from eb_evaluation.adjustment.ral import apply_ral
+
+    df = _make_apply_ral_df()
+    with pytest.raises(ValueError, match="non-null governance decisions"):
+        apply_ral(
+            df=df,
+            join_keys=["forecast_entity_id"],
+            pred_col="yhat_ral_raw",
+            output_col="yhat_ral_governed",
+        )
+
+
+def test_apply_ral_raises_without_required_decision_columns() -> None:
+    from eb_evaluation.adjustment.ral import apply_ral
+
+    df = _make_apply_ral_df()
+    decisions = pd.DataFrame(
+        {
+            "forecast_entity_id": [1, 2],
+            "snap_required": [False, True],
+        }
+    )
+    with pytest.raises(ValueError, match="required governance columns"):
+        apply_ral(
+            df=df,
+            decisions=decisions,
+            join_keys=["forecast_entity_id"],
+            pred_col="yhat_ral_raw",
+            output_col="yhat_ral_governed",
+        )

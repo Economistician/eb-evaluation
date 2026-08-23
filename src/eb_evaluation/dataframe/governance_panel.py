@@ -170,8 +170,8 @@ def evaluate_governance_panel_df(
     Notes
     -----
     Empty streams and streams with no finite aligned ``y`` / ``yhat`` points
-    fail closed (``status=red``, ``ral_policy=disallow``, FPC ``incompatible``)
-    instead of calling ``eb-metrics``.
+    (NaN or ±inf) fail closed (``status=red``, ``ral_policy=disallow``, FPC
+    ``incompatible``) instead of calling ``eb-metrics``.
     """
     keys_list = list(keys)
     if len(keys_list) == 0:

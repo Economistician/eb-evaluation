@@ -12,7 +12,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from eb_evaluation.adjustment.ral import NonnegPolicy, SnapMode, apply_ral
+from eb_evaluation.adjustment.ral import (
+    REQUIRED_DECISION_COLUMNS,
+    NonnegPolicy,
+    SnapMode,
+    apply_ral,
+)
 from eb_evaluation.dataframe.governance_panel import evaluate_governance_panel_df
 from eb_evaluation.diagnostics.dqc import DQCThresholds
 from eb_evaluation.diagnostics.fas import FASClass
@@ -20,6 +25,48 @@ from eb_evaluation.diagnostics.fpc import FPCThresholds
 from eb_evaluation.diagnostics.presets import GovernancePreset
 
 __all__ = ["run_governance_workflow_df", "run_governance_workflow_df_dict"]
+
+_FAIL_CLOSED_RAL = "disallow"
+_FAIL_CLOSED_STATUS = "red"
+_FAIL_CLOSED_DQC = "unknown"
+
+
+def _fail_close_incomplete_decisions(decisions: pd.DataFrame) -> pd.DataFrame:
+    """Fill missing governance control columns as DISALLOW / RED / UNKNOWN.
+
+    An injected override that omits any required control column cannot be
+    treated as a complete gate result. Missing columns, and rows with NA in
+    ral_policy / status / dqc_class / snap_required, fail closed.
+    """
+    out = decisions.copy()
+    missing_cols = [c for c in REQUIRED_DECISION_COLUMNS if c not in out.columns]
+    if missing_cols:
+        out["ral_policy"] = _FAIL_CLOSED_RAL
+        out["status"] = _FAIL_CLOSED_STATUS
+        if "fas_class" not in out.columns:
+            out["fas_class"] = None
+        if "dqc_class" not in out.columns:
+            out["dqc_class"] = _FAIL_CLOSED_DQC
+        if "snap_required" not in out.columns:
+            out["snap_required"] = False
+
+    ral_obj = out["ral_policy"]
+    status_obj = out["status"]
+    dqc_obj = out["dqc_class"]
+    snap_obj = out["snap_required"]
+    ral_s = ral_obj if isinstance(ral_obj, pd.Series) else pd.Series(ral_obj, index=out.index)
+    status_s = (
+        status_obj if isinstance(status_obj, pd.Series) else pd.Series(status_obj, index=out.index)
+    )
+    dqc_s = dqc_obj if isinstance(dqc_obj, pd.Series) else pd.Series(dqc_obj, index=out.index)
+    snap_s = snap_obj if isinstance(snap_obj, pd.Series) else pd.Series(snap_obj, index=out.index)
+    incomplete = ral_s.isna() | status_s.isna() | dqc_s.isna() | snap_s.isna()
+    if bool(incomplete.any()):
+        out.loc[incomplete, "ral_policy"] = _FAIL_CLOSED_RAL
+        out.loc[incomplete, "status"] = _FAIL_CLOSED_STATUS
+        out.loc[incomplete, "dqc_class"] = _FAIL_CLOSED_DQC
+        out.loc[incomplete, "snap_required"] = False
+    return out
 
 
 def run_governance_workflow_df(
@@ -61,7 +108,9 @@ def run_governance_workflow_df(
       on `keys`.
     - `panel_governed_df` includes governed prediction columns plus audit columns.
     - If `decisions_df` is provided, the workflow will NOT recompute decisions; it will
-      apply the provided decisions and (optionally) validate completeness.
+      schema-validate required control columns (``ral_policy``, ``status``,
+      ``fas_class``, ``dqc_class``, ``snap_required``). Missing columns or NA
+      control cells fail closed to ``DISALLOW`` / ``RED`` / DQC ``UNKNOWN``.
     - Empty, missing, or non-finite ``y`` / ``yhat`` streams fail closed in
       ``evaluate_governance_panel_df`` (``status=red``, ``ral_policy=disallow``,
       FPC ``incompatible``) instead of raising from ``eb-metrics``.
@@ -97,6 +146,7 @@ def run_governance_workflow_df(
             raise ValueError(
                 f"Provided decisions_df is missing required key columns: {missing_decision_keys}"
             )
+        decisions_df = _fail_close_incomplete_decisions(decisions_df)
 
     # Defaults for governed output columns.
     out_base = out_base_col if out_base_col is not None else f"{base_forecast_col}_governed"

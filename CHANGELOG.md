@@ -36,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ReadinessAdjustmentLayer.transform` requires a joined decisions table or `apply_mask`; ungated calls raise so `apply_ral` remains the sole fail-closed apply path.
 - Re-exported `apply_ral` from the package root.
 - `snap_to_grid` raises on `None` or unparseable non-numeric values instead of passing them through.
+- `apply_ral` requires a decisions table with `ral_policy`, `status`, `fas_class`, `dqc_class`, and `snap_required`; ungated calls raise.
+- Injected `decisions_df` overrides in `run_governance_workflow_df` fail closed to `DISALLOW` / `RED` when required control columns are missing or NA.
+- `run_governance_panel_df` drops `±inf` with NaN and fail-closes non-finite streams.
 
 ### Changed
 

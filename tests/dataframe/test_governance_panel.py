@@ -328,3 +328,59 @@ def test_evaluate_governance_panel_df_nan_stream_fails_closed() -> None:
     assert nan_row["recommendations"] == "empty_series_fail_closed"
     assert int(ok_row["n"]) == 2
     assert ok_row["recommendations"] != "empty_series_fail_closed"
+
+
+def test_evaluate_governance_panel_df_inf_stream_fails_closed() -> None:
+    df = pd.DataFrame(
+        {
+            "site_id": [1, 1],
+            "forecast_entity_id": [99, 99],
+            "y": [1.0, 2.0],
+            "yhat_base": [np.inf, -np.inf],
+            "yhat_ral": [1.0, 2.0],
+        }
+    )
+    out = cast(
+        pd.DataFrame,
+        evaluate_governance_panel_df(
+            df=df,
+            keys=["site_id", "forecast_entity_id"],
+            actual_col="y",
+            base_forecast_col="yhat_base",
+            ral_forecast_col="yhat_ral",
+            tau=2.0,
+        ),
+    )
+    row = out.iloc[0]
+    assert row["status"] == "red"
+    assert row["ral_policy"] == "disallow"
+    assert row["fpc_raw_class"] == "incompatible"
+    assert row["recommendations"] == "empty_series_fail_closed"
+
+
+def test_run_governance_panel_df_inf_stream_fails_closed() -> None:
+    from eb_evaluation.dataframe.panel import run_governance_panel_df
+
+    df = pd.DataFrame(
+        {
+            "site_id": [1, 1],
+            "forecast_entity_id": [99, 99],
+            "y": [np.inf, 1.0],
+            "yhat_base": [1.0, np.inf],
+            "yhat_ral": [2.0, 2.0],
+        }
+    )
+    out = run_governance_panel_df(
+        df=df,
+        group_cols=["site_id", "forecast_entity_id"],
+        actual_col="y",
+        forecast_base_col="yhat_base",
+        forecast_ral_col="yhat_ral",
+        tau=2.0,
+    )
+    assert len(out) == 1
+    row = out.iloc[0]
+    assert int(row["n_points_used"]) == 0
+    assert row["ral_policy"] == "disallow"
+    assert row["status"] == "red"
+    assert row["fpc_raw_class"] == "incompatible"
