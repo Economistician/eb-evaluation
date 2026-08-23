@@ -15,16 +15,14 @@ from eb_metrics.metrics import cwsl, hr_at_tau, nsl, ud as ud_metric
 
 
 def _eb_metric(fn, *args, **kwargs) -> float:
-    """Call an ``eb_metrics`` primitive; return NaN if inputs are out of domain.
+    """Call an ``eb_metrics`` primitive.
 
-    Service metrics reject negative forecasts. FPC may still be asked to
-    diagnose unconstrained primitives (governance ``nonneg_mode="none"``),
-    in which case the signal is recorded as missing rather than raising.
+    Domain violations (negative forecasts, non-finite inputs, invalid τ) raise
+    immediately. Callers that need a classification for already-invalid signals
+    must pass those signals into ``classify_fpc``, which treats missing/NaN
+    core signals as ``INCOMPATIBLE``.
     """
-    try:
-        return float(fn(*args, **kwargs))
-    except ValueError:
-        return float("nan")
+    return float(fn(*args, **kwargs))
 
 
 class FPCClass(StrEnum):
@@ -127,6 +125,14 @@ def classify_fpc(
     ):
         if val is None or isnan(val):
             reasons.append(f"signal.{name}_missing_or_nan")
+
+    if reasons:
+        reasons.append("domain_or_signal_invalid")
+        return FPCResult(
+            fpc_class=FPCClass.INCOMPATIBLE,
+            signals=signals,
+            reasons=tuple(reasons),
+        )
 
     very_low_cov = signals.nsl_base <= thr.nsl_very_low
     tiny_cov_response = signals.delta_nsl <= thr.delta_nsl_tiny

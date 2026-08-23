@@ -236,9 +236,14 @@ def evaluate_groups_df(
         (w_sum > 0) & ~service_blocked, agg["w_nsl"].to_numpy(dtype=float) / w_sum, np.nan
     )
 
-    ud_out = np.where(
-        (w_sum > 0) & ~service_blocked, agg["w_short"].to_numpy(dtype=float) / w_sum, np.nan
-    )
+    # UD is conditional on shortfall intervals, matching eb_metrics.ud:
+    # mean shortfall magnitude over T^SF = {i : y_i > yhat_i}. No shortfalls => 0.0.
+    sf_weight = agg["w_sf"].to_numpy(dtype=float)
+    short_sum = agg["w_short"].to_numpy(dtype=float)
+    ud_ratio = np.zeros_like(short_sum)
+    has_sf = sf_weight > 0
+    ud_ratio[has_sf] = short_sum[has_sf] / sf_weight[has_sf]
+    ud_out = np.where(service_blocked | (w_sum <= 0), np.nan, ud_ratio)
 
     hr_ok = (w_sum > 0) & ~service_blocked
     if tau_bad:

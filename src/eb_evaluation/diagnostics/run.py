@@ -161,14 +161,15 @@ def run_governance_gate(
     snap_mode:
         Snapping mode used when snapping is required.
     nonneg_mode:
-        Optional post-prediction constraint applied to forecasts.
+        Post-prediction constraint applied to forecasts before FPC.
 
         Accepted values:
-        - "none" / "allow": no change
-        - "clip" / "clip_zero": clip negative forecasts to 0.0
+        - "none": use the preset nonnegativity policy. An omitted preset
+          resolves to ``"balanced"`` (``clip_zero``).
+        - "allow": leave forecasts unconstrained.
+        - "clip" / "clip_zero": clip negative forecasts to 0.0.
 
-        If `preset` is provided and `nonneg_mode` is left at the default ("none"),
-        the preset's policy is applied.
+        Explicit ``allow`` / ``clip`` / ``clip_zero`` always override the preset.
     fas_class:
         Optional upstream Forecast Admissibility Surface class. ``BLOCKED``
         skips DQC/FPC evaluation and returns a red / disallow decision.
@@ -215,17 +216,18 @@ def run_governance_gate(
 
     recommendations: list[str] = []
 
+    # Omitted preset is balanced so thresholds, audit reasons, and nonnegativity
+    # cannot disagree (unconstrained forecasts classified under balanced rules).
+    effective_preset: str | GovernancePreset = preset if preset is not None else "balanced"
+
     # Resolve nonnegativity policy:
     #
-    # - If caller explicitly sets nonneg_mode (not default "none"), it wins.
-    # - Else if preset is provided, use preset policy.
-    # - Else default is "allow".
+    # - Explicit allow/clip/clip_zero always wins.
+    # - "none" (the default) applies the effective preset policy (balanced => clip_zero).
     if nonneg_mode != "none":
         nonneg_policy = _normalize_nonneg_mode(nonneg_mode)
-    elif preset is not None:
-        nonneg_policy = preset_policy(preset)
     else:
-        nonneg_policy = "allow"
+        nonneg_policy = preset_policy(effective_preset)
 
     # Optional post-process (governed): enforce nonnegativity on forecasts.
     # This happens *before* computing FPC signals so diagnostics reflect the
@@ -261,7 +263,7 @@ def run_governance_gate(
             fpc_signals_snapped=None,
             dqc_thresholds=dqc_thresholds,
             fpc_thresholds=fpc_thresholds,
-            preset=preset or "balanced",
+            preset=effective_preset,
             fas_class=FASClass.BLOCKED,
         )
         recommendations.append("blocked_by_fas")
@@ -291,8 +293,14 @@ def run_governance_gate(
 
     # 3) If DQC indicates snapping, compute snapped FPC signals too
     snap_required = dqc.dqc_class in (DQCClass.QUANTIZED, DQCClass.PIECEWISE_PACKED)
-    if snap_required and dqc.signals.granularity is not None:
-        unit = float(dqc.signals.granularity)
+    if snap_required:
+        gran = dqc.signals.granularity
+        if gran is None:
+            raise ValueError(
+                "DQC requires snapping but granularity is missing; "
+                "refusing to pass through unsnapped forecasts."
+            )
+        unit = float(gran)
         yhat_base_s = snap_to_grid(yhat_base_list, unit, mode=snap_mode)
         yhat_ral_s = snap_to_grid(yhat_ral_list, unit, mode=snap_mode)
 
@@ -328,7 +336,7 @@ def run_governance_gate(
         fpc_signals_snapped=fpc_signals_snapped,
         dqc_thresholds=dqc_thresholds,
         fpc_thresholds=fpc_thresholds,
-        preset=preset or "balanced",
+        preset=effective_preset,
         fas_class=fas_class,
     )
 

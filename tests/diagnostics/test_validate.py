@@ -431,8 +431,8 @@ def test_validate_run_governance_gate_delegates_to_diagnostics_run() -> None:
     """
     validate.run_governance_gate should be a stable wrapper over diagnostics.run.run_governance_gate.
 
-    - It should match key outputs (recommended_mode, snap_required).
-    - It should NOT introduce new governance behavior (e.g., nonneg postprocessing).
+    - It should match key outputs (recommended_mode, snap_required, recommendations).
+    - Default nonneg_mode is "none", which applies the balanced clip_zero policy.
     """
     # Use a simple continuous-like case.
     y = [0.1 * i for i in range(1, 121)]
@@ -458,6 +458,5 @@ def test_validate_run_governance_gate_delegates_to_diagnostics_run() -> None:
 
     assert v_gate.recommended_mode == impl_gate.recommended_mode
     assert v_gate.decision.snap_required == impl_gate.decision.snap_required
-
-    # Validate wrapper should not auto-enable nonneg postprocessing.
-    assert not any("forecast_postprocess_nonneg(" in r for r in v_gate.recommendations)
+    assert v_gate.recommendations == impl_gate.recommendations
+    assert any("forecast_postprocess_nonneg(mode=clip_zero)" in r for r in v_gate.recommendations)

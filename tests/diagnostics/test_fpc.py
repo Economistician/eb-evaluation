@@ -249,3 +249,28 @@ def test_build_signals_from_series_rejects_both_cost_ratio_and_cwsl_r() -> None:
             cwsl_r=2.0,
             cost_ratio=2.0,
         )
+
+
+def test_classify_fpc_nan_signals_are_incompatible() -> None:
+    signals = FPCSignals(
+        nsl_base=float("nan"),
+        nsl_ral=float("nan"),
+        delta_nsl=float("nan"),
+        hr_base_tau=float("nan"),
+        hr_ral_tau=float("nan"),
+        delta_hr_tau=float("nan"),
+        ud=float("nan"),
+    )
+    result = classify_fpc(signals)
+    assert result.fpc_class is FPCClass.INCOMPATIBLE
+    assert "domain_or_signal_invalid" in result.reasons
+
+
+def test_build_signals_from_series_raises_on_negative_forecasts() -> None:
+    with pytest.raises(ValueError):
+        build_signals_from_series(
+            y=[10.0, 12.0, 11.0],
+            yhat_base=[10.0, -1.0, 11.0],
+            yhat_ral=[10.5, 11.5, 11.25],
+            tau=0.2,
+        )

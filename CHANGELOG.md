@@ -13,10 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Group-level UD averages shortfall over all intervals, matching `eb_metrics.ud`.
+- Group-level UD averages shortfall over shortfall intervals only, matching `eb_metrics.ud`.
 - FAS spike rate uses strict inequality (`abs_error > spike_ge`) to match the technical note.
 - FAS preserves slices with zero valid observations and classifies them as `CONDITIONAL`.
 - FAS threshold fingerprints always include `spike_ge` and use a 16-character SHA-256 prefix.
+- Default governance gate applies the `balanced` nonnegativity policy (`clip_zero`) when `preset` is omitted, so audit reasons and scored forecasts cannot disagree.
+- `snap_to_grid` raises on non-positive or NaN units instead of passing forecasts through.
+- FPC treats missing/NaN core signals as `INCOMPATIBLE` and lets metric domain errors raise.
 
 ### Changed
 

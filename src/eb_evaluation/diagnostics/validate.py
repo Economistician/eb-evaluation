@@ -21,7 +21,7 @@ from .fas import FASClass
 from .fpc import FPCResult, FPCSignals, FPCThresholds, classify_fpc
 from .governance import GovernanceDecision, decide_governance
 from .presets import GovernancePreset, preset_thresholds
-from .run import run_governance_gate as _run_governance_gate
+from .run import NonnegMode, run_governance_gate as _run_governance_gate
 
 
 def validate_fpc(
@@ -120,6 +120,7 @@ def validate_governance(
         Optional governance preset. Provide either:
         - preset name: {"conservative", "balanced", "aggressive"}, or
         - a GovernancePreset instance.
+        When omitted, ``decide_governance`` applies the ``"balanced"`` preset.
     fas_class:
         Optional upstream Forecast Admissibility Surface class. ``BLOCKED``
         short-circuits DQC/FPC. ``CONDITIONAL`` downgrades permissive RAL
@@ -339,6 +340,7 @@ def run_governance_gate(
     dqc_thresholds: DQCThresholds | None = None,
     fpc_thresholds: FPCThresholds | None = None,
     preset: str | GovernancePreset | None = None,
+    nonneg_mode: NonnegMode = "none",
     fas_class: FASClass | str | None = None,
 ) -> GateResult:
     """
@@ -355,12 +357,22 @@ def run_governance_gate(
 
     Preset rules match validate_governance: do not mix preset with explicit thresholds.
 
+    Parameters
+    ----------
+    nonneg_mode:
+        Post-prediction constraint applied to forecasts before FPC, matching
+        ``diagnostics.run.run_governance_gate``.
+
+        - ``"none"`` (default): use the preset nonnegativity policy. An omitted
+          preset resolves to ``"balanced"`` (``clip_zero``).
+        - ``"allow"``: leave forecasts unconstrained.
+        - ``"clip"`` / ``"clip_zero"``: clip negative forecasts to 0.0.
+
     Notes
     -----
     This entrypoint delegates orchestration to diagnostics/run.py to ensure there
-    is a single auditable "choke point" for governance gating behavior. This wrapper
-    preserves the historical validate-layer signature and behavior (snap_mode="ceil",
-    no post-prediction constraints).
+    is a single auditable choke point for governance gating. Default snapping is
+    ``ceil``.
     """
     # Keep the validate-layer ambiguity check for a clear, stable error message.
     if preset is not None and (dqc_thresholds is not None or fpc_thresholds is not None):
@@ -379,7 +391,7 @@ def run_governance_gate(
         fpc_thresholds=fpc_thresholds,
         preset=preset,
         snap_mode="ceil",
-        nonneg_mode="none",
+        nonneg_mode=nonneg_mode,
         fas_class=fas_class,
     )
 

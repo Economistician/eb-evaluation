@@ -177,10 +177,10 @@ def test_run_governance_gate_nonneg_clip_adds_recommendation_and_preserves_routi
     assert gate.recommended_mode in ("continuous", "reroute_discrete")
 
 
-def test_run_governance_gate_nonneg_none_does_not_add_recommendation() -> None:
+def test_run_governance_gate_nonneg_allow_does_not_add_recommendation() -> None:
     y = [0.1 * i for i in range(1, 51)]
-    yhat_base = [-0.1 if (i % 7 == 0) else v for i, v in enumerate(y)]
-    yhat_ral = [-0.2 if (i % 11 == 0) else v for i, v in enumerate(y)]
+    yhat_base = list(y)
+    yhat_ral = list(y)
 
     gate = run_governance_gate(
         y=y,
@@ -188,10 +188,27 @@ def test_run_governance_gate_nonneg_none_does_not_add_recommendation() -> None:
         yhat_ral=yhat_ral,
         tau=2.0,
         cwsl_r=None,
-        nonneg_mode="none",
+        nonneg_mode="allow",
     )
 
     assert not any("forecast_postprocess_nonneg(" in r for r in gate.recommendations)
+
+
+def test_run_governance_gate_omitted_preset_applies_balanced_clip_zero() -> None:
+    y = [float(i) for i in range(1, 41)]
+    yhat_base = [-1.0 if (i % 9 == 0) else float(v) for i, v in enumerate(y)]
+    yhat_ral = [-2.0 if (i % 13 == 0) else float(v) for i, v in enumerate(y)]
+
+    gate = run_governance_gate(
+        y=y,
+        yhat_base=yhat_base,
+        yhat_ral=yhat_ral,
+        tau=1.0,
+        cwsl_r=None,
+    )
+
+    assert any(r == "forecast_postprocess_nonneg(mode=clip_zero)" for r in gate.recommendations)
+    assert "preset=balanced" in gate.decision.reasons
 
 
 def test_run_governance_gate_preset_balanced_applies_nonneg_policy_by_default() -> None:

@@ -135,6 +135,12 @@ def test_snap_to_grid_modes_and_invalid_mode() -> None:
     with pytest.raises(ValueError):
         snap_to_grid(values, unit, mode="nope")
 
+    with pytest.raises(ValueError, match="snap unit must be > 0"):
+        snap_to_grid(values, 0.0, mode="ceil")
+
+    with pytest.raises(ValueError, match="snap unit must be > 0"):
+        snap_to_grid(values, float("nan"), mode="ceil")
+
 
 def test_preset_thresholds_returns_types() -> None:
     dqc_thr, fpc_thr = preset_thresholds(BALANCED)

@@ -154,9 +154,14 @@ def snap_to_grid(values: Sequence[float], unit: float, *, mode: str = "ceil") ->
     -------
     list[float]
         Snapped values.
+
+    Raises
+    ------
+    ValueError
+        If ``unit`` is NaN or ``unit <= 0``.
     """
     if unit <= 0 or isnan(unit):
-        return _as_list(values)
+        raise ValueError(f"snap unit must be > 0; got {unit!r}")
 
     if mode not in {"ceil", "round", "floor"}:
         raise ValueError(f"Invalid snap mode: {mode}")
@@ -324,7 +329,7 @@ def decide_governance(
     preset:
         Governance preset name ("conservative" | "balanced" | "aggressive") or an
         explicit GovernancePreset instance. Used only when explicit thresholds
-        are not provided.
+        are not provided. Defaults to ``"balanced"``.
     fas_class:
         Optional upstream Forecast Admissibility Surface class. ``BLOCKED``
         short-circuits DQC/FPC. ``CONDITIONAL`` downgrades permissive RAL
