@@ -8,6 +8,7 @@ demand structure and baseline error anatomy. Helpers: ``slice_keys``,
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 import hashlib
 import json
 from typing import Any, Final, Literal, cast
@@ -17,9 +18,18 @@ import pandas as pd
 
 FASSliceMode = Literal["entity", "entity_interval", "site_entity_interval"]
 
-_FAS_CLASS_ALLOWED: Final[str] = "ALLOWED"
-_FAS_CLASS_CONDITIONAL: Final[str] = "CONDITIONAL"
-_FAS_CLASS_BLOCKED: Final[str] = "BLOCKED"
+
+class FASClass(StrEnum):
+    """Admissibility class for a Forecast Admissibility Surface slice."""
+
+    ALLOWED = "ALLOWED"
+    CONDITIONAL = "CONDITIONAL"
+    BLOCKED = "BLOCKED"
+
+
+_FAS_CLASS_ALLOWED: Final[str] = FASClass.ALLOWED.value
+_FAS_CLASS_CONDITIONAL: Final[str] = FASClass.CONDITIONAL.value
+_FAS_CLASS_BLOCKED: Final[str] = FASClass.BLOCKED.value
 _FAS_FINGERPRINT_HEX_LEN: Final[int] = 16
 
 

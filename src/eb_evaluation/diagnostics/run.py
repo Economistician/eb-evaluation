@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
 from .dqc import DQCClass, DQCResult, DQCThresholds, classify_dqc
+from .fas import FASClass
 from .fpc import (
     FPCResult,
     FPCSignals,
@@ -119,6 +120,7 @@ def run_governance_gate(
     snap_mode: Literal["ceil", "round", "floor"] = "ceil",
     # post-prediction constraints
     nonneg_mode: NonnegMode = "none",
+    fas_class: FASClass | str | None = None,
 ) -> GateResult:
     """
     Run the minimal governance gate and return a recommended evaluation mode.
@@ -167,6 +169,9 @@ def run_governance_gate(
 
         If `preset` is provided and `nonneg_mode` is left at the default ("none"),
         the preset's policy is applied.
+    fas_class:
+        Optional upstream Forecast Admissibility Surface class. ``BLOCKED``
+        skips DQC/FPC evaluation and returns a red / disallow decision.
 
     Returns
     -------
@@ -232,6 +237,43 @@ def run_governance_gate(
         yhat_base_list = _apply_nonneg(yhat_base_list, mode=nonneg_policy)
         yhat_ral_list = _apply_nonneg(yhat_ral_list, mode=nonneg_policy)
 
+    fas_token: str | None
+    if fas_class is None:
+        fas_token = None
+    elif isinstance(fas_class, FASClass):
+        fas_token = fas_class.value
+    else:
+        fas_token = str(fas_class).strip().upper()
+
+    if fas_token == FASClass.BLOCKED.value:
+        dummy_signals = FPCSignals(
+            nsl_base=float("nan"),
+            nsl_ral=float("nan"),
+            delta_nsl=float("nan"),
+            hr_base_tau=float("nan"),
+            hr_ral_tau=float("nan"),
+            delta_hr_tau=float("nan"),
+            ud=float("nan"),
+        )
+        decision = decide_governance(
+            y=y_list,
+            fpc_signals_raw=dummy_signals,
+            fpc_signals_snapped=None,
+            dqc_thresholds=dqc_thresholds,
+            fpc_thresholds=fpc_thresholds,
+            preset=preset or "balanced",
+            fas_class=FASClass.BLOCKED,
+        )
+        recommendations.append("blocked_by_fas")
+        return GateResult(
+            dqc=decision.dqc,
+            fpc_raw=decision.fpc_raw,
+            fpc_snapped=decision.fpc_snapped,
+            decision=decision,
+            recommended_mode="reroute_discrete",
+            recommendations=tuple(recommendations),
+        )
+
     # 1) DQC from realized demand (structure only)
     # NOTE: classify_dqc should accept thresholds=None (use its internal defaults).
     dqc = classify_dqc(y=y_list, thresholds=eff_dqc)
@@ -287,6 +329,7 @@ def run_governance_gate(
         dqc_thresholds=dqc_thresholds,
         fpc_thresholds=fpc_thresholds,
         preset=preset or "balanced",
+        fas_class=fas_class,
     )
 
     # 5) Recommended routing mode

@@ -14,6 +14,7 @@ from typing import Any
 import pandas as pd
 
 from eb_evaluation.diagnostics.dqc import DQCThresholds
+from eb_evaluation.diagnostics.fas import FASClass
 from eb_evaluation.diagnostics.fpc import FPCThresholds
 from eb_evaluation.diagnostics.presets import GovernancePreset
 from eb_evaluation.diagnostics.results import GovernanceResult
@@ -51,6 +52,7 @@ def evaluate_governance_panel_df(
     dqc_thresholds: DQCThresholds | None = None,
     fpc_thresholds: FPCThresholds | None = None,
     dropna_keys: bool = True,
+    fas_class: FASClass | str | None = None,
 ) -> pd.DataFrame:
     """
     Evaluate governance across a panel of streams and return a per-stream summary table.
@@ -82,6 +84,9 @@ def evaluate_governance_panel_df(
     dropna_keys:
         If True, drop rows with NA in any key column before grouping. This is usually
         desired for stable grouping semantics.
+    fas_class:
+        Optional upstream Forecast Admissibility Surface class forwarded to the
+        governance gate.
 
     Returns
     -------
@@ -128,6 +133,7 @@ def evaluate_governance_panel_df(
             preset=preset,
             dqc_thresholds=dqc_thresholds,
             fpc_thresholds=fpc_thresholds,
+            fas_class=fas_class,
         )
 
         # Use the portable, stable representation for core policy/class fields.

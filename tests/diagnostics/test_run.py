@@ -16,11 +16,15 @@ that reliably trigger each routing branch.
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 
 from eb_evaluation.diagnostics.dqc import DQCThresholds
+from eb_evaluation.diagnostics.fas import FASClass
 from eb_evaluation.diagnostics.fpc import FPCThresholds
+from eb_evaluation.diagnostics.governance import GovernanceStatus, RALPolicy
 from eb_evaluation.diagnostics.run import run_governance_gate
 
 
@@ -226,3 +230,89 @@ def test_run_governance_gate_preset_balanced_applies_nonneg_policy_by_default() 
     assert gate_preset.decision.snap_required == gate_explicit.decision.snap_required
     assert gate_preset.fpc_raw.fpc_class == gate_explicit.fpc_raw.fpc_class
     assert gate_preset.fpc_snapped.fpc_class == gate_explicit.fpc_snapped.fpc_class
+
+
+def test_run_governance_gate_fas_blocked_short_circuits_and_disallows() -> None:
+    y = [0.1 * i for i in range(1, 121)]
+    yhat_base = [v if (i % 2 == 0) else (v * 0.90) for i, v in enumerate(y)]
+    yhat_ral = [v * 1.01 for v in y]
+
+    with (
+        patch("eb_evaluation.diagnostics.run.classify_dqc") as mock_dqc,
+        patch("eb_evaluation.diagnostics.run.classify_fpc") as mock_fpc,
+        patch("eb_evaluation.diagnostics.governance.classify_dqc") as mock_gov_dqc,
+        patch("eb_evaluation.diagnostics.governance.classify_fpc") as mock_gov_fpc,
+    ):
+        gate = run_governance_gate(
+            y=y,
+            yhat_base=yhat_base,
+            yhat_ral=yhat_ral,
+            tau=2.0,
+            cwsl_r=None,
+            fas_class="BLOCKED",
+        )
+
+    mock_dqc.assert_not_called()
+    mock_fpc.assert_not_called()
+    mock_gov_dqc.assert_not_called()
+    mock_gov_fpc.assert_not_called()
+    assert gate.decision.status == GovernanceStatus.RED
+    assert gate.decision.ral_policy == RALPolicy.DISALLOW
+    assert "blocked_by_fas" in gate.decision.reasons
+    assert "blocked_by_fas" in gate.recommendations
+    assert gate.recommended_mode == "reroute_discrete"
+    assert gate.decision.fas_class == FASClass.BLOCKED
+
+
+def test_run_governance_gate_fas_conditional_downgrades_green_allow() -> None:
+    y = [0.1 * i for i in range(1, 121)]
+    yhat_base = [v if (i % 2 == 0) else (v * 0.90) for i, v in enumerate(y)]
+    yhat_ral = [v * 1.01 for v in y]
+
+    baseline = run_governance_gate(
+        y=y,
+        yhat_base=yhat_base,
+        yhat_ral=yhat_ral,
+        tau=2.0,
+        cwsl_r=None,
+    )
+    assert baseline.decision.ral_policy == RALPolicy.ALLOW
+    assert baseline.decision.status == GovernanceStatus.GREEN
+
+    gate = run_governance_gate(
+        y=y,
+        yhat_base=yhat_base,
+        yhat_ral=yhat_ral,
+        tau=2.0,
+        cwsl_r=None,
+        fas_class="CONDITIONAL",
+    )
+    assert gate.decision.ral_policy == RALPolicy.CAUTION_AFTER_SNAP
+    assert gate.decision.status == GovernanceStatus.YELLOW
+    assert "fas_conditional_downgrade" in gate.decision.reasons
+
+
+def test_run_governance_gate_fas_class_none_matches_omitted() -> None:
+    y = [0.1 * i for i in range(1, 121)]
+    yhat_base = [v if (i % 2 == 0) else (v * 0.90) for i, v in enumerate(y)]
+    yhat_ral = [v * 1.01 for v in y]
+
+    omitted = run_governance_gate(
+        y=y,
+        yhat_base=yhat_base,
+        yhat_ral=yhat_ral,
+        tau=2.0,
+        cwsl_r=None,
+    )
+    explicit = run_governance_gate(
+        y=y,
+        yhat_base=yhat_base,
+        yhat_ral=yhat_ral,
+        tau=2.0,
+        cwsl_r=None,
+        fas_class=None,
+    )
+    assert omitted.decision == explicit.decision
+    assert omitted.recommended_mode == explicit.recommended_mode
+    assert omitted.recommendations == explicit.recommendations
+    assert omitted.decision.fas_class is None

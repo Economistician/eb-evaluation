@@ -66,7 +66,8 @@ from dataclasses import dataclass
 from enum import Enum
 from math import isnan
 
-from .dqc import DQCClass, DQCResult, DQCThresholds, classify_dqc
+from .dqc import DQCClass, DQCResult, DQCSignals, DQCThresholds, classify_dqc
+from .fas import FASClass
 from .fpc import FPCClass, FPCResult, FPCSignals, FPCThresholds, classify_fpc
 from .presets import GovernancePreset, preset_thresholds
 
@@ -119,6 +120,9 @@ class GovernanceDecision:
     # Optional convenience annotations
     max_delta_nsl_raw: float | None = None
     max_delta_nsl_snap: float | None = None
+
+    # Optional upstream FAS class (None = not supplied; contract unchanged)
+    fas_class: FASClass | None = None
 
     # Audit trail
     reasons: tuple[str, ...] = ()
@@ -225,6 +229,53 @@ def build_fpc_signals(
     )
 
 
+def _coerce_fas_class(fas_class: FASClass | str | None) -> FASClass | None:
+    """Normalize an optional FAS class input to ``FASClass`` or ``None``."""
+    if fas_class is None:
+        return None
+    if isinstance(fas_class, FASClass):
+        return fas_class
+    token = str(fas_class).strip().upper()
+    try:
+        return FASClass(token)
+    except ValueError as exc:
+        raise ValueError(f"Unknown fas_class: {fas_class!r}") from exc
+
+
+def _skipped_fas_blocked_diagnostics() -> tuple[DQCResult, FPCResult]:
+    """Placeholder DQC/FPC artifacts when FAS blocks before evaluation."""
+    dqc = DQCResult(
+        dqc_class=DQCClass.UNKNOWN,
+        signals=DQCSignals(
+            n_obs=0,
+            nonzero_obs=0,
+            granularity=None,
+            multiple_rate=float("nan"),
+            support_size=0,
+            zero_mass=float("nan"),
+            small_value_mass=float("nan"),
+            offgrid_mad=float("nan"),
+            candidate_units=(),
+            unit_scores=(),
+        ),
+        reasons=("skipped_fas_blocked",),
+    )
+    fpc = FPCResult(
+        fpc_class=FPCClass.INCOMPATIBLE,
+        signals=FPCSignals(
+            nsl_base=float("nan"),
+            nsl_ral=float("nan"),
+            delta_nsl=float("nan"),
+            hr_base_tau=float("nan"),
+            hr_ral_tau=float("nan"),
+            delta_hr_tau=float("nan"),
+            ud=float("nan"),
+        ),
+        reasons=("skipped_fas_blocked",),
+    )
+    return dqc, fpc
+
+
 def _preset_reason_value(preset: str | GovernancePreset) -> str:
     """
     Normalize a preset into a stable, human-readable reason token.
@@ -251,6 +302,7 @@ def decide_governance(
     dqc_thresholds: DQCThresholds | None = None,
     fpc_thresholds: FPCThresholds | None = None,
     preset: str | GovernancePreset = "balanced",
+    fas_class: FASClass | str | None = None,
 ) -> GovernanceDecision:
     """
     Produce an authoritative governance decision for a single realized series.
@@ -273,6 +325,10 @@ def decide_governance(
         Governance preset name ("conservative" | "balanced" | "aggressive") or an
         explicit GovernancePreset instance. Used only when explicit thresholds
         are not provided.
+    fas_class:
+        Optional upstream Forecast Admissibility Surface class. ``BLOCKED``
+        short-circuits DQC/FPC. ``CONDITIONAL`` downgrades permissive RAL
+        outcomes. ``None`` leaves the DQC x FPC contract unchanged.
 
     Returns
     -------
@@ -280,6 +336,22 @@ def decide_governance(
         Deterministic policy artifact.
     """
     reasons: list[str] = []
+    fas = _coerce_fas_class(fas_class)
+
+    if fas is FASClass.BLOCKED:
+        dqc_skip, fpc_skip = _skipped_fas_blocked_diagnostics()
+        return GovernanceDecision(
+            dqc=dqc_skip,
+            fpc_raw=fpc_skip,
+            fpc_snapped=fpc_skip,
+            snap_required=False,
+            snap_unit=None,
+            tau_policy=TauPolicy.RAW_UNITS,
+            ral_policy=RALPolicy.DISALLOW,
+            status=GovernanceStatus.RED,
+            fas_class=fas,
+            reasons=("blocked_by_fas",),
+        )
 
     # Preset thresholds (explicit overrides win)
     preset_dqc, preset_fpc = preset_thresholds(preset)
@@ -335,6 +407,15 @@ def decide_governance(
         status = GovernanceStatus.RED
         reasons.append("incompatible")
 
+    if (
+        fas is FASClass.CONDITIONAL
+        and status is GovernanceStatus.GREEN
+        and ral_policy in (RALPolicy.ALLOW, RALPolicy.ALLOW_AFTER_SNAP)
+    ):
+        ral_policy = RALPolicy.CAUTION_AFTER_SNAP
+        status = GovernanceStatus.YELLOW
+        reasons.append("fas_conditional_downgrade")
+
     # Helpful annotation for auditability:
     # Only record the preset when *no* explicit threshold override is provided.
     if dqc_thresholds is None and fpc_thresholds is None:
@@ -349,5 +430,6 @@ def decide_governance(
         tau_policy=tau_policy,
         ral_policy=ral_policy,
         status=status,
+        fas_class=fas,
         reasons=tuple(reasons),
     )

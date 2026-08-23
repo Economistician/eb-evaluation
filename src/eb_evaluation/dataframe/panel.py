@@ -11,6 +11,7 @@ from collections.abc import Sequence
 import pandas as pd
 
 from eb_evaluation.diagnostics.dqc import DQCThresholds
+from eb_evaluation.diagnostics.fas import FASClass
 from eb_evaluation.diagnostics.fpc import FPCThresholds
 from eb_evaluation.diagnostics.presets import GovernancePreset
 from eb_evaluation.diagnostics.run import run_governance_gate
@@ -150,6 +151,7 @@ def run_governance_panel_df(
     dqc_thresholds: DQCThresholds | None = None,
     fpc_thresholds: FPCThresholds | None = None,
     preset: GovernancePreset | str | None = None,
+    fas_class: FASClass | str | None = None,
 ) -> pd.DataFrame:
     """
     Run the governance gate per panel stream and return a tidy results DataFrame.
@@ -177,6 +179,9 @@ def run_governance_panel_df(
     dqc_thresholds, fpc_thresholds, preset:
         Same semantics as diagnostics.run.run_governance_gate: do not mix preset with
         explicit thresholds.
+    fas_class:
+        Optional upstream Forecast Admissibility Surface class forwarded to the
+        governance gate.
 
     Returns
     -------
@@ -224,6 +229,7 @@ def run_governance_panel_df(
             dqc_thresholds=dqc_thresholds,
             fpc_thresholds=fpc_thresholds,
             preset=preset,
+            fas_class=fas_class,
         )
 
         row["dqc_class"] = gate.dqc.dqc_class.value

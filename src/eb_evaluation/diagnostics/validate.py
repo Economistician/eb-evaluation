@@ -17,6 +17,7 @@ from math import isnan
 from typing import Literal
 
 from .dqc import DQCResult, DQCThresholds, classify_dqc
+from .fas import FASClass
 from .fpc import FPCResult, FPCSignals, FPCThresholds, classify_fpc
 from .governance import GovernanceDecision, decide_governance
 from .presets import GovernancePreset, preset_thresholds
@@ -84,6 +85,7 @@ def validate_governance(
     dqc_thresholds: DQCThresholds | None = None,
     fpc_thresholds: FPCThresholds | None = None,
     preset: str | GovernancePreset | None = None,
+    fas_class: FASClass | str | None = None,
 ) -> GovernanceDecision:
     """
     Run the governance decision contract (DQC x FPC) for a single entity.
@@ -118,6 +120,10 @@ def validate_governance(
         Optional governance preset. Provide either:
         - preset name: {"conservative", "balanced", "aggressive"}, or
         - a GovernancePreset instance.
+    fas_class:
+        Optional upstream Forecast Admissibility Surface class. ``BLOCKED``
+        short-circuits DQC/FPC. ``CONDITIONAL`` downgrades permissive RAL
+        outcomes.
 
     Returns
     -------
@@ -159,6 +165,7 @@ def validate_governance(
         dqc_thresholds=dqc_thr,
         fpc_thresholds=fpc_thr,
         preset=preset if preset is not None else "balanced",
+        fas_class=fas_class,
     )
 
 
@@ -332,6 +339,7 @@ def run_governance_gate(
     dqc_thresholds: DQCThresholds | None = None,
     fpc_thresholds: FPCThresholds | None = None,
     preset: str | GovernancePreset | None = None,
+    fas_class: FASClass | str | None = None,
 ) -> GateResult:
     """
     Orchestrate governance from common raw inputs.
@@ -372,6 +380,7 @@ def run_governance_gate(
         preset=preset,
         snap_mode="ceil",
         nonneg_mode="none",
+        fas_class=fas_class,
     )
 
     return GateResult(

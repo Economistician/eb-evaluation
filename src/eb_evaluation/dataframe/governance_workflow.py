@@ -14,6 +14,7 @@ import pandas as pd
 from eb_evaluation.adjustment.ral import NonnegPolicy, SnapMode, apply_ral
 from eb_evaluation.dataframe.governance_panel import evaluate_governance_panel_df
 from eb_evaluation.diagnostics.dqc import DQCThresholds
+from eb_evaluation.diagnostics.fas import FASClass
 from eb_evaluation.diagnostics.fpc import FPCThresholds
 from eb_evaluation.diagnostics.presets import GovernancePreset
 
@@ -33,6 +34,7 @@ def run_governance_workflow_df(
     dqc_thresholds: DQCThresholds | None = None,
     fpc_thresholds: FPCThresholds | None = None,
     dropna_keys: bool = True,
+    fas_class: FASClass | str | None = None,
     # decisions override (optional)
     decisions_df: pd.DataFrame | None = None,
     # apply step
@@ -81,6 +83,7 @@ def run_governance_workflow_df(
             dqc_thresholds=dqc_thresholds,
             fpc_thresholds=fpc_thresholds,
             dropna_keys=dropna_keys,
+            fas_class=fas_class,
         )
     else:
         missing_decision_keys = sorted(set(keys_list) - set(decisions_df.columns))
@@ -151,6 +154,7 @@ def run_governance_workflow_df_dict(
     dqc_thresholds: DQCThresholds | None = None,
     fpc_thresholds: FPCThresholds | None = None,
     dropna_keys: bool = True,
+    fas_class: FASClass | str | None = None,
     decisions_df: pd.DataFrame | None = None,
     snap_mode: SnapMode = "ceil",
     nonneg_policy: NonnegPolicy | None = None,
@@ -177,6 +181,7 @@ def run_governance_workflow_df_dict(
         dqc_thresholds=dqc_thresholds,
         fpc_thresholds=fpc_thresholds,
         dropna_keys=dropna_keys,
+        fas_class=fas_class,
         decisions_df=decisions_df,
         snap_mode=snap_mode,
         nonneg_policy=nonneg_policy,

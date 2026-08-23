@@ -18,6 +18,7 @@ from .dataframe import (
     run_governance_workflow_df,
     run_governance_workflow_df_dict,
 )
+from .diagnostics import FASClass
 from .model_selection import compare_forecasts
 
 
@@ -40,6 +41,7 @@ def _resolve_version() -> str:
 __version__ = _resolve_version()
 
 __all__ = [
+    "FASClass",
     "__version__",
     "compare_forecasts",
     "compute_cwsl_df",

@@ -43,6 +43,8 @@ validate_dqc
 dqc_to_dict
     JSON-friendly serialization for DQCResult.
 
+FASClass
+    Enumeration of Forecast Admissibility Surface classes (ALLOWED / CONDITIONAL / BLOCKED).
 FASSliceMode
     Slice-key mode for constructing a Forecast Admissibility Surface (FAS) over a
     panel (e.g., entity, entity x interval).
@@ -127,6 +129,7 @@ from .dqc import (
     dqc_to_dict,
 )
 from .fas import (
+    FASClass,
     FASSliceMode,
     FASThresholds,
     build_fas_surface,
@@ -170,6 +173,7 @@ __all__ = [
     "DQCResult",
     "DQCSignals",
     "DQCThresholds",
+    "FASClass",
     "FASSliceMode",
     "FASThresholds",
     "FPCClass",

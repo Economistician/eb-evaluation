@@ -16,9 +16,12 @@ to any particular forecast baseline model or notebook wiring.
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from eb_evaluation.diagnostics.dqc import DQCThresholds
+from eb_evaluation.diagnostics.fas import FASClass
 from eb_evaluation.diagnostics.fpc import FPCSignals, FPCThresholds
 from eb_evaluation.diagnostics.governance import (
     GovernanceStatus,
@@ -382,3 +385,108 @@ def test_governance_preset_reason_not_added_when_thresholds_overridden() -> None
     preset_reasons = [r for r in reasons if r.startswith("preset=")]
     if preset_reasons:
         assert not any(r.startswith("preset=") for r in preset_reasons)
+
+
+def _continuous_compatible_inputs() -> tuple[list[float], FPCSignals, FPCSignals]:
+    y = [0.1 * i for i in range(1, 201)]
+    raw = _signals(
+        nsl_base=0.08,
+        nsl_ral=0.14,
+        hr_base_tau=0.11,
+        hr_ral_tau=0.07,
+        ud=3.0,
+    )
+    snapped = _signals(
+        nsl_base=0.01,
+        nsl_ral=0.01,
+        hr_base_tau=0.02,
+        hr_ral_tau=0.02,
+        ud=20.0,
+    )
+    return y, raw, snapped
+
+
+def test_governance_fas_blocked_short_circuits_dqc_fpc() -> None:
+    y, raw, snapped = _continuous_compatible_inputs()
+
+    with (
+        patch("eb_evaluation.diagnostics.governance.classify_dqc") as mock_dqc,
+        patch("eb_evaluation.diagnostics.governance.classify_fpc") as mock_fpc,
+    ):
+        res = decide_governance(
+            y=y,
+            fpc_signals_raw=raw,
+            fpc_signals_snapped=snapped,
+            fas_class="BLOCKED",
+        )
+
+    mock_dqc.assert_not_called()
+    mock_fpc.assert_not_called()
+    assert res.status == GovernanceStatus.RED
+    assert res.ral_policy == RALPolicy.DISALLOW
+    assert "blocked_by_fas" in res.reasons
+    assert res.snap_required is False
+    assert res.snap_unit is None
+    assert res.tau_policy == TauPolicy.RAW_UNITS
+    assert res.fas_class == FASClass.BLOCKED
+
+
+def test_governance_fas_conditional_downgrades_green_allow() -> None:
+    y, raw, snapped = _continuous_compatible_inputs()
+
+    baseline = decide_governance(y=y, fpc_signals_raw=raw, fpc_signals_snapped=snapped)
+    assert baseline.ral_policy == RALPolicy.ALLOW
+    assert baseline.status == GovernanceStatus.GREEN
+
+    res = decide_governance(
+        y=y,
+        fpc_signals_raw=raw,
+        fpc_signals_snapped=snapped,
+        fas_class="CONDITIONAL",
+    )
+
+    assert res.ral_policy == RALPolicy.CAUTION_AFTER_SNAP
+    assert res.status == GovernanceStatus.YELLOW
+    assert "fas_conditional_downgrade" in res.reasons
+    assert res.fas_class == FASClass.CONDITIONAL
+
+
+def test_governance_fas_conditional_does_not_upgrade_disallow() -> None:
+    y = [0.0] * 20 + [8.0] * 50 + [16.0] * 50 + [24.0] * 20
+    raw = _signals(
+        nsl_base=0.01,
+        nsl_ral=0.01,
+        hr_base_tau=0.02,
+        hr_ral_tau=0.02,
+        ud=20.0,
+    )
+
+    baseline = decide_governance(y=y, fpc_signals_raw=raw, fpc_signals_snapped=raw)
+    assert baseline.ral_policy == RALPolicy.DISALLOW
+    assert baseline.status == GovernanceStatus.RED
+
+    res = decide_governance(
+        y=y,
+        fpc_signals_raw=raw,
+        fpc_signals_snapped=raw,
+        fas_class=FASClass.CONDITIONAL,
+    )
+
+    assert res.ral_policy == RALPolicy.DISALLOW
+    assert res.status == GovernanceStatus.RED
+    assert "fas_conditional_downgrade" not in res.reasons
+
+
+def test_governance_fas_class_none_matches_omitted() -> None:
+    y, raw, snapped = _continuous_compatible_inputs()
+    omitted = decide_governance(y=y, fpc_signals_raw=raw, fpc_signals_snapped=snapped)
+    explicit = decide_governance(
+        y=y,
+        fpc_signals_raw=raw,
+        fpc_signals_snapped=snapped,
+        fas_class=None,
+    )
+    assert omitted == explicit
+    assert omitted.fas_class is None
+    assert omitted.ral_policy == RALPolicy.ALLOW
+    assert omitted.status == GovernanceStatus.GREEN
