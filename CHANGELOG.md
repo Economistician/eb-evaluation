@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `FASClass` is a public ALLOWED / CONDITIONAL / BLOCKED enum and an optional upstream binding input to `decide_governance` (`BLOCKED` short-circuits; `CONDITIONAL` downgrades permissive RAL).
+- Re-exported core DQC, FPC, FAS, and governance diagnostics from the package root.
 
 ### Fixed
 
@@ -26,8 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Diagnostic policy enums (`DQCClass`, `FPCClass`, `GovernanceStatus`, `TauPolicy`, `RALPolicy`) inherit `StrEnum`.
 - Polished module and public API docstrings to remove prompt-spec essay prose.
 - Tightened README Overview; removed cloned Role section.
+- Changelog version header now matches `pyproject.toml` (`0.2.7`).
 
-## [0.2.x] - 2026-08-22
+## [0.2.7] - 2026-08-22
 
 ### Breaking Changes
 
