@@ -22,7 +22,12 @@ from eb_evaluation.diagnostics.presets import GovernancePreset
 from eb_evaluation.diagnostics.results import GovernanceResult
 from eb_evaluation.diagnostics.run import run_governance_gate
 
-__all__ = ["evaluate_governance_panel_df"]
+__all__ = [
+    "MAX_NONFINITE_FRACTION",
+    "MIN_FINITE_ALIGNED_ROWS",
+    "evaluate_governance_panel_df",
+    "finite_coverage_is_insufficient",
+]
 
 _RECOMMENDATION_SEP = ", "
 
@@ -50,6 +55,18 @@ def _safe_getattr(obj: object, name: str) -> Any:
 
 
 _FAIL_CLOSED_TOKEN = "empty_series_fail_closed"
+_COVERAGE_FAIL_CLOSED_TOKEN = "insufficient_finite_coverage_fail_closed"
+MAX_NONFINITE_FRACTION = 0.20
+MIN_FINITE_ALIGNED_ROWS = 8
+
+
+def finite_coverage_is_insufficient(n_total: int, n_finite: int) -> bool:
+    """Return True when a stream must not be governed on its finite subset."""
+    if n_total <= 0 or n_finite <= 0:
+        return True
+    if n_finite < MIN_FINITE_ALIGNED_ROWS:
+        return True
+    return ((n_total - n_finite) / n_total) > MAX_NONFINITE_FRACTION
 
 
 def _finite_aligned_subset(frame: pd.DataFrame, cols: Sequence[str]) -> pd.DataFrame:
@@ -76,10 +93,14 @@ def _fail_closed_panel_row(
     key_vals: tuple[object, ...],
     n: int,
     stream_fas: FASClass | str | None,
+    n_finite: int = 0,
+    reason: str = _FAIL_CLOSED_TOKEN,
 ) -> dict[str, Any]:
     """Emit a RED / DISALLOW / FPC INCOMPATIBLE row without calling eb-metrics."""
     row: dict[str, Any] = dict(zip(keys_list, key_vals, strict=True))
     row["n"] = n
+    row["n_finite"] = n_finite
+    row["finite_coverage"] = (float(n_finite) / float(n)) if n else 0.0
     row["recommended_mode"] = "reroute_discrete"
     row["snap_required"] = False
     row["snap_unit"] = None
@@ -102,10 +123,10 @@ def _fail_closed_panel_row(
     row["nsl_ral_snapped"] = None
     row["delta_nsl_snapped"] = None
     row["ud_snapped"] = None
-    row["dqc_reasons"] = _FAIL_CLOSED_TOKEN
-    row["fpc_raw_reasons"] = _FAIL_CLOSED_TOKEN
-    row["fpc_snapped_reasons"] = _FAIL_CLOSED_TOKEN
-    row["recommendations"] = _FAIL_CLOSED_TOKEN
+    row["dqc_reasons"] = reason
+    row["fpc_raw_reasons"] = reason
+    row["fpc_snapped_reasons"] = reason
+    row["recommendations"] = reason
     return row
 
 
@@ -169,9 +190,12 @@ def evaluate_governance_panel_df(
 
     Notes
     -----
-    Empty streams and streams with no finite aligned ``y`` / ``yhat`` points
-    (NaN or ±inf) fail closed (``status=red``, ``ral_policy=disallow``, FPC
-    ``incompatible``) instead of calling ``eb-metrics``.
+    Empty streams, streams with no finite aligned ``y`` / ``yhat`` points
+    (NaN or ±inf), and streams whose finite subset is too thin fail closed
+    (``status=red``, ``ral_policy=disallow``, FPC ``incompatible``) instead of
+    calling ``eb-metrics``. A stream fails closed when more than 20% of rows
+    are non-finite or when fewer than ``MIN_FINITE_ALIGNED_ROWS`` (8) finite
+    aligned rows remain.
     """
     keys_list = list(keys)
     if len(keys_list) == 0:
@@ -199,19 +223,26 @@ def evaluate_governance_panel_df(
 
         stream_fas = resolve_panel_fas_class(g, fas_class=fas_class, fas_class_col=fas_class_col)
         finite = _finite_aligned_subset(g, (actual_col, base_forecast_col, ral_forecast_col))
-        if len(finite) == 0:
+        n_total = len(g)
+        n_finite = len(finite)
+        if finite_coverage_is_insufficient(n_total, n_finite):
+            reason = _FAIL_CLOSED_TOKEN if n_finite == 0 else _COVERAGE_FAIL_CLOSED_TOKEN
             out_rows.append(
                 _fail_closed_panel_row(
                     keys_list=keys_list,
                     key_vals=key_vals,
-                    n=len(g),
+                    n=n_total,
+                    n_finite=n_finite,
                     stream_fas=stream_fas,
+                    reason=reason,
                 )
             )
             continue
 
         row: dict[str, Any] = dict(zip(keys_list, key_vals, strict=True))
-        row["n"] = len(g)
+        row["n"] = n_total
+        row["n_finite"] = n_finite
+        row["finite_coverage"] = float(n_finite) / float(n_total)
 
         y = finite[actual_col].to_numpy(dtype=float)
         yhat_base = finite[base_forecast_col].to_numpy(dtype=float)

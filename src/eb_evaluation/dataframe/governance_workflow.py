@@ -31,6 +31,12 @@ _FAIL_CLOSED_STATUS = "red"
 _FAIL_CLOSED_DQC = "unknown"
 _SNAP_DQC_CLASSES = ("quantized", "piecewise_packed")
 _STATUS_RANK = {"green": 0, "yellow": 1, "red": 2}
+_RAL_POLICY_RANK = {
+    "allow": 0,
+    "allow_after_snap": 1,
+    "caution_after_snap": 2,
+    "disallow": 3,
+}
 
 
 def _ctrl_token(value: object) -> str:
@@ -45,6 +51,22 @@ def _ctrl_token(value: object) -> str:
     if isinstance(raw, str) and raw.strip():
         return raw.strip().lower()
     return str(value).strip().lower().rsplit(".", 1)[-1]
+
+
+def _ral_policy_rank(token: str) -> int:
+    """Total order: disallow > caution_* > allow_after_snap > allow. Unknown is disallow."""
+    key = str(token).strip().lower()
+    if key in _RAL_POLICY_RANK:
+        return _RAL_POLICY_RANK[key]
+    if key.startswith("caution"):
+        return _RAL_POLICY_RANK["caution_after_snap"]
+    if key.startswith("allow"):
+        return (
+            _RAL_POLICY_RANK["allow_after_snap"]
+            if "after_snap" in key
+            else _RAL_POLICY_RANK["allow"]
+        )
+    return _RAL_POLICY_RANK["disallow"]
 
 
 def _as_series(frame: pd.DataFrame, col: str) -> pd.Series:
@@ -130,11 +152,12 @@ def _reconcile_injected_with_gate(
     if "ral_policy_gate" in merged.columns:
         gate_ral = _as_series(merged, "ral_policy_gate").map(_ctrl_token)
         inj_ral = _as_series(merged, "ral_policy").map(_ctrl_token)
-        merged["ral_policy"] = np.where(
-            (gate_ral == "disallow") | (inj_ral == "disallow"),
-            _FAIL_CLOSED_RAL,
-            _as_series(merged, "ral_policy"),
-        )
+        gate_rr = gate_ral.map(_ral_policy_rank)
+        inj_rr = inj_ral.map(_ral_policy_rank)
+        use_inj_ral = inj_rr > gate_rr
+        chosen_ral = inj_ral.where(use_inj_ral, gate_ral)
+        empty_ral = chosen_ral.map(_ctrl_token) == ""
+        merged["ral_policy"] = chosen_ral.where(~empty_ral, _FAIL_CLOSED_RAL)
 
     if "status_gate" in merged.columns:
         gate_status = _as_series(merged, "status_gate").map(_ctrl_token)
@@ -145,6 +168,12 @@ def _reconcile_injected_with_gate(
         merged["status"] = _as_series(merged, "status").where(
             ~use_gate_status, _as_series(merged, "status_gate")
         )
+
+    chosen_ral_token = _as_series(merged, "ral_policy").map(_ctrl_token)
+    merged.loc[chosen_ral_token == "disallow", "status"] = _FAIL_CLOSED_STATUS
+    caution_mask = chosen_ral_token.str.startswith("caution")
+    status_token = _as_series(merged, "status").map(_ctrl_token)
+    merged.loc[caution_mask & (status_token == "green"), "status"] = "yellow"
 
     if "fas_class_gate" in merged.columns:
         gate_fas = _as_series(merged, "fas_class_gate").map(_ctrl_token)
@@ -212,10 +241,14 @@ def run_governance_workflow_df(
       (missing or NA ``ral_policy`` / ``status`` / ``fas_class`` / ``dqc_class`` /
       ``snap_required`` become ``DISALLOW`` / ``RED`` / DQC ``UNKNOWN``), then
       reconciled against the gate: injected rows may tighten, never loosen snap,
-      DQC class, RAL policy, or status.
-    - Empty, missing, or non-finite ``y`` / ``yhat`` streams fail closed in
-      ``evaluate_governance_panel_df`` (``status=red``, ``ral_policy=disallow``,
-      FPC ``incompatible``) instead of raising from ``eb-metrics``.
+      DQC class, RAL policy, or status. ``ral_policy`` uses the total order
+      ``disallow > caution_* > allow_*``; injected ``allow`` cannot upgrade
+      gate ``caution_after_snap``.
+    - Empty, missing, non-finite, or thinly covered ``y`` / ``yhat`` streams
+      fail closed in ``evaluate_governance_panel_df`` (``status=red``,
+      ``ral_policy=disallow``, FPC ``incompatible``) instead of raising from
+      ``eb-metrics`` or silently governing a finite remainder. More than 20%
+      non-finite rows, or fewer than 8 finite aligned rows, fail closed.
     """
     keys_list = list(keys)
     if len(keys_list) == 0:

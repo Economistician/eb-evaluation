@@ -18,6 +18,7 @@ from eb_evaluation.diagnostics.governance import GovernanceStatus, RALPolicy, Ta
 from eb_evaluation.diagnostics.presets import GovernancePreset
 from eb_evaluation.diagnostics.run import run_governance_gate
 
+from .governance_panel import finite_coverage_is_insufficient
 from .hierarchy import evaluate_hierarchy_df
 
 
@@ -221,12 +222,18 @@ def run_governance_panel_df(
         sub = sub.loc[finite_mask]
         n_used = len(sub)
         row["n_points_used"] = n_used
+        row["n_finite"] = n_used
+        row["finite_coverage"] = (float(n_used) / float(len(g))) if len(g) else 0.0
 
-        if n_used == 0:
+        if finite_coverage_is_insufficient(len(g), n_used):
             stream_fas = resolve_panel_fas_class(
                 g, fas_class=fas_class, fas_class_col=fas_class_col
             )
-            row["warnings"] = "empty_series_after_dropna"
+            row["warnings"] = (
+                "empty_series_after_dropna"
+                if n_used == 0
+                else "insufficient_finite_coverage_fail_closed"
+            )
             row["dqc_class"] = DQCClass.UNKNOWN.value
             row["dqc_granularity"] = None
             row["fpc_raw_class"] = FPCClass.INCOMPATIBLE.value
@@ -243,7 +250,11 @@ def run_governance_panel_df(
             else:
                 row["fas_class"] = str(stream_fas)
             row["recommended_mode"] = "reroute_discrete"
-            row["recommendations"] = "empty_series_fail_closed"
+            row["recommendations"] = (
+                "empty_series_fail_closed"
+                if n_used == 0
+                else "insufficient_finite_coverage_fail_closed"
+            )
             results.append(row)
             continue
 

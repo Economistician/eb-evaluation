@@ -346,3 +346,103 @@ def test_run_governance_workflow_df_injected_forged_allow_cannot_bypass_snap() -
     assert bool(row_q["snap_required"]) is True
     snap_unit = float(str(row_q["snap_unit"]))
     assert np.isfinite(snap_unit) and snap_unit > 0.0
+
+
+def test_run_governance_workflow_df_injected_allow_cannot_upgrade_gate_caution() -> None:
+    df = _build_sample_panel_df()
+    df["fas_class"] = "CONDITIONAL"
+    decisions = pd.DataFrame(
+        {
+            "site_id": [1, 2],
+            "forecast_entity_id": [10, 20],
+            "ral_policy": ["allow", "allow"],
+            "status": ["green", "green"],
+            "fas_class": ["ALLOWED", "ALLOWED"],
+            "dqc_class": ["continuous_like", "continuous_like"],
+            "snap_required": [False, False],
+            "snap_unit": [np.nan, np.nan],
+        }
+    )
+    _panel, out_decisions = run_governance_workflow_df(
+        df=df,
+        keys=["site_id", "forecast_entity_id"],
+        actual_col="y",
+        base_forecast_col="yhat_base",
+        ral_forecast_col="yhat_ral",
+        tau=2.0,
+        fas_class_col="fas_class",
+        decisions_df=decisions,
+    )
+    row = out_decisions[out_decisions["forecast_entity_id"] == 10].iloc[0]
+    policy = str(row["ral_policy"]).lower()
+    assert policy != "allow"
+    assert policy in {"caution_after_snap", "disallow"}
+    assert str(row["status"]).lower() in {"yellow", "red"}
+
+
+def test_reconcile_injected_allow_cannot_upgrade_explicit_gate_caution() -> None:
+    from eb_evaluation.dataframe.governance_workflow import _reconcile_injected_with_gate
+
+    keys = ["site_id", "forecast_entity_id"]
+    gate = pd.DataFrame(
+        {
+            "site_id": [1],
+            "forecast_entity_id": [10],
+            "ral_policy": ["caution_after_snap"],
+            "status": ["yellow"],
+            "fas_class": ["CONDITIONAL"],
+            "dqc_class": ["continuous_like"],
+            "snap_required": [False],
+            "snap_unit": [np.nan],
+        }
+    )
+    injected = pd.DataFrame(
+        {
+            "site_id": [1],
+            "forecast_entity_id": [10],
+            "ral_policy": ["allow"],
+            "status": ["green"],
+            "fas_class": ["ALLOWED"],
+            "dqc_class": ["continuous_like"],
+            "snap_required": [False],
+            "snap_unit": [np.nan],
+        }
+    )
+    out = _reconcile_injected_with_gate(injected, gate, keys)
+    row = out.iloc[0]
+    assert str(row["ral_policy"]).lower() == "caution_after_snap"
+    assert str(row["status"]).lower() == "yellow"
+
+
+def test_run_governance_workflow_df_sparse_finite_coverage_fails_closed() -> None:
+    n = 10
+    df = pd.DataFrame(
+        {
+            "site_id": [3] * n,
+            "forecast_entity_id": [30] * n,
+            "y": [float(i + 1) for i in range(n)],
+            "yhat_base": [float(i + 1) if i < 7 else np.nan for i in range(n)],
+            "yhat_ral": [float(i + 1) for i in range(n)],
+        }
+    )
+    panel, decisions = run_governance_workflow_df(
+        df=df,
+        keys=["site_id", "forecast_entity_id"],
+        actual_col="y",
+        base_forecast_col="yhat_base",
+        ral_forecast_col="yhat_ral",
+        tau=2.0,
+    )
+    row = decisions.iloc[0]
+    assert row["status"] == "red"
+    assert row["ral_policy"] == "disallow"
+    assert row["fpc_raw_class"] == "incompatible"
+    assert row["recommendations"] == "insufficient_finite_coverage_fail_closed"
+    assert int(row["n_finite"]) == 7
+    np.testing.assert_allclose(
+        panel["yhat_ral_governed"].to_numpy(dtype=float),
+        panel["yhat_base_governed"].to_numpy(dtype=float),
+        rtol=0,
+        atol=1e-12,
+    )
+    assert not panel["ral_apply_ral_applied"].to_numpy(dtype=bool).any()

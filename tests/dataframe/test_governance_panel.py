@@ -296,13 +296,14 @@ def test_run_governance_panel_df_empty_after_dropna_is_red_disallow() -> None:
 
 
 def test_evaluate_governance_panel_df_nan_stream_fails_closed() -> None:
+    n_ok = 10
     df = pd.DataFrame(
         {
-            "site_id": [1, 1, 2, 2],
-            "forecast_entity_id": [99, 99, 10, 10],
-            "y": [np.nan, np.nan, 1.0, 2.0],
-            "yhat_base": [np.nan, 1.0, 1.0, 2.0],
-            "yhat_ral": [2.0, np.nan, 1.1, 2.1],
+            "site_id": [1, 1, *([2] * n_ok)],
+            "forecast_entity_id": [99, 99, *([10] * n_ok)],
+            "y": [np.nan, np.nan, *list(range(1, n_ok + 1))],
+            "yhat_base": [np.nan, 1.0, *list(range(1, n_ok + 1))],
+            "yhat_ral": [2.0, np.nan, *[v + 0.1 for v in range(1, n_ok + 1)]],
         }
     )
     out = cast(
@@ -326,8 +327,74 @@ def test_evaluate_governance_panel_df_nan_stream_fails_closed() -> None:
     assert nan_row["dqc_class"] == "unknown"
     assert nan_row["recommended_mode"] == "reroute_discrete"
     assert nan_row["recommendations"] == "empty_series_fail_closed"
-    assert int(ok_row["n"]) == 2
+    assert int(ok_row["n"]) == n_ok
+    assert int(ok_row["n_finite"]) == n_ok
     assert ok_row["recommendations"] != "empty_series_fail_closed"
+    assert ok_row["recommendations"] != "insufficient_finite_coverage_fail_closed"
+
+
+def test_evaluate_governance_panel_df_sparse_finite_coverage_fails_closed() -> None:
+    n = 10
+    y = [float(i + 1) for i in range(n)]
+    yhat_base = [float(i + 1) if i < 7 else np.nan for i in range(n)]
+    yhat_ral = [float(i + 1) for i in range(n)]
+    df = pd.DataFrame(
+        {
+            "site_id": [1] * n,
+            "forecast_entity_id": [50] * n,
+            "y": y,
+            "yhat_base": yhat_base,
+            "yhat_ral": yhat_ral,
+        }
+    )
+    out = cast(
+        pd.DataFrame,
+        evaluate_governance_panel_df(
+            df=df,
+            keys=["site_id", "forecast_entity_id"],
+            actual_col="y",
+            base_forecast_col="yhat_base",
+            ral_forecast_col="yhat_ral",
+            tau=2.0,
+        ),
+    )
+    row = out.iloc[0]
+    assert int(row["n"]) == n
+    assert int(row["n_finite"]) == 7
+    assert float(row["finite_coverage"]) == pytest.approx(0.7)
+    assert row["status"] == "red"
+    assert row["ral_policy"] == "disallow"
+    assert row["fpc_raw_class"] == "incompatible"
+    assert row["recommendations"] == "insufficient_finite_coverage_fail_closed"
+
+
+def test_evaluate_governance_panel_df_short_finite_window_fails_closed() -> None:
+    df = pd.DataFrame(
+        {
+            "site_id": [1, 1],
+            "forecast_entity_id": [10, 10],
+            "y": [1.0, 2.0],
+            "yhat_base": [1.0, 2.0],
+            "yhat_ral": [1.1, 2.1],
+        }
+    )
+    out = cast(
+        pd.DataFrame,
+        evaluate_governance_panel_df(
+            df=df,
+            keys=["site_id", "forecast_entity_id"],
+            actual_col="y",
+            base_forecast_col="yhat_base",
+            ral_forecast_col="yhat_ral",
+            tau=2.0,
+        ),
+    )
+    row = out.iloc[0]
+    assert int(row["n_finite"]) == 2
+    assert row["status"] == "red"
+    assert row["ral_policy"] == "disallow"
+    assert row["fpc_raw_class"] == "incompatible"
+    assert row["recommendations"] == "insufficient_finite_coverage_fail_closed"
 
 
 def test_evaluate_governance_panel_df_inf_stream_fails_closed() -> None:

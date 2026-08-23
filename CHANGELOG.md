@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `apply_ral` requires a decisions table with `ral_policy`, `status`, `fas_class`, `dqc_class`, and `snap_required`; ungated calls raise.
 - Injected `decisions_df` overrides in `run_governance_workflow_df` fail closed to `DISALLOW` / `RED` when required control columns are missing or NA.
 - Injected `decisions_df` overrides are reconciled against the live governance gate so forged `allow` / `green` / `continuous_like` rows cannot disable required snap or flagging.
+- Injected `ral_policy` uses the total order `disallow > caution_* > allow_*` and cannot upgrade a gate `caution_after_snap` to `allow`.
+- `evaluate_governance_panel_df` and the governance workflow fail closed when more than 20% of a stream is non-finite or fewer than 8 finite aligned rows remain, instead of silently governing the remainder.
 - Re-exported `results_to_dict` from the package root.
 - `run_governance_panel_df` drops `±inf` with NaN and fail-closes non-finite streams.
 
