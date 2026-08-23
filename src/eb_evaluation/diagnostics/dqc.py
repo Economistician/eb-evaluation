@@ -112,6 +112,8 @@ def classify_dqc(
     ----------
     y:
         Nonnegative realized demand/usage series for a single entity.
+        NaN, negatives, or unparseable cells fail closed as ``UNKNOWN``
+        instead of classifying a cleaned remainder.
     thresholds:
         Governance thresholds controlling classification behavior.
 
@@ -130,12 +132,18 @@ def classify_dqc(
             reasons=("empty_series",),
         )
 
-    vals, n_unparseable = _clean_nonneg(y, round_decimals=thr.round_decimals)
+    vals, n_unparseable, n_invalid = _clean_nonneg(y, round_decimals=thr.round_decimals)
     if n_unparseable:
         return DQCResult(
             dqc_class=DQCClass.UNKNOWN,
             signals=_empty_signals(thr),
             reasons=("unparseable_values_fail_closed", f"unparseable_values={n_unparseable}"),
+        )
+    if n_invalid:
+        return DQCResult(
+            dqc_class=DQCClass.UNKNOWN,
+            signals=_empty_signals(thr),
+            reasons=("invalid_values_fail_closed", f"invalid_values={n_invalid}"),
         )
     if not vals:
         return DQCResult(
@@ -311,27 +319,27 @@ def _empty_signals(thr: DQCThresholds) -> DQCSignals:
     )
 
 
-def _clean_nonneg(values: Sequence[object], *, round_decimals: int) -> tuple[list[float], int]:
-    """Parse nonnegative values; count unparseable cells instead of swallowing errors.
+def _clean_nonneg(values: Sequence[object], *, round_decimals: int) -> tuple[list[float], int, int]:
+    """Parse nonnegative values; count unparseable and invalid cells.
 
-    NaN and negatives are dropped as missing/invalid demand. ``TypeError`` /
-    ``ValueError`` during conversion are counted so the caller can fail closed
-    rather than classify a quietly cleaned subset.
+    ``TypeError`` / ``ValueError`` during conversion are unparseable. NaN and
+    negatives are invalid demand. Callers fail closed rather than classify a
+    quietly cleaned subset.
     """
     out: list[float] = []
     n_unparseable = 0
+    n_invalid = 0
     for v in values:
         try:
             fv = float(v)  # type: ignore[arg-type]
         except (TypeError, ValueError):
             n_unparseable += 1
             continue
-        if isnan(fv):
-            continue
-        if fv < 0:
+        if isnan(fv) or fv < 0:
+            n_invalid += 1
             continue
         out.append(round(fv, round_decimals))
-    return out, n_unparseable
+    return out, n_unparseable, n_invalid
 
 
 def _multiple_rate(values: Sequence[float], unit: float) -> float:

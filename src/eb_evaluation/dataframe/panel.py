@@ -18,7 +18,7 @@ from eb_evaluation.diagnostics.governance import GovernanceStatus, RALPolicy, Ta
 from eb_evaluation.diagnostics.presets import GovernancePreset
 from eb_evaluation.diagnostics.run import run_governance_gate
 
-from .governance_panel import finite_coverage_is_insufficient
+from .governance_panel import fas_review_is_missing, finite_coverage_is_insufficient
 from .hierarchy import evaluate_hierarchy_df
 
 
@@ -184,11 +184,14 @@ def run_governance_panel_df(
         Same semantics as diagnostics.run.run_governance_gate: do not mix preset with
         explicit thresholds.
     fas_class:
-        Optional upstream Forecast Admissibility Surface class. A scalar is
+        Required upstream Forecast Admissibility Surface class. A scalar is
         broadcast to every stream. A row-aligned Series is resolved per stream.
+        Omitted or null FAS fail-closes the stream (``fas_class=BLOCKED``,
+        ``status=red``, ``ral_policy=disallow``).
     fas_class_col:
         Optional panel column of per-row FAS classes. Mixed values within a
         stream raise. When set, this column takes precedence over ``fas_class``.
+        A column that resolves to all-null for a stream is treated as omitted.
 
     Returns
     -------
@@ -225,10 +228,25 @@ def run_governance_panel_df(
         row["n_finite"] = n_used
         row["finite_coverage"] = (float(n_used) / float(len(g))) if len(g) else 0.0
 
+        stream_fas = resolve_panel_fas_class(g, fas_class=fas_class, fas_class_col=fas_class_col)
+        if fas_review_is_missing(stream_fas):
+            row["warnings"] = "fas_required_fail_closed"
+            row["dqc_class"] = DQCClass.UNKNOWN.value
+            row["dqc_granularity"] = None
+            row["fpc_raw_class"] = FPCClass.INCOMPATIBLE.value
+            row["fpc_snapped_class"] = FPCClass.INCOMPATIBLE.value
+            row["snap_required"] = False
+            row["snap_unit"] = None
+            row["tau_policy"] = TauPolicy.RAW_UNITS.value
+            row["ral_policy"] = RALPolicy.DISALLOW.value
+            row["status"] = GovernanceStatus.RED.value
+            row["fas_class"] = FASClass.BLOCKED.value
+            row["recommended_mode"] = "reroute_discrete"
+            row["recommendations"] = "fas_required_fail_closed"
+            results.append(row)
+            continue
+
         if finite_coverage_is_insufficient(len(g), n_used):
-            stream_fas = resolve_panel_fas_class(
-                g, fas_class=fas_class, fas_class_col=fas_class_col
-            )
             row["warnings"] = (
                 "empty_series_after_dropna"
                 if n_used == 0
@@ -243,9 +261,7 @@ def run_governance_panel_df(
             row["tau_policy"] = TauPolicy.RAW_UNITS.value
             row["ral_policy"] = RALPolicy.DISALLOW.value
             row["status"] = GovernanceStatus.RED.value
-            if stream_fas is None:
-                row["fas_class"] = None
-            elif isinstance(stream_fas, FASClass):
+            if isinstance(stream_fas, FASClass):
                 row["fas_class"] = stream_fas.value
             else:
                 row["fas_class"] = str(stream_fas)
@@ -261,7 +277,6 @@ def run_governance_panel_df(
         y_list = sub[actual_col].astype(float).tolist()
         yhat_base_list = sub[forecast_base_col].astype(float).tolist()
         yhat_ral_list = sub[forecast_ral_col].astype(float).tolist()
-        stream_fas = resolve_panel_fas_class(g, fas_class=fas_class, fas_class_col=fas_class_col)
 
         gate = run_governance_gate(
             y=y_list,

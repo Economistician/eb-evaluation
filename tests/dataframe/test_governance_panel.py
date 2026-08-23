@@ -62,6 +62,7 @@ def test_evaluate_governance_panel_df_basic_structure() -> None:
             base_forecast_col="yhat_base",
             ral_forecast_col="yhat_ral",
             tau=2.0,
+            fas_class="ALLOWED",
         ),
     )
 
@@ -103,6 +104,7 @@ def test_evaluate_governance_panel_df_detects_snap_required_for_quantized_stream
             base_forecast_col="yhat_base",
             ral_forecast_col="yhat_ral",
             tau=1.0,
+            fas_class="ALLOWED",
         ),
     )
 
@@ -177,6 +179,7 @@ def test_evaluate_governance_panel_df_dropna_keys_behavior() -> None:
             ral_forecast_col="yhat_ral",
             tau=2.0,
             dropna_keys=True,
+            fas_class="ALLOWED",
         ),
     )
     assert len(out_drop) == 2
@@ -191,6 +194,7 @@ def test_evaluate_governance_panel_df_dropna_keys_behavior() -> None:
             ral_forecast_col="yhat_ral",
             tau=2.0,
             dropna_keys=False,
+            fas_class="ALLOWED",
         ),
     )
     # When dropna_keys=False, groupby(dropna=True) should include the NA group.
@@ -208,6 +212,7 @@ def test_evaluate_governance_panel_recommendations_use_comma_delimiter() -> None
             base_forecast_col="yhat_base",
             ral_forecast_col="yhat_ral",
             tau=1.0,
+            fas_class="ALLOWED",
         ),
     )
     recs = out["recommendations"].astype(str)
@@ -284,6 +289,7 @@ def test_run_governance_panel_df_empty_after_dropna_is_red_disallow() -> None:
         forecast_base_col="yhat_base",
         forecast_ral_col="yhat_ral",
         tau=2.0,
+        fas_class="ALLOWED",
     )
     assert len(out) == 1
     row = out.iloc[0]
@@ -315,6 +321,7 @@ def test_evaluate_governance_panel_df_nan_stream_fails_closed() -> None:
             base_forecast_col="yhat_base",
             ral_forecast_col="yhat_ral",
             tau=2.0,
+            fas_class="ALLOWED",
         ),
     )
     assert len(out) == 2
@@ -356,6 +363,7 @@ def test_evaluate_governance_panel_df_sparse_finite_coverage_fails_closed() -> N
             base_forecast_col="yhat_base",
             ral_forecast_col="yhat_ral",
             tau=2.0,
+            fas_class="ALLOWED",
         ),
     )
     row = out.iloc[0]
@@ -387,6 +395,7 @@ def test_evaluate_governance_panel_df_short_finite_window_fails_closed() -> None
             base_forecast_col="yhat_base",
             ral_forecast_col="yhat_ral",
             tau=2.0,
+            fas_class="ALLOWED",
         ),
     )
     row = out.iloc[0]
@@ -416,6 +425,7 @@ def test_evaluate_governance_panel_df_inf_stream_fails_closed() -> None:
             base_forecast_col="yhat_base",
             ral_forecast_col="yhat_ral",
             tau=2.0,
+            fas_class="ALLOWED",
         ),
     )
     row = out.iloc[0]
@@ -444,6 +454,7 @@ def test_run_governance_panel_df_inf_stream_fails_closed() -> None:
         forecast_base_col="yhat_base",
         forecast_ral_col="yhat_ral",
         tau=2.0,
+        fas_class="ALLOWED",
     )
     assert len(out) == 1
     row = out.iloc[0]
@@ -451,3 +462,62 @@ def test_run_governance_panel_df_inf_stream_fails_closed() -> None:
     assert row["ral_policy"] == "disallow"
     assert row["status"] == "red"
     assert row["fpc_raw_class"] == "incompatible"
+
+
+def test_evaluate_governance_panel_df_omitted_fas_fails_closed() -> None:
+    df = _build_sample_panel_df()
+    out = cast(
+        pd.DataFrame,
+        evaluate_governance_panel_df(
+            df=df,
+            keys=["site_id", "forecast_entity_id"],
+            actual_col="y",
+            base_forecast_col="yhat_base",
+            ral_forecast_col="yhat_ral",
+            tau=2.0,
+        ),
+    )
+    assert len(out) == 2
+    assert (out["fas_class"] == "BLOCKED").all()
+    assert (out["status"] == "red").all()
+    assert (out["ral_policy"] == "disallow").all()
+    assert (out["recommendations"] == "fas_required_fail_closed").all()
+
+
+def test_evaluate_governance_panel_df_null_fas_column_fails_closed() -> None:
+    df = _build_sample_panel_df()
+    df["fas_class"] = pd.NA
+    out = cast(
+        pd.DataFrame,
+        evaluate_governance_panel_df(
+            df=df,
+            keys=["site_id", "forecast_entity_id"],
+            actual_col="y",
+            base_forecast_col="yhat_base",
+            ral_forecast_col="yhat_ral",
+            tau=2.0,
+            fas_class_col="fas_class",
+        ),
+    )
+    assert (out["fas_class"] == "BLOCKED").all()
+    assert (out["status"] == "red").all()
+    assert (out["ral_policy"] == "disallow").all()
+    assert (out["recommendations"] == "fas_required_fail_closed").all()
+
+
+def test_run_governance_panel_df_omitted_fas_fails_closed() -> None:
+    from eb_evaluation.dataframe.panel import run_governance_panel_df
+
+    df = _build_sample_panel_df()
+    out = run_governance_panel_df(
+        df=df,
+        group_cols=["site_id", "forecast_entity_id"],
+        actual_col="y",
+        forecast_base_col="yhat_base",
+        forecast_ral_col="yhat_ral",
+        tau=2.0,
+    )
+    assert (out["fas_class"] == "BLOCKED").all()
+    assert (out["status"] == "red").all()
+    assert (out["ral_policy"] == "disallow").all()
+    assert (out["recommendations"] == "fas_required_fail_closed").all()

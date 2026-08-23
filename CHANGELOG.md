@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `evaluate_governance_panel_df` and `run_governance_workflow_df` require FAS review. Omitted or null FAS fail-closes as `fas_class=BLOCKED`, `status=red`, `ral_policy=disallow`.
+- `classify_dqc` and `run_governance_gate` fail-close on NaN or negative demand cells instead of classifying a cleaned remainder (`dqc_class=UNKNOWN`, `status=red`).
+
 ## [0.2.8] - 2026-08-23
 
 ### Added

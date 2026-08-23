@@ -29,6 +29,7 @@ __all__ = ["run_governance_workflow_df", "run_governance_workflow_df_dict"]
 _FAIL_CLOSED_RAL = "disallow"
 _FAIL_CLOSED_STATUS = "red"
 _FAIL_CLOSED_DQC = "unknown"
+_FAIL_CLOSED_FAS = "BLOCKED"
 _SNAP_DQC_CLASSES = ("quantized", "piecewise_packed")
 _STATUS_RANK = {"green": 0, "yellow": 1, "red": 2}
 _RAL_POLICY_RANK = {
@@ -81,7 +82,7 @@ def _fail_close_incomplete_decisions(decisions: pd.DataFrame) -> pd.DataFrame:
 
     An injected override that omits any required control column cannot be
     treated as a complete gate result. Missing columns, and rows with NA in
-    ral_policy / status / dqc_class / snap_required, fail closed.
+    ral_policy / status / fas_class / dqc_class / snap_required, fail closed.
     """
     out = decisions.copy()
     missing_cols = [c for c in REQUIRED_DECISION_COLUMNS if c not in out.columns]
@@ -89,7 +90,7 @@ def _fail_close_incomplete_decisions(decisions: pd.DataFrame) -> pd.DataFrame:
         out["ral_policy"] = _FAIL_CLOSED_RAL
         out["status"] = _FAIL_CLOSED_STATUS
         if "fas_class" not in out.columns:
-            out["fas_class"] = None
+            out["fas_class"] = _FAIL_CLOSED_FAS
         if "dqc_class" not in out.columns:
             out["dqc_class"] = _FAIL_CLOSED_DQC
         if "snap_required" not in out.columns:
@@ -99,18 +100,21 @@ def _fail_close_incomplete_decisions(decisions: pd.DataFrame) -> pd.DataFrame:
     status_obj = out["status"]
     dqc_obj = out["dqc_class"]
     snap_obj = out["snap_required"]
+    fas_obj = out["fas_class"]
     ral_s = ral_obj if isinstance(ral_obj, pd.Series) else pd.Series(ral_obj, index=out.index)
     status_s = (
         status_obj if isinstance(status_obj, pd.Series) else pd.Series(status_obj, index=out.index)
     )
     dqc_s = dqc_obj if isinstance(dqc_obj, pd.Series) else pd.Series(dqc_obj, index=out.index)
     snap_s = snap_obj if isinstance(snap_obj, pd.Series) else pd.Series(snap_obj, index=out.index)
-    incomplete = ral_s.isna() | status_s.isna() | dqc_s.isna() | snap_s.isna()
+    fas_s = fas_obj if isinstance(fas_obj, pd.Series) else pd.Series(fas_obj, index=out.index)
+    incomplete = ral_s.isna() | status_s.isna() | dqc_s.isna() | snap_s.isna() | fas_s.isna()
     if bool(incomplete.any()):
         out.loc[incomplete, "ral_policy"] = _FAIL_CLOSED_RAL
         out.loc[incomplete, "status"] = _FAIL_CLOSED_STATUS
         out.loc[incomplete, "dqc_class"] = _FAIL_CLOSED_DQC
         out.loc[incomplete, "snap_required"] = False
+        out.loc[incomplete, "fas_class"] = _FAIL_CLOSED_FAS
     return out
 
 
@@ -249,6 +253,8 @@ def run_governance_workflow_df(
       ``ral_policy=disallow``, FPC ``incompatible``) instead of raising from
       ``eb-metrics`` or silently governing a finite remainder. More than 20%
       non-finite rows, or fewer than 8 finite aligned rows, fail closed.
+    - FAS review is mandatory. Omitted or null ``fas_class`` / ``fas_class_col``
+      fail closed as ``fas_class=BLOCKED``, ``status=red``, ``ral_policy=disallow``.
     """
     keys_list = list(keys)
     if len(keys_list) == 0:

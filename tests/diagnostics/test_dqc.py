@@ -116,3 +116,19 @@ def test_dqc_unparseable_values_fail_closed() -> None:
     assert result.dqc_class is DQCClass.UNKNOWN
     assert "unparseable_values_fail_closed" in result.reasons
     assert any(r.startswith("unparseable_values=") for r in result.reasons)
+
+
+def test_dqc_nan_values_fail_closed() -> None:
+    y = [8.0] * 120 + [16.0] * 120 + [float("nan")]
+    result = classify_dqc(y)
+    assert result.dqc_class is DQCClass.UNKNOWN
+    assert "invalid_values_fail_closed" in result.reasons
+    assert any(r.startswith("invalid_values=") for r in result.reasons)
+
+
+def test_dqc_negative_values_fail_closed() -> None:
+    y = [8.0] * 120 + [16.0] * 120 + [-1.0]
+    result = classify_dqc(y)
+    assert result.dqc_class is DQCClass.UNKNOWN
+    assert "invalid_values_fail_closed" in result.reasons
+    assert any(r.startswith("invalid_values=") for r in result.reasons)

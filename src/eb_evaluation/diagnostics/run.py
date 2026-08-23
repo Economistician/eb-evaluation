@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from math import isnan
 from typing import Literal, TypeAlias
 
 from .dqc import DQCClass, DQCResult, DQCThresholds, classify_dqc
@@ -64,6 +65,24 @@ def _ensure_equal_length(
 def _to_float_list(x: FloatArrayLike) -> list[float]:
     # `list(np_array)` yields numpy scalar types; we normalize to plain `float`.
     return [float(v) for v in x]
+
+
+def _invalid_demand_cell_count(values: Sequence[float]) -> int:
+    """Count NaN or negative cells in a raw demand series."""
+    return sum(1 for v in values if isnan(v) or v < 0.0)
+
+
+def _placeholder_fpc_signals() -> FPCSignals:
+    """NaN FPC signals used when the gate fail-closes before scoring."""
+    return FPCSignals(
+        nsl_base=float("nan"),
+        nsl_ral=float("nan"),
+        delta_nsl=float("nan"),
+        hr_base_tau=float("nan"),
+        hr_ral_tau=float("nan"),
+        delta_hr_tau=float("nan"),
+        ud=float("nan"),
+    )
 
 
 def _normalize_nonneg_mode(mode: NonnegMode) -> Literal["allow", "clip_zero"]:
@@ -141,7 +160,9 @@ def run_governance_gate(
     Parameters
     ----------
     y:
-        Realized demand series.
+        Realized demand series. NaN or negative cells fail closed
+        (``dqc_class=UNKNOWN``, ``status=red``, ``ral_policy=disallow``)
+        instead of scoring a cleaned remainder.
     yhat_base:
         Baseline forecasts (raw units).
     yhat_ral:
@@ -247,15 +268,7 @@ def run_governance_gate(
         fas_token = str(fas_class).strip().upper()
 
     if fas_token == FASClass.BLOCKED.value:
-        dummy_signals = FPCSignals(
-            nsl_base=float("nan"),
-            nsl_ral=float("nan"),
-            delta_nsl=float("nan"),
-            hr_base_tau=float("nan"),
-            hr_ral_tau=float("nan"),
-            delta_hr_tau=float("nan"),
-            ud=float("nan"),
-        )
+        dummy_signals = _placeholder_fpc_signals()
         decision = decide_governance(
             y=y_list,
             fpc_signals_raw=dummy_signals,
@@ -266,6 +279,27 @@ def run_governance_gate(
             fas_class=FASClass.BLOCKED,
         )
         recommendations.append("blocked_by_fas")
+        return GateResult(
+            dqc=decision.dqc,
+            fpc_raw=decision.fpc_raw,
+            fpc_snapped=decision.fpc_snapped,
+            decision=decision,
+            recommended_mode="reroute_discrete",
+            recommendations=tuple(recommendations),
+        )
+
+    if _invalid_demand_cell_count(y_list):
+        dummy_signals = _placeholder_fpc_signals()
+        decision = decide_governance(
+            y=y_list,
+            fpc_signals_raw=dummy_signals,
+            fpc_signals_snapped=None,
+            dqc_thresholds=dqc_thresholds,
+            fpc_thresholds=fpc_thresholds,
+            preset=effective_preset,
+            fas_class=fas_class,
+        )
+        recommendations.append("invalid_values_fail_closed")
         return GateResult(
             dqc=decision.dqc,
             fpc_raw=decision.fpc_raw,

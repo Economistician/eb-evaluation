@@ -56,6 +56,7 @@ def _safe_getattr(obj: object, name: str) -> Any:
 
 _FAIL_CLOSED_TOKEN = "empty_series_fail_closed"
 _COVERAGE_FAIL_CLOSED_TOKEN = "insufficient_finite_coverage_fail_closed"
+_FAS_REQUIRED_TOKEN = "fas_required_fail_closed"
 MAX_NONFINITE_FRACTION = 0.20
 MIN_FINITE_ALIGNED_ROWS = 8
 
@@ -85,6 +86,18 @@ def _fas_value(stream_fas: FASClass | str | None) -> str | None:
     if isinstance(stream_fas, FASClass):
         return stream_fas.value
     return str(stream_fas)
+
+
+def fas_review_is_missing(stream_fas: FASClass | str | None) -> bool:
+    """Return True when a stream has no usable FAS review class."""
+    if stream_fas is None:
+        return True
+    try:
+        if bool(pd.isna(stream_fas)):
+            return True
+    except (ValueError, TypeError):
+        pass
+    return isinstance(stream_fas, str) and not stream_fas.strip()
 
 
 def _fail_closed_panel_row(
@@ -177,11 +190,14 @@ def evaluate_governance_panel_df(
         If True, drop rows with NA in any key column before grouping. This is usually
         desired for stable grouping semantics.
     fas_class:
-        Optional upstream Forecast Admissibility Surface class. A scalar is
+        Required upstream Forecast Admissibility Surface class. A scalar is
         broadcast to every stream. A row-aligned Series is resolved per stream.
+        Omitted or null FAS fail-closes the stream (``fas_class=BLOCKED``,
+        ``status=red``, ``ral_policy=disallow``).
     fas_class_col:
         Optional panel column of per-row FAS classes. Mixed values within a
         stream raise. When set, this column takes precedence over ``fas_class``.
+        A column that resolves to all-null for a stream is treated as omitted.
 
     Returns
     -------
@@ -191,11 +207,12 @@ def evaluate_governance_panel_df(
     Notes
     -----
     Empty streams, streams with no finite aligned ``y`` / ``yhat`` points
-    (NaN or ±inf), and streams whose finite subset is too thin fail closed
-    (``status=red``, ``ral_policy=disallow``, FPC ``incompatible``) instead of
-    calling ``eb-metrics``. A stream fails closed when more than 20% of rows
-    are non-finite or when fewer than ``MIN_FINITE_ALIGNED_ROWS`` (8) finite
-    aligned rows remain.
+    (NaN or ±inf), streams whose finite subset is too thin, and streams
+    without a FAS review class fail closed (``status=red``,
+    ``ral_policy=disallow``, FPC ``incompatible``) instead of calling
+    ``eb-metrics``. A stream fails closed when more than 20% of rows are
+    non-finite or when fewer than ``MIN_FINITE_ALIGNED_ROWS`` (8) finite
+    aligned rows remain. Omitted or null FAS is recorded as ``BLOCKED``.
     """
     keys_list = list(keys)
     if len(keys_list) == 0:
@@ -225,6 +242,18 @@ def evaluate_governance_panel_df(
         finite = _finite_aligned_subset(g, (actual_col, base_forecast_col, ral_forecast_col))
         n_total = len(g)
         n_finite = len(finite)
+        if fas_review_is_missing(stream_fas):
+            out_rows.append(
+                _fail_closed_panel_row(
+                    keys_list=keys_list,
+                    key_vals=key_vals,
+                    n=n_total,
+                    n_finite=n_finite,
+                    stream_fas=FASClass.BLOCKED,
+                    reason=_FAS_REQUIRED_TOKEN,
+                )
+            )
+            continue
         if finite_coverage_is_insufficient(n_total, n_finite):
             reason = _FAIL_CLOSED_TOKEN if n_finite == 0 else _COVERAGE_FAIL_CLOSED_TOKEN
             out_rows.append(

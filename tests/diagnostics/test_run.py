@@ -374,3 +374,43 @@ def test_run_governance_gate_fas_class_none_matches_omitted() -> None:
     assert omitted.recommended_mode == explicit.recommended_mode
     assert omitted.recommendations == explicit.recommendations
     assert omitted.decision.fas_class is None
+
+
+def test_run_governance_gate_nan_y_fails_closed() -> None:
+    y = [0.1 * i for i in range(1, 121)] + [float("nan")]
+    yhat_base = [v if (i % 2 == 0) else (v * 0.90) for i, v in enumerate(y[:-1])] + [1.0]
+    yhat_ral = [v * 1.01 for v in y[:-1]] + [1.0]
+
+    gate = run_governance_gate(
+        y=y,
+        yhat_base=yhat_base,
+        yhat_ral=yhat_ral,
+        tau=2.0,
+        cwsl_r=None,
+    )
+    assert gate.dqc.dqc_class.value == "unknown"
+    assert gate.decision.status == GovernanceStatus.RED
+    assert gate.decision.ral_policy == RALPolicy.DISALLOW
+    assert gate.recommended_mode == "reroute_discrete"
+    assert "invalid_values_fail_closed" in gate.dqc.reasons
+    assert "invalid_values_fail_closed" in gate.recommendations
+
+
+def test_run_governance_gate_negative_y_fails_closed() -> None:
+    y = [0.1 * i for i in range(1, 121)] + [-1.0]
+    yhat_base = [v if (i % 2 == 0) else (v * 0.90) for i, v in enumerate(y[:-1])] + [1.0]
+    yhat_ral = [v * 1.01 for v in y[:-1]] + [1.0]
+
+    gate = run_governance_gate(
+        y=y,
+        yhat_base=yhat_base,
+        yhat_ral=yhat_ral,
+        tau=2.0,
+        cwsl_r=None,
+    )
+    assert gate.dqc.dqc_class.value == "unknown"
+    assert gate.decision.status == GovernanceStatus.RED
+    assert gate.decision.ral_policy == RALPolicy.DISALLOW
+    assert gate.recommended_mode == "reroute_discrete"
+    assert "invalid_values_fail_closed" in gate.dqc.reasons
+    assert "invalid_values_fail_closed" in gate.recommendations

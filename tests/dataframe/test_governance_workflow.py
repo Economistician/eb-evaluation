@@ -63,6 +63,7 @@ def test_run_governance_workflow_df_returns_panel_and_decisions() -> None:
         base_forecast_col="yhat_base",
         ral_forecast_col="yhat_ral",
         tau=2.0,
+        fas_class="ALLOWED",
     )
 
     assert isinstance(panel, pd.DataFrame)
@@ -99,6 +100,7 @@ def test_run_governance_workflow_df_uses_custom_output_column_names() -> None:
         base_forecast_col="yhat_base",
         ral_forecast_col="yhat_ral",
         tau=2.0,
+        fas_class="ALLOWED",
         out_base_col="base_gov",
         out_ral_col="ral_gov",
     )
@@ -119,6 +121,7 @@ def test_run_governance_workflow_df_dict_shape() -> None:
         base_forecast_col="yhat_base",
         ral_forecast_col="yhat_ral",
         tau=2.0,
+        fas_class="ALLOWED",
     )
 
     assert set(out.keys()) == {"panel", "decisions"}
@@ -137,6 +140,7 @@ def test_run_governance_workflow_df_rejects_missing_required_columns() -> None:
             base_forecast_col="yhat_base",
             ral_forecast_col="yhat_ral",
             tau=2.0,
+            fas_class="ALLOWED",
         )
 
 
@@ -151,6 +155,7 @@ def test_run_governance_workflow_df_rejects_empty_keys() -> None:
             base_forecast_col="yhat_base",
             ral_forecast_col="yhat_ral",
             tau=2.0,
+            fas_class="ALLOWED",
         )
 
 
@@ -164,6 +169,7 @@ def test_run_governance_workflow_df_can_disable_decision_completeness_check() ->
         base_forecast_col="yhat_base",
         ral_forecast_col="yhat_ral",
         tau=2.0,
+        fas_class="ALLOWED",
         require_complete_decisions=False,
     )
 
@@ -195,6 +201,7 @@ def test_run_governance_workflow_df_completeness_check_raises_when_missing_decis
             base_forecast_col="yhat_base",
             ral_forecast_col="yhat_ral",
             tau=2.0,
+            fas_class="ALLOWED",
             require_complete_decisions=True,
         )
 
@@ -241,6 +248,7 @@ def test_run_governance_workflow_df_nan_stream_fails_closed() -> None:
         base_forecast_col="yhat_base",
         ral_forecast_col="yhat_ral",
         tau=2.0,
+        fas_class="ALLOWED",
     )
     assert len(decisions) == 1
     row = decisions.iloc[0]
@@ -272,6 +280,7 @@ def test_run_governance_workflow_df_injected_decisions_missing_controls_fail_clo
         base_forecast_col="yhat_base",
         ral_forecast_col="yhat_ral",
         tau=2.0,
+        fas_class="ALLOWED",
         decisions_df=decisions,
     )
     assert (out_decisions["ral_policy"] == "disallow").all()
@@ -309,6 +318,7 @@ def test_run_governance_workflow_df_injected_decisions_na_controls_fail_closed()
         base_forecast_col="yhat_base",
         ral_forecast_col="yhat_ral",
         tau=2.0,
+        fas_class="ALLOWED",
         decisions_df=decisions,
     )
     row_na = out_decisions[out_decisions["forecast_entity_id"] == 20].iloc[0]
@@ -339,6 +349,7 @@ def test_run_governance_workflow_df_injected_forged_allow_cannot_bypass_snap() -
         base_forecast_col="yhat_base",
         ral_forecast_col="yhat_ral",
         tau=2.0,
+        fas_class="ALLOWED",
         decisions_df=decisions,
     )
     row_q = out_decisions[out_decisions["forecast_entity_id"] == 20].iloc[0]
@@ -432,6 +443,7 @@ def test_run_governance_workflow_df_sparse_finite_coverage_fails_closed() -> Non
         base_forecast_col="yhat_base",
         ral_forecast_col="yhat_ral",
         tau=2.0,
+        fas_class="ALLOWED",
     )
     row = decisions.iloc[0]
     assert row["status"] == "red"
@@ -446,3 +458,73 @@ def test_run_governance_workflow_df_sparse_finite_coverage_fails_closed() -> Non
         atol=1e-12,
     )
     assert not panel["ral_apply_ral_applied"].to_numpy(dtype=bool).any()
+
+
+def test_run_governance_workflow_df_omitted_fas_fails_closed() -> None:
+    df = _build_sample_panel_df()
+    panel, decisions = run_governance_workflow_df(
+        df=df,
+        keys=["site_id", "forecast_entity_id"],
+        actual_col="y",
+        base_forecast_col="yhat_base",
+        ral_forecast_col="yhat_ral",
+        tau=2.0,
+    )
+    assert (decisions["fas_class"] == "BLOCKED").all()
+    assert (decisions["status"] == "red").all()
+    assert (decisions["ral_policy"] == "disallow").all()
+    assert (decisions["recommendations"] == "fas_required_fail_closed").all()
+    np.testing.assert_allclose(
+        panel["yhat_ral_governed"].to_numpy(dtype=float),
+        panel["yhat_base_governed"].to_numpy(dtype=float),
+        rtol=0,
+        atol=1e-12,
+    )
+    assert not panel["ral_apply_ral_applied"].to_numpy(dtype=bool).any()
+
+
+def test_run_governance_workflow_df_null_fas_column_fails_closed() -> None:
+    df = _build_sample_panel_df()
+    df["fas_class"] = pd.NA
+    _panel, decisions = run_governance_workflow_df(
+        df=df,
+        keys=["site_id", "forecast_entity_id"],
+        actual_col="y",
+        base_forecast_col="yhat_base",
+        ral_forecast_col="yhat_ral",
+        tau=2.0,
+        fas_class_col="fas_class",
+    )
+    assert (decisions["fas_class"] == "BLOCKED").all()
+    assert (decisions["status"] == "red").all()
+    assert (decisions["ral_policy"] == "disallow").all()
+
+
+def test_run_governance_workflow_df_injected_na_fas_fails_closed() -> None:
+    df = _build_sample_panel_df()
+    decisions = pd.DataFrame(
+        {
+            "site_id": [1, 2],
+            "forecast_entity_id": [10, 20],
+            "ral_policy": ["allow", "allow"],
+            "status": ["green", "green"],
+            "fas_class": ["ALLOWED", np.nan],
+            "dqc_class": ["continuous_like", "quantized"],
+            "snap_required": [False, True],
+            "snap_unit": [np.nan, 4.0],
+        }
+    )
+    _panel, out_decisions = run_governance_workflow_df(
+        df=df,
+        keys=["site_id", "forecast_entity_id"],
+        actual_col="y",
+        base_forecast_col="yhat_base",
+        ral_forecast_col="yhat_ral",
+        tau=2.0,
+        fas_class="ALLOWED",
+        decisions_df=decisions,
+    )
+    row_na = out_decisions[out_decisions["forecast_entity_id"] == 20].iloc[0]
+    assert row_na["fas_class"] == "BLOCKED"
+    assert row_na["ral_policy"] == "disallow"
+    assert row_na["status"] == "red"
