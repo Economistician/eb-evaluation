@@ -11,11 +11,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
-from eb_evaluation.diagnostics.dqc import DQCThresholds
+from eb_evaluation.diagnostics.dqc import DQCClass, DQCThresholds
 from eb_evaluation.diagnostics.fas import FASClass, resolve_panel_fas_class
-from eb_evaluation.diagnostics.fpc import FPCThresholds
+from eb_evaluation.diagnostics.fpc import FPCClass, FPCThresholds
+from eb_evaluation.diagnostics.governance import GovernanceStatus, RALPolicy, TauPolicy
 from eb_evaluation.diagnostics.presets import GovernancePreset
 from eb_evaluation.diagnostics.results import GovernanceResult
 from eb_evaluation.diagnostics.run import run_governance_gate
@@ -45,6 +47,66 @@ def _safe_getattr(obj: object, name: str) -> Any:
     objects evolve (e.g., adding/removing optional fields).
     """
     return getattr(obj, name, None)
+
+
+_FAIL_CLOSED_TOKEN = "empty_series_fail_closed"
+
+
+def _finite_aligned_subset(frame: pd.DataFrame, cols: Sequence[str]) -> pd.DataFrame:
+    """Keep rows where every named column is numeric and finite."""
+    work = frame.loc[:, list(cols)].copy()
+    for col in cols:
+        work[col] = pd.to_numeric(work[col], errors="coerce")
+    values = work.to_numpy(dtype=float)
+    mask = np.isfinite(values).all(axis=1)
+    return work.loc[mask]
+
+
+def _fas_value(stream_fas: FASClass | str | None) -> str | None:
+    if stream_fas is None:
+        return None
+    if isinstance(stream_fas, FASClass):
+        return stream_fas.value
+    return str(stream_fas)
+
+
+def _fail_closed_panel_row(
+    *,
+    keys_list: Sequence[str],
+    key_vals: tuple[object, ...],
+    n: int,
+    stream_fas: FASClass | str | None,
+) -> dict[str, Any]:
+    """Emit a RED / DISALLOW / FPC INCOMPATIBLE row without calling eb-metrics."""
+    row: dict[str, Any] = dict(zip(keys_list, key_vals, strict=True))
+    row["n"] = n
+    row["recommended_mode"] = "reroute_discrete"
+    row["snap_required"] = False
+    row["snap_unit"] = None
+    row["tau_policy"] = TauPolicy.RAW_UNITS.value
+    row["ral_policy"] = RALPolicy.DISALLOW.value
+    row["status"] = GovernanceStatus.RED.value
+    row["fas_class"] = _fas_value(stream_fas)
+    row["dqc_class"] = DQCClass.UNKNOWN.value
+    row["fpc_raw_class"] = FPCClass.INCOMPATIBLE.value
+    row["fpc_snapped_class"] = FPCClass.INCOMPATIBLE.value
+    row["dqc_granularity"] = None
+    row["dqc_multiple_rate"] = None
+    row["dqc_offgrid_mad_ratio"] = None
+    row["dqc_nonzero_obs"] = None
+    row["nsl_base_raw"] = None
+    row["nsl_ral_raw"] = None
+    row["delta_nsl_raw"] = None
+    row["ud_raw"] = None
+    row["nsl_base_snapped"] = None
+    row["nsl_ral_snapped"] = None
+    row["delta_nsl_snapped"] = None
+    row["ud_snapped"] = None
+    row["dqc_reasons"] = _FAIL_CLOSED_TOKEN
+    row["fpc_raw_reasons"] = _FAIL_CLOSED_TOKEN
+    row["fpc_snapped_reasons"] = _FAIL_CLOSED_TOKEN
+    row["recommendations"] = _FAIL_CLOSED_TOKEN
+    return row
 
 
 def evaluate_governance_panel_df(
@@ -104,6 +166,12 @@ def evaluate_governance_panel_df(
     -------
     pandas.DataFrame
         One row per stream (key combination) summarizing governance results.
+
+    Notes
+    -----
+    Empty streams and streams with no finite aligned ``y`` / ``yhat`` points
+    fail closed (``status=red``, ``ral_policy=disallow``, FPC ``incompatible``)
+    instead of calling ``eb-metrics``.
     """
     keys_list = list(keys)
     if len(keys_list) == 0:
@@ -129,13 +197,25 @@ def evaluate_governance_panel_df(
         if not isinstance(key_vals, tuple):
             key_vals = (key_vals,)
 
+        stream_fas = resolve_panel_fas_class(g, fas_class=fas_class, fas_class_col=fas_class_col)
+        finite = _finite_aligned_subset(g, (actual_col, base_forecast_col, ral_forecast_col))
+        if len(finite) == 0:
+            out_rows.append(
+                _fail_closed_panel_row(
+                    keys_list=keys_list,
+                    key_vals=key_vals,
+                    n=len(g),
+                    stream_fas=stream_fas,
+                )
+            )
+            continue
+
         row: dict[str, Any] = dict(zip(keys_list, key_vals, strict=True))
         row["n"] = len(g)
 
-        y = g[actual_col].to_numpy(dtype=float)
-        yhat_base = g[base_forecast_col].to_numpy(dtype=float)
-        yhat_ral = g[ral_forecast_col].to_numpy(dtype=float)
-        stream_fas = resolve_panel_fas_class(g, fas_class=fas_class, fas_class_col=fas_class_col)
+        y = finite[actual_col].to_numpy(dtype=float)
+        yhat_base = finite[base_forecast_col].to_numpy(dtype=float)
+        yhat_ral = finite[ral_forecast_col].to_numpy(dtype=float)
 
         gate = run_governance_gate(
             y=y,

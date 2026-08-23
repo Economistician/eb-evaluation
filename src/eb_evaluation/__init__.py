@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
 
+from .adjustment import apply_ral
 from .dataframe import (
     compute_cwsl_df,
     evaluate_governance_panel_df,
@@ -103,6 +104,7 @@ __all__ = [
     "RALPolicy",
     "TauPolicy",
     "__version__",
+    "apply_ral",
     "build_fas_surface",
     "build_signals_from_series",
     "classify_dqc",

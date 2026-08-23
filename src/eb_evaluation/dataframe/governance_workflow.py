@@ -62,6 +62,9 @@ def run_governance_workflow_df(
     - `panel_governed_df` includes governed prediction columns plus audit columns.
     - If `decisions_df` is provided, the workflow will NOT recompute decisions; it will
       apply the provided decisions and (optionally) validate completeness.
+    - Empty, missing, or non-finite ``y`` / ``yhat`` streams fail closed in
+      ``evaluate_governance_panel_df`` (``status=red``, ``ral_policy=disallow``,
+      FPC ``incompatible``) instead of raising from ``eb-metrics``.
     """
     keys_list = list(keys)
     if len(keys_list) == 0:

@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DQC `UNKNOWN` is fail-closed (`DISALLOW` / `RED`) and is never treated as continuous-like.
 - `decide_governance` marks snapped FPC `INCOMPATIBLE` when snapping is required but snapped signals are omitted, instead of reusing raw FPC.
 - `run_governance_panel_df` treats empty post-dropna streams as `RED` / `DISALLOW`.
+- `evaluate_governance_panel_df` and `run_governance_workflow_df` fail closed on empty or non-finite `y` / `yhat` streams instead of raising from `eb-metrics`.
+- `ReadinessAdjustmentLayer.transform` requires a joined decisions table or `apply_mask`; ungated calls raise so `apply_ral` remains the sole fail-closed apply path.
+- Re-exported `apply_ral` from the package root.
+- `snap_to_grid` raises on `None` or unparseable non-numeric values instead of passing them through.
 
 ### Changed
 

@@ -219,3 +219,36 @@ def test_run_governance_workflow_df_suppresses_ral_when_fas_blocked() -> None:
     assert not bool(applied.any())
     recs = decisions["recommendations"].astype(str)
     assert recs.str.contains(r"\|", regex=True).sum() == 0
+
+
+def test_run_governance_workflow_df_nan_stream_fails_closed() -> None:
+    df = pd.DataFrame(
+        {
+            "site_id": [1, 1],
+            "forecast_entity_id": [99, 99],
+            "y": [np.nan, np.nan],
+            "yhat_base": [1.0, 2.0],
+            "yhat_ral": [9.0, 10.0],
+        }
+    )
+    panel, decisions = run_governance_workflow_df(
+        df=df,
+        keys=["site_id", "forecast_entity_id"],
+        actual_col="y",
+        base_forecast_col="yhat_base",
+        ral_forecast_col="yhat_ral",
+        tau=2.0,
+    )
+    assert len(decisions) == 1
+    row = decisions.iloc[0]
+    assert row["status"] == "red"
+    assert row["ral_policy"] == "disallow"
+    assert row["fpc_raw_class"] == "incompatible"
+    assert row["recommended_mode"] == "reroute_discrete"
+    np.testing.assert_allclose(
+        panel["yhat_ral_governed"].to_numpy(dtype=float),
+        panel["yhat_base_governed"].to_numpy(dtype=float),
+        rtol=0,
+        atol=1e-12,
+    )
+    assert not panel["ral_apply_ral_applied"].to_numpy(dtype=bool).any()

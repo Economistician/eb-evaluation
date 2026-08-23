@@ -31,6 +31,11 @@ def _make_segmented_df() -> pd.DataFrame:
     )
 
 
+def _authorize_all(df: pd.DataFrame) -> pd.Series:
+    """Explicit mask so transform is not an ungated production writer."""
+    return pd.Series(True, index=df.index)
+
+
 def test_global_uplift_reduces_cwsl_and_adds_column():
     df = _make_global_df()
     cu, co = 2.0, 1.0
@@ -43,7 +48,7 @@ def test_global_uplift_reduces_cwsl_and_adds_column():
         uplift_max=1.2,
         grid_step=0.01,
     )
-    ral.transform(df, forecast_col="forecast")
+    ral.transform(df, forecast_col="forecast", apply_mask=_authorize_all(df))
 
     # Assertions
     assert ral.global_uplift_ is not None
@@ -56,7 +61,7 @@ def test_global_uplift_reduces_cwsl_and_adds_column():
     y_pred = df["forecast"].to_numpy(dtype=float)
     base_cwsl = cwsl(y_true=y_true, y_pred=y_pred, cu=cu, co=co)
 
-    df_adj = ral.transform(df, forecast_col="forecast")
+    df_adj = ral.transform(df, forecast_col="forecast", apply_mask=_authorize_all(df))
     y_adj = df_adj["readiness_forecast"].to_numpy(dtype=float)
     adj_cwsl = cwsl(y_true=y_true, y_pred=y_adj, cu=cu, co=co)
 
@@ -75,7 +80,60 @@ def test_transform_raises_if_not_fit():
     df = _make_global_df()
     ral = ReadinessAdjustmentLayer()
     with pytest.raises(RuntimeError):
+        _ = ral.transform(df, forecast_col="forecast", apply_mask=_authorize_all(df))
+
+
+def test_transform_raises_without_governance_authorization():
+    df = _make_global_df()
+    ral = ReadinessAdjustmentLayer(cu=2.0, co=1.0)
+    ral.fit(df, forecast_col="forecast", actual_col="actual")
+    with pytest.raises(ValueError, match="apply_ral"):
         _ = ral.transform(df, forecast_col="forecast")
+
+
+def test_transform_disallow_decisions_copy_baseline():
+    df = _make_segmented_df()
+    ral = ReadinessAdjustmentLayer(
+        cu=2.0,
+        co=1.0,
+        uplift_min=1.0,
+        uplift_max=1.15,
+        grid_step=0.01,
+    )
+    ral.fit(
+        df,
+        forecast_col="forecast",
+        actual_col="actual",
+        segment_cols=["cluster"],
+    )
+    decisions = pd.DataFrame(
+        {
+            "cluster": ["A", "B"],
+            "ral_policy": ["allow", "disallow"],
+            "status": ["green", "red"],
+        }
+    )
+    out = ral.transform(
+        df,
+        forecast_col="forecast",
+        segment_cols=["cluster"],
+        decisions=decisions,
+        key_cols=["cluster"],
+    )
+    cluster_a = out.loc[out["cluster"] == "A"]
+    cluster_b = out.loc[out["cluster"] == "B"]
+    assert not np.allclose(
+        cluster_a["readiness_forecast"].to_numpy(dtype=float),
+        cluster_a["forecast"].to_numpy(dtype=float),
+        rtol=0,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        cluster_b["readiness_forecast"].to_numpy(dtype=float),
+        cluster_b["forecast"].to_numpy(dtype=float),
+        rtol=0,
+        atol=1e-12,
+    )
 
 
 def test_sample_weight_changes_optimal_uplift():
@@ -160,6 +218,7 @@ def test_segment_specific_uplift_and_fallback_to_global():
         df_future,
         forecast_col="forecast",
         segment_cols=["cluster"],
+        apply_mask=_authorize_all(df_future),
     )
 
     # Extract applied uplift per row

@@ -24,6 +24,7 @@ def test_root_reexports_core_diagnostics() -> None:
         "GovernanceRALPolicy",
         "GovernanceTauPolicy",
         "DQCResult",
+        "apply_ral",
         "__version__",
     )
     for name in names:
@@ -32,3 +33,4 @@ def test_root_reexports_core_diagnostics() -> None:
     assert isinstance(m.__version__, str) and m.__version__
     assert m.GovernanceRALPolicy is m.RALPolicy
     assert m.GovernanceTauPolicy is m.TauPolicy
+    assert callable(m.apply_ral)

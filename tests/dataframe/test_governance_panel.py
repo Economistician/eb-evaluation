@@ -293,3 +293,38 @@ def test_run_governance_panel_df_empty_after_dropna_is_red_disallow() -> None:
     assert row["status"] == "red"
     assert row["fpc_raw_class"] == "incompatible"
     assert row["recommended_mode"] == "reroute_discrete"
+
+
+def test_evaluate_governance_panel_df_nan_stream_fails_closed() -> None:
+    df = pd.DataFrame(
+        {
+            "site_id": [1, 1, 2, 2],
+            "forecast_entity_id": [99, 99, 10, 10],
+            "y": [np.nan, np.nan, 1.0, 2.0],
+            "yhat_base": [np.nan, 1.0, 1.0, 2.0],
+            "yhat_ral": [2.0, np.nan, 1.1, 2.1],
+        }
+    )
+    out = cast(
+        pd.DataFrame,
+        evaluate_governance_panel_df(
+            df=df,
+            keys=["site_id", "forecast_entity_id"],
+            actual_col="y",
+            base_forecast_col="yhat_base",
+            ral_forecast_col="yhat_ral",
+            tau=2.0,
+        ),
+    )
+    assert len(out) == 2
+    nan_row = out[(out["site_id"] == 1) & (out["forecast_entity_id"] == 99)].iloc[0]
+    ok_row = out[(out["site_id"] == 2) & (out["forecast_entity_id"] == 10)].iloc[0]
+    assert nan_row["status"] == "red"
+    assert nan_row["ral_policy"] == "disallow"
+    assert nan_row["fpc_raw_class"] == "incompatible"
+    assert nan_row["fpc_snapped_class"] == "incompatible"
+    assert nan_row["dqc_class"] == "unknown"
+    assert nan_row["recommended_mode"] == "reroute_discrete"
+    assert nan_row["recommendations"] == "empty_series_fail_closed"
+    assert int(ok_row["n"]) == 2
+    assert ok_row["recommendations"] != "empty_series_fail_closed"

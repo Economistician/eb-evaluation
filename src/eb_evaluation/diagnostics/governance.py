@@ -195,7 +195,8 @@ def snap_to_grid(values: Sequence[float], unit: float, *, mode: str = "ceil") ->
     Raises
     ------
     ValueError
-        If ``unit`` is NaN or ``unit <= 0``.
+        If ``unit`` is NaN or ``unit <= 0``, or if a value is ``None`` or
+        otherwise not numeric.
     """
     if unit <= 0 or isnan(unit):
         raise ValueError(f"snap unit must be > 0; got {unit!r}")
@@ -206,15 +207,12 @@ def snap_to_grid(values: Sequence[float], unit: float, *, mode: str = "ceil") ->
     snapped: list[float] = []
     inv = 1.0 / unit
     for v in values:
-        # Guard NaNs; pass through
         if v is None:
-            snapped.append(v)  # type: ignore[arg-type]
-            continue
+            raise ValueError("snap_to_grid values must be numeric; got None")
         try:
             fv = float(v)
-        except (TypeError, ValueError):
-            snapped.append(v)  # type: ignore[arg-type]
-            continue
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"snap_to_grid values must be numeric; got {v!r}") from exc
         if isnan(fv):
             snapped.append(fv)
             continue

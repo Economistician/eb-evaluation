@@ -226,14 +226,27 @@ class ReadinessAdjustmentLayer:
         forecast_col: str,
         output_col: str = "readiness_forecast",
         segment_cols: Sequence[str] | None = None,
+        decisions: pd.DataFrame | None = None,
+        key_cols: Sequence[str] | None = None,
+        apply_mask: pd.Series | None = None,
     ) -> pd.DataFrame:
         """Apply learned uplift factors to produce readiness forecasts.
 
-        Test expectation:
-        - If called before explicit fit(), this should still work for global uplift by
-          implicitly fitting on the provided dataframe (requires an actual column), but only
-          when costs (cu/co) are set.
+        This is not a production writer. Callers must pass a joined governance
+        ``decisions`` table or an explicit ``apply_mask``. Ungated calls raise
+        so ``apply_ral`` remains the sole fail-closed apply path.
+
+        If called before explicit fit(), this can still work for global uplift by
+        implicitly fitting on the provided dataframe (requires an actual column),
+        but only when costs (cu/co) are set.
         """
+        if decisions is None and apply_mask is None:
+            raise ValueError(
+                "ReadinessAdjustmentLayer.transform requires a joined governance "
+                "decisions table or apply_mask; ungated transform is not a "
+                "production writer. Use apply_ral as the sole fail-closed apply path."
+            )
+
         if forecast_col not in df.columns:
             raise KeyError(f"Column {forecast_col!r} not found in DataFrame.")
 
@@ -276,7 +289,15 @@ class ReadinessAdjustmentLayer:
         else:
             uplift = np.full(len(result_df), float(global_uplift), dtype=float)
 
-        result_df[output_col] = result_df[forecast_col].to_numpy(dtype=float) * uplift
+        baseline = result_df[forecast_col].to_numpy(dtype=float)
+        adjusted = baseline * uplift
+        authorized = _transform_authorization_mask(
+            result_df,
+            decisions=decisions,
+            key_cols=key_cols,
+            apply_mask=apply_mask,
+        )
+        result_df[output_col] = np.where(authorized, adjusted, baseline)
         return result_df
 
 
@@ -409,6 +430,45 @@ def _adjustment_blocked_mask(work: pd.DataFrame) -> pd.Series:
     if "dqc_class" in work.columns:
         blocked = blocked | work["dqc_class"].map(_enum_token).isin(_BLOCKED_DQC_CLASSES)
     return blocked.astype(bool)
+
+
+def _transform_authorization_mask(
+    frame: pd.DataFrame,
+    *,
+    decisions: pd.DataFrame | None,
+    key_cols: Sequence[str] | None,
+    apply_mask: pd.Series | None,
+) -> np.ndarray:
+    """Authorize RAL.transform rows from a decisions join and/or explicit mask."""
+    authorized = np.ones(len(frame), dtype=bool)
+    if decisions is not None:
+        keys = list(key_cols) if key_cols is not None else []
+        if len(keys) == 0:
+            raise ValueError("`key_cols` is required when `decisions` is provided.")
+        missing_frame = [c for c in keys if c not in frame.columns]
+        missing_decisions = [c for c in keys if c not in decisions.columns]
+        if missing_frame or missing_decisions:
+            raise ValueError(
+                "Missing join keys for transform decisions: "
+                f"frame={missing_frame}, decisions={missing_decisions}."
+            )
+        joined = frame.loc[:, keys].merge(decisions, on=keys, how="left")
+        joined.index = frame.index
+        blocked = _adjustment_blocked_mask(joined)
+        policy_obj = joined["ral_policy"] if "ral_policy" in joined.columns else None
+        if policy_obj is None:
+            missing_join = pd.Series(True, index=joined.index)
+        elif isinstance(policy_obj, pd.Series):
+            missing_join = policy_obj.isna()
+        else:
+            missing_join = pd.Series(pd.isna(policy_obj), index=joined.index)
+        authorized = authorized & ~(blocked | missing_join).to_numpy(dtype=bool)
+    if apply_mask is not None:
+        aligned = apply_mask.reindex(frame.index)
+        if bool(aligned.isna().any()):
+            raise ValueError("apply_mask must cover every transform row.")
+        authorized = authorized & aligned.to_numpy(dtype=bool)
+    return authorized
 
 
 def _series_from_column(work: pd.DataFrame, col: str) -> pd.Series:
