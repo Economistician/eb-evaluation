@@ -64,7 +64,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from math import isfinite, isnan
+from math import ceil, floor, isfinite, isnan
 
 from .dqc import DQCClass, DQCResult, DQCSignals, DQCThresholds, classify_dqc
 from .fas import FASClass
@@ -204,25 +204,26 @@ def snap_to_grid(values: Sequence[float], unit: float, *, mode: str = "ceil") ->
     inv = 1.0 / unit
     for v in values:
         # Guard NaNs; pass through
-        if v is None or (isinstance(v, float) and isnan(v)):
+        if v is None:
             snapped.append(v)  # type: ignore[arg-type]
             continue
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            snapped.append(v)  # type: ignore[arg-type]
+            continue
+        if isnan(fv):
+            snapped.append(fv)
+            continue
 
-        q = v * inv
-
+        q = fv * inv
         if mode == "ceil":
-            # ceil(v/unit)*unit without importing numpy
-            qi = int(q)
-            if q > float(qi):
-                qi += 1
-
+            qi = ceil(q)
         elif mode == "floor":
-            # floor(v/unit)*unit
-            qi = int(q)
-
-        else:  # mode == "round"
-            # nearest integer, half-up
-            qi = int(q + 0.5)
+            qi = floor(q)
+        else:
+            # Half away from zero (the signed analogue of half-up).
+            qi = floor(q + 0.5) if q >= 0.0 else ceil(q - 0.5)
 
         snapped.append(float(qi) * unit)
     return snapped

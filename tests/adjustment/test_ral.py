@@ -342,3 +342,152 @@ def test_apply_ral_raises_when_snap_required_without_valid_unit() -> None:
             snap_mode="ceil",
             nonneg_mode="clip_zero",
         )
+
+
+def test_apply_ral_parses_comma_joined_recommendation_string() -> None:
+    from eb_evaluation.adjustment.ral import apply_ral
+
+    df = _make_apply_ral_df()
+    decisions = _make_decisions_df()
+    decisions["recommendations"] = [
+        "forecast_postprocess_nonneg(mode=clip_zero)",
+        "forecast_postprocess_nonneg(mode=clip_zero), snap_forecasts_to_grid(mode=round)",
+    ]
+
+    out = apply_ral(
+        df=df,
+        decisions=decisions,
+        join_keys=["forecast_entity_id"],
+        pred_col="yhat_ral_raw",
+        output_col="yhat_ral_governed",
+        snap_mode="ceil",
+        infer_policy_from_recommendations=True,
+    )
+
+    entity2 = out.loc[out["forecast_entity_id"] == 2]
+    np.testing.assert_allclose(
+        entity2["yhat_ral_governed"].to_numpy(dtype=float),
+        np.asarray([8.0, 8.0], dtype=float),
+        rtol=0,
+        atol=1e-12,
+    )
+    assert (entity2["ral_apply_snap_mode"] == "round").all()
+
+
+def test_apply_ral_parses_key_value_recommendation_pairs() -> None:
+    from eb_evaluation.adjustment.ral import apply_ral
+
+    df = _make_apply_ral_df()
+    decisions = _make_decisions_df()
+    decisions["recommendations"] = [
+        "nonneg_mode=allow",
+        "snap_mode=round, nonneg_mode=clip_zero",
+    ]
+
+    out = apply_ral(
+        df=df,
+        decisions=decisions,
+        join_keys=["forecast_entity_id"],
+        pred_col="yhat_ral_raw",
+        output_col="yhat_ral_governed",
+        snap_mode="ceil",
+        infer_policy_from_recommendations=True,
+    )
+
+    entity1 = out.loc[out["forecast_entity_id"] == 1, "yhat_ral_governed"].to_numpy(dtype=float)
+    np.testing.assert_allclose(entity1, np.asarray([-1.0, 3.2], dtype=float), rtol=0, atol=1e-12)
+    entity2 = out.loc[out["forecast_entity_id"] == 2, "yhat_ral_governed"].to_numpy(dtype=float)
+    np.testing.assert_allclose(entity2, np.asarray([8.0, 8.0], dtype=float), rtol=0, atol=1e-12)
+    assert (out.loc[out["forecast_entity_id"] == 1, "ral_apply_nonneg_policy"] == "allow").all()
+    assert (out.loc[out["forecast_entity_id"] == 2, "ral_apply_nonneg_policy"] == "clip_zero").all()
+
+
+def test_apply_ral_mixed_entity_policies_are_not_taken_from_first_row() -> None:
+    from eb_evaluation.adjustment.ral import apply_ral
+
+    df = _make_apply_ral_df()
+    decisions = _make_decisions_df()
+    decisions["recommendations"] = [
+        "forecast_postprocess_nonneg(mode=allow)",
+        "forecast_postprocess_nonneg(mode=clip_zero), snap_forecasts_to_grid(mode=ceil)",
+    ]
+
+    out = apply_ral(
+        df=df,
+        decisions=decisions,
+        join_keys=["forecast_entity_id"],
+        pred_col="yhat_ral_raw",
+        output_col="yhat_ral_governed",
+        snap_mode="round",
+        infer_policy_from_recommendations=True,
+    )
+
+    entity1 = out.loc[out["forecast_entity_id"] == 1]
+    entity2 = out.loc[out["forecast_entity_id"] == 2]
+    np.testing.assert_allclose(
+        entity1["yhat_ral_governed"].to_numpy(dtype=float),
+        np.asarray([-1.0, 3.2], dtype=float),
+        rtol=0,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        entity2["yhat_ral_governed"].to_numpy(dtype=float),
+        np.asarray([8.0, 12.0], dtype=float),
+        rtol=0,
+        atol=1e-12,
+    )
+    assert (entity1["ral_apply_nonneg_policy"] == "allow").all()
+    assert (entity2["ral_apply_nonneg_policy"] == "clip_zero").all()
+    assert (entity2["ral_apply_snap_mode"] == "ceil").all()
+
+
+def test_apply_ral_dqc_class_implies_snap_without_snap_required_column() -> None:
+    from eb_evaluation.adjustment.ral import apply_ral
+
+    df = pd.DataFrame(
+        {
+            "forecast_entity_id": [2, 2],
+            "yhat_ral_raw": [7.9, 8.1],
+            "dqc_class": ["quantized", "quantized"],
+            "snap_unit": [4.0, 4.0],
+        }
+    )
+
+    out = apply_ral(
+        df=df,
+        join_keys=["forecast_entity_id"],
+        pred_col="yhat_ral_raw",
+        output_col="yhat_ral_governed",
+        snap_mode="ceil",
+        nonneg_mode="clip_zero",
+        infer_policy_from_recommendations=False,
+    )
+    np.testing.assert_allclose(
+        out["yhat_ral_governed"].to_numpy(dtype=float),
+        np.asarray([8.0, 12.0], dtype=float),
+        rtol=0,
+        atol=1e-12,
+    )
+
+
+def test_apply_ral_raises_when_dqc_implies_snap_without_unit() -> None:
+    from eb_evaluation.adjustment.ral import apply_ral
+
+    df = pd.DataFrame(
+        {
+            "forecast_entity_id": [2, 2],
+            "yhat_ral_raw": [7.9, 8.1],
+            "dqc_class": ["piecewise_packed", "piecewise_packed"],
+        }
+    )
+
+    with pytest.raises(ValueError, match="snap_unit"):
+        apply_ral(
+            df=df,
+            join_keys=["forecast_entity_id"],
+            pred_col="yhat_ral_raw",
+            output_col="yhat_ral_governed",
+            snap_mode="ceil",
+            nonneg_mode="clip_zero",
+            infer_policy_from_recommendations=False,
+        )

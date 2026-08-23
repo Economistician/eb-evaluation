@@ -142,6 +142,16 @@ def test_snap_to_grid_modes_and_invalid_mode() -> None:
         snap_to_grid(values, float("nan"), mode="ceil")
 
 
+def test_snap_to_grid_negative_values_use_math_floor_and_ceil() -> None:
+    values = [-5.1, -4.0, -1.2]
+    unit = 4.0
+
+    assert snap_to_grid(values, unit, mode="ceil") == [-4.0, -4.0, 0.0]
+    assert snap_to_grid(values, unit, mode="floor") == [-8.0, -4.0, -4.0]
+    assert snap_to_grid(values, unit, mode="round") == [-4.0, -4.0, 0.0]
+    assert snap_to_grid([-6.0], 4.0, mode="round") == [-8.0]
+
+
 def test_preset_thresholds_returns_types() -> None:
     dqc_thr, fpc_thr = preset_thresholds(BALANCED)
     assert isinstance(dqc_thr, DQCThresholds)

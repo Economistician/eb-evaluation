@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FPC treats missing/NaN core signals as `INCOMPATIBLE` and lets metric domain errors raise.
 - `decide_governance` and `apply_ral` fail closed when snapping is required without a finite positive `snap_unit`.
 - `apply_ral(nonneg_mode="none")` and missing recommendation payloads follow the balanced `clip_zero` policy, matching the governance gate.
+- `apply_ral` parses comma-joined recommendation strings and applies snap/nonneg policy per row instead of the first panel row.
+- `apply_ral` fails closed when DQC class implies snapping even if `snap_required` is omitted.
+- `snap_to_grid` uses `math.ceil` / `math.floor` so negative values are not truncated toward zero.
 
 ### Changed
 

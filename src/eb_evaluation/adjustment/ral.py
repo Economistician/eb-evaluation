@@ -16,7 +16,7 @@ Responsibilities
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Literal
+from typing import Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -286,44 +286,107 @@ SnapMode = Literal["ceil", "round", "floor"]
 # apply_ral(nonneg_mode="none") and missing recommendation payloads follow the
 # balanced preset, matching run_governance_gate.
 _DEFAULT_APPLY_NONNEG: NonnegPolicy = preset_policy("balanced")
+_SNAP_DQC_CLASSES = frozenset({"quantized", "piecewise_packed"})
+_SNAP_MODES = frozenset({"ceil", "round", "floor"})
 
 
-def _recommendation_blob(recs: object | None) -> str:
-    if recs is None:
-        return ""
+def _is_missing_scalar(value: object) -> bool:
+    if value is None:
+        return True
+    try:
+        result = pd.isna(value)
+    except (ValueError, TypeError):
+        return False
+    if isinstance(result, bool | np.bool_):
+        return bool(result)
+    return False
+
+
+def _tokenize_recommendations(recs: object | None) -> tuple[str, ...]:
+    """Split gate recommendation payloads into tokens.
+
+    Panel writers store recommendations as a comma-joined string. Gate objects
+    store a sequence of strings. Either form is accepted. Tokens are stripped
+    and empty pieces dropped so parsers never iterate raw characters.
+    """
+    if _is_missing_scalar(recs):
+        return ()
     if isinstance(recs, str):
-        return recs
-    if isinstance(recs, Sequence) and not isinstance(recs, bytes | bytearray):
-        return " ".join(str(item) for item in recs)
-    return str(recs)
+        return tuple(part.strip() for part in recs.split(",") if part.strip())
+    if isinstance(recs, bytes | bytearray):
+        return _tokenize_recommendations(recs.decode("utf-8", errors="replace"))
+    if isinstance(recs, Sequence) and not isinstance(recs, str | bytes | bytearray):
+        tokens: list[str] = []
+        for item in recs:
+            tokens.extend(_tokenize_recommendations(item))
+        return tuple(tokens)
+    return _tokenize_recommendations(str(recs))
 
 
-def _infer_nonneg_policy_from_recommendations(recs: Sequence[str] | str | None) -> NonnegPolicy:
+def _nonneg_from_token(token: str) -> NonnegPolicy | None:
+    if token.startswith("forecast_postprocess_nonneg(mode=") and token.endswith(")"):
+        mode = token[len("forecast_postprocess_nonneg(mode=") : -1]
+    elif token.startswith("nonneg_mode="):
+        mode = token.split("=", 1)[1].strip()
+    else:
+        return None
+    if mode == "allow":
+        return "allow"
+    if mode in ("clip", "clip_zero"):
+        return "clip_zero"
+    return None
+
+
+def _snap_mode_from_token(token: str) -> SnapMode | None:
+    if token.startswith("snap_forecasts_to_grid(mode=") and token.endswith(")"):
+        mode = token[len("snap_forecasts_to_grid(mode=") : -1]
+    elif token.startswith("snap_mode="):
+        mode = token.split("=", 1)[1].strip()
+    else:
+        return None
+    if mode in _SNAP_MODES:
+        return mode  # type: ignore[return-value]
+    return None
+
+
+def _infer_nonneg_policy_from_recommendations(recs: object | None) -> NonnegPolicy:
     """Resolve apply-path nonnegativity from gate recommendation payload.
 
     Missing or unrecognized payloads fail closed to the balanced preset
     (``clip_zero``). Explicit ``mode=allow`` is honored.
     """
-    blob = _recommendation_blob(recs)
-    if "forecast_postprocess_nonneg(mode=allow)" in blob:
-        return "allow"
-    if "forecast_postprocess_nonneg(mode=clip_zero)" in blob:
-        return "clip_zero"
-    return _DEFAULT_APPLY_NONNEG
+    tokens = _tokenize_recommendations(recs)
+    found: NonnegPolicy | None = None
+    for token in tokens:
+        parsed = _nonneg_from_token(token)
+        if parsed == "allow":
+            return "allow"
+        if parsed is not None:
+            found = parsed
+    return found if found is not None else _DEFAULT_APPLY_NONNEG
 
 
-def _infer_snap_mode_from_recommendations(
-    recs: Sequence[str] | None, *, default: SnapMode
-) -> SnapMode:
-    if not recs:
-        return default
-    prefix = "snap_forecasts_to_grid(mode="
-    for r in recs:
-        if r.startswith(prefix) and r.endswith(")"):
-            mode = r[len(prefix) : -1]
-            if mode in ("ceil", "round", "floor"):
-                return mode  # type: ignore[return-value]
+def _infer_snap_mode_from_recommendations(recs: object | None, *, default: SnapMode) -> SnapMode:
+    tokens = _tokenize_recommendations(recs)
+    for token in tokens:
+        parsed = _snap_mode_from_token(token)
+        if parsed is not None:
+            return parsed
     return default
+
+
+def _dqc_implies_snap(value: object) -> bool:
+    if _is_missing_scalar(value):
+        return False
+    token = str(value).strip().lower().rsplit(".", 1)[-1]
+    return token in _SNAP_DQC_CLASSES
+
+
+def _series_from_column(work: pd.DataFrame, col: str) -> pd.Series:
+    obj = work[col]
+    if isinstance(obj, pd.Series):
+        return obj
+    return pd.Series(obj, index=work.index, name=col)
 
 
 def _apply_nonneg_policy(values: np.ndarray, *, policy: NonnegPolicy) -> np.ndarray:
@@ -405,7 +468,9 @@ def apply_ral(
     - If yhat_ral_col is None, uplift_col must be provided and we compute:
         yhat_ral_raw = yhat_base * uplift
     - If infer_policy_from_recommendations is True and recommendations exist,
-      policy is inferred from stable recommendation strings emitted by run.py.
+      snap and nonneg policies are inferred **per row** from recommendation
+      strings emitted by run.py (comma-joined strings or sequences). Mixed
+      entity policies are not collapsed to the first row.
     """
 
     # ---- apply legacy aliases (if provided) ----
@@ -479,96 +544,95 @@ def apply_ral(
 
     yhat_base_raw = work[yhat_base_col].to_numpy(dtype=float)
 
-    # Determine effective policy:
-    # - Explicit nonneg_policy wins.
-    # - Else infer from gate recommendations (missing payload => balanced clip_zero).
-    if recommendations_col in work.columns and infer_policy_from_recommendations:
-        recs_first = work[recommendations_col].iloc[0] if len(work) else None
-    else:
-        recs_first = None
+    infer_from_recs = infer_policy_from_recommendations and recommendations_col in work.columns
+    recs_col = _series_from_column(work, recommendations_col) if infer_from_recs else None
 
-    nonneg_eff: NonnegPolicy
     if nonneg_policy is not None:
-        nonneg_eff = nonneg_policy
-    elif infer_policy_from_recommendations:
-        nonneg_eff = _infer_nonneg_policy_from_recommendations(recs_first)
+        nonneg_s = pd.Series(nonneg_policy, index=work.index, dtype=object)
+    elif recs_col is not None:
+        nonneg_s = recs_col.map(_infer_nonneg_policy_from_recommendations)
     else:
-        nonneg_eff = _DEFAULT_APPLY_NONNEG
+        nonneg_s = pd.Series(_DEFAULT_APPLY_NONNEG, index=work.index, dtype=object)
 
-    snap_mode_eff: SnapMode = snap_mode
-    if infer_policy_from_recommendations and len(work):
-        snap_mode_eff = _infer_snap_mode_from_recommendations(recs_first, default=snap_mode)
+    if recs_col is not None:
+        snap_s = recs_col.map(
+            lambda recs: _infer_snap_mode_from_recommendations(recs, default=snap_mode)
+        )
+    else:
+        snap_s = pd.Series(snap_mode, index=work.index, dtype=object)
 
-    # Apply nonnegativity first (matches run.py behavior: constrain before diagnostics/snapping).
-    yhat_base_g = _apply_nonneg_policy(yhat_base_raw.copy(), policy=nonneg_eff)
-    yhat_ral_g = _apply_nonneg_policy(yhat_ral_raw.copy(), policy=nonneg_eff)
+    yhat_base_g = yhat_base_raw.copy()
+    yhat_ral_g = yhat_ral_raw.copy()
+    clip_mask = nonneg_s.to_numpy() == "clip_zero"
+    if bool(np.any(clip_mask)):
+        yhat_base_g[clip_mask] = _apply_nonneg_policy(yhat_base_g[clip_mask], policy="clip_zero")
+        yhat_ral_g[clip_mask] = _apply_nonneg_policy(yhat_ral_g[clip_mask], policy="clip_zero")
 
     work[out_base_col] = yhat_base_g
     work[out_ral_col] = yhat_ral_g
 
-    # Apply snapping when required. Missing/invalid units fail closed.
+    flagged = pd.Series(False, index=work.index)
     if snap_required_col in work.columns:
         snap_required_s = work[snap_required_col].astype("boolean")
-        required = snap_required_s.fillna(False).astype(bool)
-        if bool(required.any()):
-            if snap_unit_col not in work.columns:
-                raise ValueError(
-                    "apply_ral: snap_required is True but snap_unit column is missing; "
-                    "refusing fail-open unsnapped forecasts."
-                )
-            snap_unit_obj = pd.to_numeric(work[snap_unit_col], errors="coerce")
-            snap_unit_s = (
-                snap_unit_obj
-                if isinstance(snap_unit_obj, pd.Series)
-                else pd.Series(snap_unit_obj, index=work.index, name=snap_unit_col)
-            )
-            unit_vals = snap_unit_s.to_numpy(dtype=float)
-            unit_ok = pd.Series(
-                np.isfinite(unit_vals) & (unit_vals > 0.0),
-                index=work.index,
-            )
-            invalid = required & ~unit_ok
-            if bool(invalid.any()):
-                raise ValueError(
-                    "apply_ral: snap_required is True but snap_unit is missing or not "
-                    "finite and > 0; refusing fail-open unsnapped forecasts."
-                )
+        flagged = snap_required_s.fillna(False).astype(bool)
 
-            base_series = work.loc[required, out_base_col]
-            ral_series = work.loc[required, out_ral_col]
-            unit_series = snap_unit_s.loc[required]
+    dqc_implies = pd.Series(False, index=work.index)
+    if "dqc_class" in work.columns:
+        dqc_implies = work["dqc_class"].map(_dqc_implies_snap).fillna(False).astype(bool)
 
-            work.loc[required, out_base_col] = _apply_snap_policy_series(
-                base_series, unit_series, mode=snap_mode_eff
+    required = flagged | dqc_implies
+    if bool(required.any()):
+        if snap_unit_col not in work.columns:
+            raise ValueError(
+                "apply_ral: snapping is required (snap_required or quantized/packed DQC) "
+                "but snap_unit column is missing; refusing fail-open unsnapped forecasts."
             )
-            work.loc[required, out_ral_col] = _apply_snap_policy_series(
-                ral_series, unit_series, mode=snap_mode_eff
+        snap_unit_obj = pd.to_numeric(work[snap_unit_col], errors="coerce")
+        snap_unit_s = (
+            snap_unit_obj
+            if isinstance(snap_unit_obj, pd.Series)
+            else pd.Series(snap_unit_obj, index=work.index, name=snap_unit_col)
+        )
+        unit_vals = snap_unit_s.to_numpy(dtype=float)
+        unit_ok = pd.Series(
+            np.isfinite(unit_vals) & (unit_vals > 0.0),
+            index=work.index,
+        )
+        invalid = required & ~unit_ok
+        if bool(invalid.any()):
+            raise ValueError(
+                "apply_ral: snapping is required but snap_unit is missing or not "
+                "finite and > 0; refusing fail-open unsnapped forecasts."
             )
 
-            # If snapping can reintroduce negatives (e.g., round on negatives), re-apply nonneg.
-            if nonneg_eff != "allow":
-                idx = work.loc[required, out_base_col].index
-                work.loc[required, out_base_col] = pd.Series(
-                    _apply_nonneg_policy(
-                        work.loc[required, out_base_col].to_numpy(dtype=float),
-                        policy=nonneg_eff,
-                    ),
-                    index=idx,
-                    name=out_base_col,
-                )
+        for mode_val in ("ceil", "round", "floor"):
+            mode_mask = required & (snap_s == mode_val)
+            if not bool(mode_mask.any()):
+                continue
+            mode_snap = cast(SnapMode, mode_val)
+            work.loc[mode_mask, out_base_col] = _apply_snap_policy_series(
+                work.loc[mode_mask, out_base_col],
+                snap_unit_s.loc[mode_mask],
+                mode=mode_snap,
+            )
+            work.loc[mode_mask, out_ral_col] = _apply_snap_policy_series(
+                work.loc[mode_mask, out_ral_col],
+                snap_unit_s.loc[mode_mask],
+                mode=mode_snap,
+            )
 
-                idx2 = work.loc[required, out_ral_col].index
-                work.loc[required, out_ral_col] = pd.Series(
-                    _apply_nonneg_policy(
-                        work.loc[required, out_ral_col].to_numpy(dtype=float),
-                        policy=nonneg_eff,
-                    ),
-                    index=idx2,
-                    name=out_ral_col,
-                )
+        clip_required = required & (nonneg_s == "clip_zero")
+        if bool(clip_required.any()):
+            work.loc[clip_required, out_base_col] = _apply_nonneg_policy(
+                work.loc[clip_required, out_base_col].to_numpy(dtype=float),
+                policy="clip_zero",
+            )
+            work.loc[clip_required, out_ral_col] = _apply_nonneg_policy(
+                work.loc[clip_required, out_ral_col].to_numpy(dtype=float),
+                policy="clip_zero",
+            )
 
-    # Audit columns (stable, lightweight)
-    work[f"{out_audit_prefix}nonneg_policy"] = nonneg_eff
-    work[f"{out_audit_prefix}snap_mode"] = snap_mode_eff
+    work[f"{out_audit_prefix}nonneg_policy"] = nonneg_s
+    work[f"{out_audit_prefix}snap_mode"] = snap_s
 
     return work
