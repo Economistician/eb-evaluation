@@ -388,6 +388,25 @@ def test_apply_ral_nonneg_none_clips_like_balanced_preset() -> None:
     assert (out["ral_apply_nonneg_policy"] == "clip_zero").all()
 
 
+def test_apply_ral_raises_when_snap_required_with_nan_forecast() -> None:
+    from eb_evaluation.adjustment.ral import apply_ral
+
+    df = _make_apply_ral_df()
+    df.loc[df["forecast_entity_id"] == 2, "yhat_ral_raw"] = [7.9, np.nan]
+    decisions = _make_decisions_df()
+
+    with pytest.raises(ValueError, match="NaN or inf"):
+        apply_ral(
+            df=df,
+            decisions=decisions,
+            join_keys=["forecast_entity_id"],
+            pred_col="yhat_ral_raw",
+            output_col="yhat_ral_governed",
+            snap_mode="ceil",
+            nonneg_mode="clip_zero",
+        )
+
+
 def test_apply_ral_raises_when_snap_required_without_valid_unit() -> None:
     from eb_evaluation.adjustment.ral import apply_ral
 

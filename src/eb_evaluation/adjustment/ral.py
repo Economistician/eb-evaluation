@@ -525,8 +525,13 @@ def _apply_snap_policy_series(
     """
     v = values.to_numpy(dtype=float, copy=False)
     u = units.to_numpy(dtype=float, copy=False)
+    if not np.isfinite(v).all():
+        raise ValueError(
+            "snap_required is True but forecast values include NaN or inf; "
+            "refusing fail-open unsnapped forecasts."
+        )
 
-    mask = np.isfinite(v) & np.isfinite(u) & (u > 0.0)
+    mask = np.isfinite(u) & (u > 0.0)
     if not mask.any():
         return values
 

@@ -147,6 +147,12 @@ def test_snap_to_grid_modes_and_invalid_mode() -> None:
     with pytest.raises(ValueError, match="must be numeric"):
         snap_to_grid(["unparseable"], unit, mode="ceil")  # type: ignore[list-item]
 
+    with pytest.raises(ValueError, match="must be finite"):
+        snap_to_grid([1.0, float("nan")], unit, mode="ceil")
+
+    with pytest.raises(ValueError, match="must be finite"):
+        snap_to_grid([1.0, float("inf")], unit, mode="ceil")
+
 
 def test_snap_to_grid_negative_values_use_math_floor_and_ceil() -> None:
     values = [-5.1, -4.0, -1.2]

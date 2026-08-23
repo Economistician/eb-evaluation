@@ -195,8 +195,8 @@ def snap_to_grid(values: Sequence[float], unit: float, *, mode: str = "ceil") ->
     Raises
     ------
     ValueError
-        If ``unit`` is NaN or ``unit <= 0``, or if a value is ``None`` or
-        otherwise not numeric.
+        If ``unit`` is NaN or ``unit <= 0``, or if a value is ``None``,
+        non-numeric, or non-finite (NaN / ±inf).
     """
     if unit <= 0 or isnan(unit):
         raise ValueError(f"snap unit must be > 0; got {unit!r}")
@@ -213,9 +213,10 @@ def snap_to_grid(values: Sequence[float], unit: float, *, mode: str = "ceil") ->
             fv = float(v)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"snap_to_grid values must be numeric; got {v!r}") from exc
-        if isnan(fv):
-            snapped.append(fv)
-            continue
+        if not isfinite(fv):
+            raise ValueError(
+                "snap_to_grid values must be finite; refusing fail-open NaN/inf forecasts."
+            )
 
         q = fv * inv
         if mode == "ceil":

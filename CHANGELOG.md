@@ -43,6 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `evaluate_governance_panel_df` and the governance workflow fail closed when more than 20% of a stream is non-finite or fewer than 8 finite aligned rows remain, instead of silently governing the remainder.
 - Re-exported `results_to_dict` from the package root.
 - `run_governance_panel_df` drops `±inf` with NaN and fail-closes non-finite streams.
+- `snap_to_grid` raises on NaN or inf forecast cells instead of passing them through unsnapped.
+- `_clean_nonneg` no longer swallows arbitrary exceptions; unparseable demand values fail-close DQC as `UNKNOWN`.
 
 ### Changed
 

@@ -102,7 +102,7 @@ class DQCResult:
 
 
 def classify_dqc(
-    y: Sequence[float],
+    y: Sequence[object],
     thresholds: DQCThresholds | None = None,
 ) -> DQCResult:
     """
@@ -130,7 +130,13 @@ def classify_dqc(
             reasons=("empty_series",),
         )
 
-    vals = _clean_nonneg(y, round_decimals=thr.round_decimals)
+    vals, n_unparseable = _clean_nonneg(y, round_decimals=thr.round_decimals)
+    if n_unparseable:
+        return DQCResult(
+            dqc_class=DQCClass.UNKNOWN,
+            signals=_empty_signals(thr),
+            reasons=("unparseable_values_fail_closed", f"unparseable_values={n_unparseable}"),
+        )
     if not vals:
         return DQCResult(
             dqc_class=DQCClass.UNKNOWN,
@@ -305,19 +311,27 @@ def _empty_signals(thr: DQCThresholds) -> DQCSignals:
     )
 
 
-def _clean_nonneg(values: Sequence[float], *, round_decimals: int) -> list[float]:
+def _clean_nonneg(values: Sequence[object], *, round_decimals: int) -> tuple[list[float], int]:
+    """Parse nonnegative values; count unparseable cells instead of swallowing errors.
+
+    NaN and negatives are dropped as missing/invalid demand. ``TypeError`` /
+    ``ValueError`` during conversion are counted so the caller can fail closed
+    rather than classify a quietly cleaned subset.
+    """
     out: list[float] = []
+    n_unparseable = 0
     for v in values:
         try:
-            fv = float(v)
-        except Exception:
+            fv = float(v)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            n_unparseable += 1
             continue
         if isnan(fv):
             continue
         if fv < 0:
             continue
         out.append(round(fv, round_decimals))
-    return out
+    return out, n_unparseable
 
 
 def _multiple_rate(values: Sequence[float], unit: float) -> float:

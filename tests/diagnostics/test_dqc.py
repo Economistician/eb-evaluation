@@ -11,6 +11,8 @@ canonical demand patterns:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from eb_evaluation.diagnostics.dqc import (
     DQCClass,
     DQCThresholds,
@@ -105,3 +107,12 @@ def test_dqc_respects_threshold_override() -> None:
 
     assert looser_result.signals.n_obs == len(y)
     assert looser_result.signals.nonzero_obs == len(y) - 50
+
+
+def test_dqc_unparseable_values_fail_closed() -> None:
+    # Corrupted cells must not silently drop so the remainder classifies.
+    y: Sequence[object] = [8.0] * 120 + [16.0] * 120 + ["not-a-number"]
+    result = classify_dqc(y)
+    assert result.dqc_class is DQCClass.UNKNOWN
+    assert "unparseable_values_fail_closed" in result.reasons
+    assert any(r.startswith("unparseable_values=") for r in result.reasons)
