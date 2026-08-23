@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-08-23
+
 ### Added
 
 - `FASClass` is a public ALLOWED / CONDITIONAL / BLOCKED enum and an optional upstream binding input to `decide_governance` (`BLOCKED` short-circuits; `CONDITIONAL` downgrades permissive RAL).
@@ -51,7 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Diagnostic policy enums (`DQCClass`, `FPCClass`, `GovernanceStatus`, `TauPolicy`, `RALPolicy`) inherit `StrEnum`.
 - Polished module and public API docstrings to remove prompt-spec essay prose.
 - Tightened README Overview; removed cloned Role section.
-- Changelog version header now matches `pyproject.toml` (`0.2.7`).
+- Changelog version header now matches `pyproject.toml` (`0.2.8`).
+- Pinned sibling Electric Barometer packages to exact System Release 0.2.9 versions.
 
 ## [0.2.7] - 2026-08-22
 
