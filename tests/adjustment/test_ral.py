@@ -491,3 +491,56 @@ def test_apply_ral_raises_when_dqc_implies_snap_without_unit() -> None:
             nonneg_mode="clip_zero",
             infer_policy_from_recommendations=False,
         )
+
+
+def test_apply_ral_disallow_red_or_fas_blocked_copies_baseline() -> None:
+    from eb_evaluation.adjustment.ral import apply_ral
+
+    df = pd.DataFrame(
+        {
+            "forecast_entity_id": [1, 1, 2, 2],
+            "yhat_base": [1.0, 2.0, 4.0, 8.0],
+            "yhat_ral": [9.0, 10.0, 12.0, 16.0],
+        }
+    )
+    decisions = pd.DataFrame(
+        {
+            "forecast_entity_id": [1, 2],
+            "snap_required": [False, False],
+            "snap_unit": [np.nan, np.nan],
+            "ral_policy": ["disallow", "allow"],
+            "status": ["red", "green"],
+            "fas_class": ["BLOCKED", "ALLOWED"],
+        }
+    )
+
+    out = apply_ral(
+        df=df,
+        decisions=decisions,
+        join_keys=["forecast_entity_id"],
+        yhat_base_col="yhat_base",
+        yhat_ral_col="yhat_ral",
+        nonneg_mode="allow",
+    )
+    entity1 = out.loc[out["forecast_entity_id"] == 1]
+    entity2 = out.loc[out["forecast_entity_id"] == 2]
+    np.testing.assert_allclose(
+        entity1["yhat_ral_governed"].to_numpy(dtype=float),
+        entity1["yhat_base_governed"].to_numpy(dtype=float),
+        rtol=0,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        entity1["yhat_base_governed"].to_numpy(dtype=float),
+        np.asarray([1.0, 2.0], dtype=float),
+        rtol=0,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        entity2["yhat_ral_governed"].to_numpy(dtype=float),
+        np.asarray([12.0, 16.0], dtype=float),
+        rtol=0,
+        atol=1e-12,
+    )
+    assert not entity1["ral_apply_ral_applied"].any()
+    assert entity2["ral_apply_ral_applied"].all()

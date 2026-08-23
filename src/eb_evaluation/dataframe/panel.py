@@ -11,7 +11,7 @@ from collections.abc import Sequence
 import pandas as pd
 
 from eb_evaluation.diagnostics.dqc import DQCThresholds
-from eb_evaluation.diagnostics.fas import FASClass
+from eb_evaluation.diagnostics.fas import FASClass, resolve_panel_fas_class
 from eb_evaluation.diagnostics.fpc import FPCThresholds
 from eb_evaluation.diagnostics.presets import GovernancePreset
 from eb_evaluation.diagnostics.run import run_governance_gate
@@ -151,7 +151,8 @@ def run_governance_panel_df(
     dqc_thresholds: DQCThresholds | None = None,
     fpc_thresholds: FPCThresholds | None = None,
     preset: GovernancePreset | str | None = None,
-    fas_class: FASClass | str | None = None,
+    fas_class: FASClass | str | pd.Series | None = None,
+    fas_class_col: str | None = None,
 ) -> pd.DataFrame:
     """
     Run the governance gate per panel stream and return a tidy results DataFrame.
@@ -180,8 +181,11 @@ def run_governance_panel_df(
         Same semantics as diagnostics.run.run_governance_gate: do not mix preset with
         explicit thresholds.
     fas_class:
-        Optional upstream Forecast Admissibility Surface class forwarded to the
-        governance gate.
+        Optional upstream Forecast Admissibility Surface class. A scalar is
+        broadcast to every stream. A row-aligned Series is resolved per stream.
+    fas_class_col:
+        Optional panel column of per-row FAS classes. Mixed values within a
+        stream raise. When set, this column takes precedence over ``fas_class``.
 
     Returns
     -------
@@ -219,6 +223,7 @@ def run_governance_panel_df(
         y_list = sub[actual_col].astype(float).tolist()
         yhat_base_list = sub[forecast_base_col].astype(float).tolist()
         yhat_ral_list = sub[forecast_ral_col].astype(float).tolist()
+        stream_fas = resolve_panel_fas_class(g, fas_class=fas_class, fas_class_col=fas_class_col)
 
         gate = run_governance_gate(
             y=y_list,
@@ -229,7 +234,7 @@ def run_governance_panel_df(
             dqc_thresholds=dqc_thresholds,
             fpc_thresholds=fpc_thresholds,
             preset=preset,
-            fas_class=fas_class,
+            fas_class=stream_fas,
         )
 
         row["dqc_class"] = gate.dqc.dqc_class.value
@@ -243,6 +248,9 @@ def run_governance_panel_df(
         row["tau_policy"] = gate.decision.tau_policy.value
         row["ral_policy"] = gate.decision.ral_policy.value
         row["status"] = gate.decision.status.value
+        row["fas_class"] = (
+            None if gate.decision.fas_class is None else gate.decision.fas_class.value
+        )
 
         row["recommended_mode"] = gate.recommended_mode
         row["recommendations"] = ", ".join(gate.recommendations)

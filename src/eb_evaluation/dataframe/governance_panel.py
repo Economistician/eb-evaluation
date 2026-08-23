@@ -14,7 +14,7 @@ from typing import Any
 import pandas as pd
 
 from eb_evaluation.diagnostics.dqc import DQCThresholds
-from eb_evaluation.diagnostics.fas import FASClass
+from eb_evaluation.diagnostics.fas import FASClass, resolve_panel_fas_class
 from eb_evaluation.diagnostics.fpc import FPCThresholds
 from eb_evaluation.diagnostics.presets import GovernancePreset
 from eb_evaluation.diagnostics.results import GovernanceResult
@@ -22,11 +22,19 @@ from eb_evaluation.diagnostics.run import run_governance_gate
 
 __all__ = ["evaluate_governance_panel_df"]
 
+_RECOMMENDATION_SEP = ", "
+
 
 def _as_reason_string(reasons: Sequence[str] | None) -> str:
     if not reasons:
         return ""
     return "|".join(str(r) for r in reasons)
+
+
+def _as_recommendation_string(reasons: Sequence[str] | None) -> str:
+    if not reasons:
+        return ""
+    return _RECOMMENDATION_SEP.join(str(r) for r in reasons)
 
 
 def _safe_getattr(obj: object, name: str) -> Any:
@@ -52,7 +60,8 @@ def evaluate_governance_panel_df(
     dqc_thresholds: DQCThresholds | None = None,
     fpc_thresholds: FPCThresholds | None = None,
     dropna_keys: bool = True,
-    fas_class: FASClass | str | None = None,
+    fas_class: FASClass | str | pd.Series | None = None,
+    fas_class_col: str | None = None,
 ) -> pd.DataFrame:
     """
     Evaluate governance across a panel of streams and return a per-stream summary table.
@@ -85,8 +94,11 @@ def evaluate_governance_panel_df(
         If True, drop rows with NA in any key column before grouping. This is usually
         desired for stable grouping semantics.
     fas_class:
-        Optional upstream Forecast Admissibility Surface class forwarded to the
-        governance gate.
+        Optional upstream Forecast Admissibility Surface class. A scalar is
+        broadcast to every stream. A row-aligned Series is resolved per stream.
+    fas_class_col:
+        Optional panel column of per-row FAS classes. Mixed values within a
+        stream raise. When set, this column takes precedence over ``fas_class``.
 
     Returns
     -------
@@ -123,6 +135,7 @@ def evaluate_governance_panel_df(
         y = g[actual_col].to_numpy(dtype=float)
         yhat_base = g[base_forecast_col].to_numpy(dtype=float)
         yhat_ral = g[ral_forecast_col].to_numpy(dtype=float)
+        stream_fas = resolve_panel_fas_class(g, fas_class=fas_class, fas_class_col=fas_class_col)
 
         gate = run_governance_gate(
             y=y,
@@ -133,7 +146,7 @@ def evaluate_governance_panel_df(
             preset=preset,
             dqc_thresholds=dqc_thresholds,
             fpc_thresholds=fpc_thresholds,
-            fas_class=fas_class,
+            fas_class=stream_fas,
         )
 
         # Use the portable, stable representation for core policy/class fields.
@@ -146,6 +159,9 @@ def evaluate_governance_panel_df(
         row["tau_policy"] = result.tau_policy.value
         row["ral_policy"] = result.ral_policy.value
         row["status"] = result.status.value
+        row["fas_class"] = (
+            None if gate.decision.fas_class is None else gate.decision.fas_class.value
+        )
 
         # Classes
         row["dqc_class"] = result.dqc_class.value
@@ -177,7 +193,7 @@ def evaluate_governance_panel_df(
         row["dqc_reasons"] = _as_reason_string(result.dqc_reasons)
         row["fpc_raw_reasons"] = _as_reason_string(result.fpc_raw_reasons)
         row["fpc_snapped_reasons"] = _as_reason_string(result.fpc_snapped_reasons)
-        row["recommendations"] = _as_reason_string(result.recommendations)
+        row["recommendations"] = _as_recommendation_string(result.recommendations)
 
         out_rows.append(row)
 

@@ -35,7 +35,8 @@ def run_governance_workflow_df(
     dqc_thresholds: DQCThresholds | None = None,
     fpc_thresholds: FPCThresholds | None = None,
     dropna_keys: bool = True,
-    fas_class: FASClass | str | None = None,
+    fas_class: FASClass | str | pd.Series | None = None,
+    fas_class_col: str | None = None,
     # decisions override (optional)
     decisions_df: pd.DataFrame | None = None,
     # apply step
@@ -85,6 +86,7 @@ def run_governance_workflow_df(
             fpc_thresholds=fpc_thresholds,
             dropna_keys=dropna_keys,
             fas_class=fas_class,
+            fas_class_col=fas_class_col,
         )
     else:
         missing_decision_keys = sorted(set(keys_list) - set(decisions_df.columns))
@@ -185,7 +187,8 @@ def run_governance_workflow_df_dict(
     dqc_thresholds: DQCThresholds | None = None,
     fpc_thresholds: FPCThresholds | None = None,
     dropna_keys: bool = True,
-    fas_class: FASClass | str | None = None,
+    fas_class: FASClass | str | pd.Series | None = None,
+    fas_class_col: str | None = None,
     decisions_df: pd.DataFrame | None = None,
     snap_mode: SnapMode = "ceil",
     nonneg_policy: NonnegPolicy | None = None,
@@ -213,6 +216,7 @@ def run_governance_workflow_df_dict(
         fpc_thresholds=fpc_thresholds,
         dropna_keys=dropna_keys,
         fas_class=fas_class,
+        fas_class_col=fas_class_col,
         decisions_df=decisions_df,
         snap_mode=snap_mode,
         nonneg_policy=nonneg_policy,

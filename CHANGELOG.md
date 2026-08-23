@@ -26,7 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `apply_ral(nonneg_mode="none")` and missing recommendation payloads follow the balanced `clip_zero` policy, matching the governance gate.
 - `apply_ral` parses comma-joined recommendation strings and applies snap/nonneg policy per row instead of the first panel row.
 - `apply_ral` fails closed when DQC class implies snapping even if `snap_required` is omitted.
-- `snap_to_grid` uses `math.ceil` / `math.floor` so negative values are not truncated toward zero.
+- `apply_ral` copies governed baseline into `yhat_ral_governed` when `ral_policy` is DISALLOW, `status` is RED, or `fas_class` is BLOCKED.
+- Panel recommendation strings use comma delimiters so `apply_ral` can parse per-row snap/nonneg tokens.
+- `evaluate_governance_panel_df`, `run_governance_panel_df`, and the governance workflow accept per-stream `fas_class_col` / row-aligned `fas_class` Series.
 
 ### Changed
 

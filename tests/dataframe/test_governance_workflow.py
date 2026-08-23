@@ -194,3 +194,28 @@ def test_run_governance_workflow_df_completeness_check_raises_when_missing_decis
             tau=2.0,
             require_complete_decisions=True,
         )
+
+
+def test_run_governance_workflow_df_suppresses_ral_when_fas_blocked() -> None:
+    df = _build_sample_panel_df()
+    df["fas_class"] = np.where(df["forecast_entity_id"] == 10, "BLOCKED", "ALLOWED")
+    panel, decisions = run_governance_workflow_df(
+        df=df,
+        keys=["site_id", "forecast_entity_id"],
+        actual_col="y",
+        base_forecast_col="yhat_base",
+        ral_forecast_col="yhat_ral",
+        tau=2.0,
+        fas_class_col="fas_class",
+    )
+    blocked = panel.loc[panel["forecast_entity_id"] == 10]
+    np.testing.assert_allclose(
+        blocked["yhat_ral_governed"].to_numpy(dtype=float),
+        blocked["yhat_base_governed"].to_numpy(dtype=float),
+        rtol=0,
+        atol=1e-12,
+    )
+    applied = blocked["ral_apply_ral_applied"].to_numpy(dtype=bool)
+    assert not bool(applied.any())
+    recs = decisions["recommendations"].astype(str)
+    assert recs.str.contains(r"\|", regex=True).sum() == 0

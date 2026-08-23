@@ -195,3 +195,71 @@ def test_evaluate_governance_panel_df_dropna_keys_behavior() -> None:
     )
     # When dropna_keys=False, groupby(dropna=True) should include the NA group.
     assert len(out_keep) >= 2
+
+
+def test_evaluate_governance_panel_recommendations_use_comma_delimiter() -> None:
+    df = _build_sample_panel_df()
+    out = cast(
+        pd.DataFrame,
+        evaluate_governance_panel_df(
+            df=df,
+            keys=["site_id", "forecast_entity_id"],
+            actual_col="y",
+            base_forecast_col="yhat_base",
+            ral_forecast_col="yhat_ral",
+            tau=1.0,
+        ),
+    )
+    recs = out["recommendations"].astype(str)
+    assert recs.str.contains(r"\|", regex=True).sum() == 0
+    pack = out[(out["site_id"] == 2) & (out["forecast_entity_id"] == 20)].iloc[0]
+    rec = str(pack["recommendations"])
+    if "snap_forecasts_to_grid" in rec:
+        assert "," in rec
+
+
+def test_evaluate_governance_panel_per_stream_fas_class_col() -> None:
+    df = _build_sample_panel_df()
+    df["fas_class"] = np.where(df["forecast_entity_id"] == 10, "BLOCKED", "ALLOWED")
+    out = cast(
+        pd.DataFrame,
+        evaluate_governance_panel_df(
+            df=df,
+            keys=["site_id", "forecast_entity_id"],
+            actual_col="y",
+            base_forecast_col="yhat_base",
+            ral_forecast_col="yhat_ral",
+            tau=2.0,
+            fas_class_col="fas_class",
+        ),
+    )
+    blocked = out[(out["site_id"] == 1) & (out["forecast_entity_id"] == 10)].iloc[0]
+    allowed = out[(out["site_id"] == 2) & (out["forecast_entity_id"] == 20)].iloc[0]
+    assert blocked["ral_policy"] == "disallow"
+    assert blocked["status"] == "red"
+    assert blocked["fas_class"] == "BLOCKED"
+    assert allowed["fas_class"] == "ALLOWED"
+
+
+def test_run_governance_panel_df_per_stream_fas_class_col() -> None:
+    from eb_evaluation.dataframe.panel import run_governance_panel_df
+
+    df = _build_sample_panel_df()
+    df["fas_class"] = np.where(df["forecast_entity_id"] == 10, "BLOCKED", "ALLOWED")
+    out = run_governance_panel_df(
+        df=df,
+        group_cols=["site_id", "forecast_entity_id"],
+        actual_col="y",
+        forecast_base_col="yhat_base",
+        forecast_ral_col="yhat_ral",
+        tau=2.0,
+        fas_class_col="fas_class",
+    )
+    blocked = out[(out["site_id"] == 1) & (out["forecast_entity_id"] == 10)].iloc[0]
+    allowed = out[(out["site_id"] == 2) & (out["forecast_entity_id"] == 20)].iloc[0]
+    assert blocked["ral_policy"] == "disallow"
+    assert blocked["status"] == "red"
+    assert blocked["fas_class"] == "BLOCKED"
+    assert allowed["fas_class"] == "ALLOWED"
+    recs = out["recommendations"].astype(str)
+    assert recs.str.contains(r"\|", regex=True).sum() == 0

@@ -288,6 +288,10 @@ SnapMode = Literal["ceil", "round", "floor"]
 _DEFAULT_APPLY_NONNEG: NonnegPolicy = preset_policy("balanced")
 _SNAP_DQC_CLASSES = frozenset({"quantized", "piecewise_packed"})
 _SNAP_MODES = frozenset({"ceil", "round", "floor"})
+_BLOCKED_RAL_POLICIES = ("disallow",)
+_BLOCKED_STATUSES = ("red",)
+_BLOCKED_FAS_CLASSES = ("blocked",)
+_RECOMMENDATION_SEP = ","
 
 
 def _is_missing_scalar(value: object) -> bool:
@@ -312,7 +316,7 @@ def _tokenize_recommendations(recs: object | None) -> tuple[str, ...]:
     if _is_missing_scalar(recs):
         return ()
     if isinstance(recs, str):
-        return tuple(part.strip() for part in recs.split(",") if part.strip())
+        return tuple(part.strip() for part in recs.split(_RECOMMENDATION_SEP) if part.strip())
     if isinstance(recs, bytes | bytearray):
         return _tokenize_recommendations(recs.decode("utf-8", errors="replace"))
     if isinstance(recs, Sequence) and not isinstance(recs, str | bytes | bytearray):
@@ -380,6 +384,28 @@ def _dqc_implies_snap(value: object) -> bool:
         return False
     token = str(value).strip().lower().rsplit(".", 1)[-1]
     return token in _SNAP_DQC_CLASSES
+
+
+def _enum_token(value: object) -> str:
+    """Normalize enum/string policy tokens for fail-closed apply checks."""
+    if _is_missing_scalar(value):
+        return ""
+    raw = getattr(value, "value", None)
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip().lower()
+    return str(value).strip().lower().rsplit(".", 1)[-1]
+
+
+def _adjustment_blocked_mask(work: pd.DataFrame) -> pd.Series:
+    """True where RAL must not be applied (DISALLOW, RED, or FAS BLOCKED)."""
+    blocked = pd.Series(False, index=work.index)
+    if "ral_policy" in work.columns:
+        blocked = blocked | work["ral_policy"].map(_enum_token).isin(_BLOCKED_RAL_POLICIES)
+    if "status" in work.columns:
+        blocked = blocked | work["status"].map(_enum_token).isin(_BLOCKED_STATUSES)
+    if "fas_class" in work.columns:
+        blocked = blocked | work["fas_class"].map(_enum_token).isin(_BLOCKED_FAS_CLASSES)
+    return blocked.astype(bool)
 
 
 def _series_from_column(work: pd.DataFrame, col: str) -> pd.Series:
@@ -471,6 +497,9 @@ def apply_ral(
       snap and nonneg policies are inferred **per row** from recommendation
       strings emitted by run.py (comma-joined strings or sequences). Mixed
       entity policies are not collapsed to the first row.
+    - When joined decisions mark ``ral_policy=disallow``, ``status=red``, or
+      ``fas_class=BLOCKED``, ``out_ral_col`` is copied from the governed baseline
+      so readiness adjustment is not applied.
     """
 
     # ---- apply legacy aliases (if provided) ----
@@ -515,6 +544,9 @@ def apply_ral(
             if k not in decisions.columns:
                 raise KeyError(f"apply_ral: missing key column {k!r} in decisions.")
 
+        overlap = [c for c in decisions.columns if c in work.columns and c not in keys]
+        if overlap:
+            work = work.drop(columns=overlap)
         merged = work.merge(decisions, on=keys, how="left", indicator=True)
         missing = merged.loc[merged["_merge"] != "both", keys]
         if not missing.empty:
@@ -632,7 +664,12 @@ def apply_ral(
                 policy="clip_zero",
             )
 
+    blocked = _adjustment_blocked_mask(work)
+    if bool(blocked.any()):
+        work.loc[blocked, out_ral_col] = work.loc[blocked, out_base_col].to_numpy()
+
     work[f"{out_audit_prefix}nonneg_policy"] = nonneg_s
     work[f"{out_audit_prefix}snap_mode"] = snap_s
+    work[f"{out_audit_prefix}ral_applied"] = ~blocked
 
     return work

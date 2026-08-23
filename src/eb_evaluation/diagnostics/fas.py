@@ -33,6 +33,44 @@ _FAS_CLASS_BLOCKED: Final[str] = FASClass.BLOCKED.value
 _FAS_FINGERPRINT_HEX_LEN: Final[int] = 16
 
 
+def resolve_panel_fas_class(
+    group: pd.DataFrame,
+    *,
+    fas_class: FASClass | str | pd.Series | None = None,
+    fas_class_col: str | None = None,
+) -> FASClass | str | None:
+    """Resolve one FAS class for a grouped stream.
+
+    Preference: ``fas_class_col`` on ``group``, then a row-aligned ``Series``,
+    then a scalar broadcast. Mixed values within a stream raise.
+    """
+    if fas_class_col is not None:
+        if fas_class_col not in group.columns:
+            raise ValueError(f"fas_class_col {fas_class_col!r} is missing from the panel.")
+        col = group.loc[:, fas_class_col]
+        if not isinstance(col, pd.Series):
+            raise ValueError(f"fas_class_col {fas_class_col!r} must select a single column.")
+        uniq = pd.unique(col.dropna())
+        if len(uniq) == 0:
+            return None
+        if len(uniq) > 1:
+            raise ValueError(
+                f"Mixed fas_class values within one stream in {fas_class_col!r}: {list(uniq)}"
+            )
+        value = uniq[0]
+        return value if isinstance(value, FASClass | str) else str(value)
+    if isinstance(fas_class, pd.Series):
+        aligned = fas_class.reindex(group.index)
+        uniq = pd.unique(aligned.dropna())
+        if len(uniq) == 0:
+            return None
+        if len(uniq) > 1:
+            raise ValueError(f"Mixed fas_class Series values within one stream: {list(uniq)}")
+        value = uniq[0]
+        return value if isinstance(value, FASClass | str) else str(value)
+    return fas_class
+
+
 @dataclass(frozen=True)
 class FASThresholds:
     """Thresholds that define ALLOWED / CONDITIONAL / BLOCKED."""
