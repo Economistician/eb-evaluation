@@ -342,10 +342,14 @@ def run_governance_gate(
     # 5) Recommended routing mode
     # "applicable" FPC for routing matches governance policy selection:
     # - snapped when snap_required, else raw
+    # DQC UNKNOWN is fail-closed and never routed as continuous-like.
     applicable = fpc_snapped if decision.snap_required else fpc_raw
 
-    if applicable.fpc_class.value == "incompatible":
+    if dqc.dqc_class is DQCClass.UNKNOWN:
         recommended_mode: RecommendedMode = "reroute_discrete"
+        recommendations.append("dqc_unknown_fail_closed")
+    elif applicable.fpc_class.value == "incompatible":
+        recommended_mode = "reroute_discrete"
         recommendations.append("fpc_incompatible_reroute_to_discrete_decision_model")
     elif decision.snap_required:
         recommended_mode = "pack_aware"

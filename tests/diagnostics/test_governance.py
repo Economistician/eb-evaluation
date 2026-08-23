@@ -20,9 +20,9 @@ from unittest.mock import patch
 
 import pytest
 
-from eb_evaluation.diagnostics.dqc import DQCThresholds
+from eb_evaluation.diagnostics.dqc import DQCClass, DQCThresholds
 from eb_evaluation.diagnostics.fas import FASClass
-from eb_evaluation.diagnostics.fpc import FPCSignals, FPCThresholds
+from eb_evaluation.diagnostics.fpc import FPCClass, FPCSignals, FPCThresholds
 from eb_evaluation.diagnostics.governance import (
     GovernanceStatus,
     RALPolicy,
@@ -506,6 +506,60 @@ def test_governance_fas_class_none_matches_omitted() -> None:
     assert omitted.fas_class is None
     assert omitted.ral_policy == RALPolicy.ALLOW
     assert omitted.status == GovernanceStatus.GREEN
+
+
+def test_decide_governance_unknown_disallows_ral() -> None:
+    from eb_evaluation.diagnostics.dqc import DQCResult, DQCSignals
+
+    # Compatible raw FPC on a long series must not fail open when DQC is UNKNOWN.
+    y = [0.1 * i for i in range(1, 201)]
+    raw = _signals(
+        nsl_base=0.08,
+        nsl_ral=0.14,
+        hr_base_tau=0.11,
+        hr_ral_tau=0.07,
+        ud=3.0,
+    )
+    fake = DQCResult(
+        dqc_class=DQCClass.UNKNOWN,
+        signals=DQCSignals(
+            n_obs=len(y),
+            nonzero_obs=len(y),
+            granularity=None,
+            multiple_rate=float("nan"),
+            support_size=len(y),
+            zero_mass=0.0,
+            small_value_mass=0.0,
+            offgrid_mad=float("nan"),
+            candidate_units=(),
+            unit_scores=(),
+        ),
+        reasons=("insufficient_data",),
+    )
+    with patch("eb_evaluation.diagnostics.governance.classify_dqc", return_value=fake):
+        res = decide_governance(y=y, fpc_signals_raw=raw)
+    assert res.dqc.dqc_class is DQCClass.UNKNOWN
+    assert res.snap_required is False
+    assert res.ral_policy == RALPolicy.DISALLOW
+    assert res.status == GovernanceStatus.RED
+    assert "dqc_unknown_fail_closed" in res.reasons
+
+
+def test_decide_governance_snap_required_omitted_snapped_fpc_is_incompatible() -> None:
+    y = [0.0] * 20 + [4.0] * 60 + [8.0] * 60 + [12.0] * 40
+    raw = _signals(
+        nsl_base=0.08,
+        nsl_ral=0.14,
+        hr_base_tau=0.11,
+        hr_ral_tau=0.07,
+        ud=3.0,
+    )
+    res = decide_governance(y=y, fpc_signals_raw=raw)
+    assert res.snap_required is True
+    assert res.fpc_snapped.fpc_class is FPCClass.INCOMPATIBLE
+    assert res.ral_policy == RALPolicy.DISALLOW
+    assert res.status == GovernanceStatus.RED
+    assert "snapped_fpc_required_but_omitted" in res.reasons
 
 
 def test_decide_governance_quantized_without_unit_raises() -> None:

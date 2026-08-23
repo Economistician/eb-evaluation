@@ -22,8 +22,9 @@ Decision contract (authoritative)
 Inputs:
 - y (realized demand series) is used ONLY for DQC.
 - fpc_signals_raw is REQUIRED and represents FPC signals computed on raw units.
-- fpc_signals_snapped is OPTIONAL and represents FPC signals computed after
-  snapping forecasts to the demand grid. If omitted, snapped == raw.
+- fpc_signals_snapped is REQUIRED when snap_required is true. Omitting it
+  does not reuse raw FPC; snapped FPC is marked INCOMPATIBLE and RAL is
+  disallowed.
 
 Outputs:
 - snap_required:
@@ -36,6 +37,8 @@ Outputs:
     Determined from FPC on:
       * snapped FPC when snap_required
       * raw FPC when continuous-like
+    DQC UNKNOWN is fail-closed (DISALLOW / RED) and is never treated as
+    continuous-like.
 
 Policy presets:
 - conservative / balanced / aggressive provide small, stable presets for
@@ -282,6 +285,23 @@ def _coerce_fas_class(fas_class: FASClass | str | None) -> FASClass | None:
         raise ValueError(f"Unknown fas_class: {fas_class!r}") from exc
 
 
+def _incompatible_placeholder_fpc(reason: str) -> FPCResult:
+    """Fail-closed FPC artifact when snapped evidence cannot be evaluated."""
+    return FPCResult(
+        fpc_class=FPCClass.INCOMPATIBLE,
+        signals=FPCSignals(
+            nsl_base=float("nan"),
+            nsl_ral=float("nan"),
+            delta_nsl=float("nan"),
+            hr_base_tau=float("nan"),
+            hr_ral_tau=float("nan"),
+            delta_hr_tau=float("nan"),
+            ud=float("nan"),
+        ),
+        reasons=(reason,),
+    )
+
+
 def _skipped_fas_blocked_diagnostics() -> tuple[DQCResult, FPCResult]:
     """Placeholder DQC/FPC artifacts when FAS blocks before evaluation."""
     dqc = DQCResult(
@@ -300,20 +320,7 @@ def _skipped_fas_blocked_diagnostics() -> tuple[DQCResult, FPCResult]:
         ),
         reasons=("skipped_fas_blocked",),
     )
-    fpc = FPCResult(
-        fpc_class=FPCClass.INCOMPATIBLE,
-        signals=FPCSignals(
-            nsl_base=float("nan"),
-            nsl_ral=float("nan"),
-            delta_nsl=float("nan"),
-            hr_base_tau=float("nan"),
-            hr_ral_tau=float("nan"),
-            delta_hr_tau=float("nan"),
-            ud=float("nan"),
-        ),
-        reasons=("skipped_fas_blocked",),
-    )
-    return dqc, fpc
+    return dqc, _incompatible_placeholder_fpc("skipped_fas_blocked")
 
 
 def _preset_reason_value(preset: str | GovernancePreset) -> str:
@@ -354,9 +361,11 @@ def decide_governance(
     fpc_signals_raw:
         FPC signals computed in raw units.
     fpc_signals_snapped:
-        Optional FPC signals computed after snapping forecasts to the detected
-        demand grid. If not provided, the snapped decision is treated as equal
-        to the raw decision.
+        FPC signals computed after snapping forecasts to the detected demand
+        grid. Required when DQC sets ``snap_required``. If omitted in that
+        case, snapped FPC is INCOMPATIBLE and RAL is disallowed. On
+        continuous-like demand, omitted snapped signals reuse the raw
+        classification.
     dqc_thresholds:
         Optional thresholds for DQC. Overrides preset thresholds.
     fpc_thresholds:
@@ -402,22 +411,26 @@ def decide_governance(
     y_list = _as_list(y)
     dqc = classify_dqc(y_list, thresholds=eff_dqc)
 
-    # 2) FPC classification from provided signals
-    fpc_raw = classify_fpc(fpc_signals_raw, thresholds=eff_fpc)
-    fpc_snapped = (
-        classify_fpc(fpc_signals_snapped, thresholds=eff_fpc)
-        if fpc_signals_snapped is not None
-        else fpc_raw
-    )
-
-    # 3) Snap requirement + tolerance policy
+    # 2) Snap requirement + tolerance policy (before FPC reuse).
     snap_required = dqc.dqc_class in (DQCClass.QUANTIZED, DQCClass.PIECEWISE_PACKED)
     snap_unit = dqc.signals.granularity if snap_required else None
     if snap_required:
         snap_unit = _require_finite_positive_snap_unit(snap_unit)
     tau_policy = TauPolicy.GRID_UNITS if snap_required else TauPolicy.RAW_UNITS
 
+    # 3) FPC classification. Snapped evidence is required when snapping is
+    #    required; omitting it is INCOMPATIBLE, not a silent reuse of raw FPC.
+    fpc_raw = classify_fpc(fpc_signals_raw, thresholds=eff_fpc)
+    if snap_required and fpc_signals_snapped is None:
+        fpc_snapped = _incompatible_placeholder_fpc("snapped_fpc_required_but_omitted")
+        reasons.append("snapped_fpc_required_but_omitted")
+    elif fpc_signals_snapped is not None:
+        fpc_snapped = classify_fpc(fpc_signals_snapped, thresholds=eff_fpc)
+    else:
+        fpc_snapped = fpc_raw
+
     # 4) RAL policy + status
+    #    - DQC UNKNOWN is fail-closed (never treated as continuous-like).
     #    - If snapping is required, judge allowability off snapped FPC.
     #    - If continuous-like, judge off raw FPC.
     target_fpc = fpc_snapped if snap_required else fpc_raw
@@ -425,7 +438,11 @@ def decide_governance(
     ral_policy: RALPolicy
     status: GovernanceStatus
 
-    if target_fpc.fpc_class == FPCClass.COMPATIBLE:
+    if dqc.dqc_class is DQCClass.UNKNOWN:
+        ral_policy = RALPolicy.DISALLOW
+        status = GovernanceStatus.RED
+        reasons.append("dqc_unknown_fail_closed")
+    elif target_fpc.fpc_class == FPCClass.COMPATIBLE:
         if snap_required:
             ral_policy = RALPolicy.ALLOW_AFTER_SNAP
             reasons.append("compatible_after_snap")

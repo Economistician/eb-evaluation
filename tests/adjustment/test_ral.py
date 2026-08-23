@@ -544,3 +544,32 @@ def test_apply_ral_disallow_red_or_fas_blocked_copies_baseline() -> None:
     )
     assert not entity1["ral_apply_ral_applied"].any()
     assert entity2["ral_apply_ral_applied"].all()
+
+
+def test_apply_ral_unknown_dqc_copies_baseline() -> None:
+    from eb_evaluation.adjustment.ral import apply_ral
+
+    df = pd.DataFrame(
+        {
+            "forecast_entity_id": [1, 1],
+            "yhat_base": [1.0, 2.0],
+            "yhat_ral": [9.0, 10.0],
+            "dqc_class": ["unknown", "unknown"],
+            "snap_required": [False, False],
+        }
+    )
+    out = apply_ral(
+        df=df,
+        join_keys=["forecast_entity_id"],
+        yhat_base_col="yhat_base",
+        yhat_ral_col="yhat_ral",
+        nonneg_mode="allow",
+        infer_policy_from_recommendations=False,
+    )
+    np.testing.assert_allclose(
+        out["yhat_ral_governed"].to_numpy(dtype=float),
+        out["yhat_base_governed"].to_numpy(dtype=float),
+        rtol=0,
+        atol=1e-12,
+    )
+    assert not out["ral_apply_ral_applied"].to_numpy(dtype=bool).any()

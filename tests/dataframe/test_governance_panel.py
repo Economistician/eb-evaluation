@@ -263,3 +263,33 @@ def test_run_governance_panel_df_per_stream_fas_class_col() -> None:
     assert allowed["fas_class"] == "ALLOWED"
     recs = out["recommendations"].astype(str)
     assert recs.str.contains(r"\|", regex=True).sum() == 0
+
+
+def test_run_governance_panel_df_empty_after_dropna_is_red_disallow() -> None:
+    from eb_evaluation.dataframe.panel import run_governance_panel_df
+
+    df = pd.DataFrame(
+        {
+            "site_id": [1, 1],
+            "forecast_entity_id": [99, 99],
+            "y": [np.nan, np.nan],
+            "yhat_base": [np.nan, 1.0],
+            "yhat_ral": [2.0, np.nan],
+        }
+    )
+    out = run_governance_panel_df(
+        df=df,
+        group_cols=["site_id", "forecast_entity_id"],
+        actual_col="y",
+        forecast_base_col="yhat_base",
+        forecast_ral_col="yhat_ral",
+        tau=2.0,
+    )
+    assert len(out) == 1
+    row = out.iloc[0]
+    assert int(row["n_points_used"]) == 0
+    assert row["warnings"] == "empty_series_after_dropna"
+    assert row["ral_policy"] == "disallow"
+    assert row["status"] == "red"
+    assert row["fpc_raw_class"] == "incompatible"
+    assert row["recommended_mode"] == "reroute_discrete"

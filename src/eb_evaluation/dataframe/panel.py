@@ -10,9 +10,10 @@ from collections.abc import Sequence
 
 import pandas as pd
 
-from eb_evaluation.diagnostics.dqc import DQCThresholds
+from eb_evaluation.diagnostics.dqc import DQCClass, DQCThresholds
 from eb_evaluation.diagnostics.fas import FASClass, resolve_panel_fas_class
-from eb_evaluation.diagnostics.fpc import FPCThresholds
+from eb_evaluation.diagnostics.fpc import FPCClass, FPCThresholds
+from eb_evaluation.diagnostics.governance import GovernanceStatus, RALPolicy, TauPolicy
 from eb_evaluation.diagnostics.presets import GovernancePreset
 from eb_evaluation.diagnostics.run import run_governance_gate
 
@@ -216,7 +217,27 @@ def run_governance_panel_df(
         row["n_points_used"] = n_used
 
         if n_used == 0:
+            stream_fas = resolve_panel_fas_class(
+                g, fas_class=fas_class, fas_class_col=fas_class_col
+            )
             row["warnings"] = "empty_series_after_dropna"
+            row["dqc_class"] = DQCClass.UNKNOWN.value
+            row["dqc_granularity"] = None
+            row["fpc_raw_class"] = FPCClass.INCOMPATIBLE.value
+            row["fpc_snapped_class"] = FPCClass.INCOMPATIBLE.value
+            row["snap_required"] = False
+            row["snap_unit"] = None
+            row["tau_policy"] = TauPolicy.RAW_UNITS.value
+            row["ral_policy"] = RALPolicy.DISALLOW.value
+            row["status"] = GovernanceStatus.RED.value
+            if stream_fas is None:
+                row["fas_class"] = None
+            elif isinstance(stream_fas, FASClass):
+                row["fas_class"] = stream_fas.value
+            else:
+                row["fas_class"] = str(stream_fas)
+            row["recommended_mode"] = "reroute_discrete"
+            row["recommendations"] = "empty_series_fail_closed"
             results.append(row)
             continue
 

@@ -291,6 +291,7 @@ _SNAP_MODES = frozenset({"ceil", "round", "floor"})
 _BLOCKED_RAL_POLICIES = ("disallow",)
 _BLOCKED_STATUSES = ("red",)
 _BLOCKED_FAS_CLASSES = ("blocked",)
+_BLOCKED_DQC_CLASSES = ("unknown",)
 _RECOMMENDATION_SEP = ","
 
 
@@ -397,7 +398,7 @@ def _enum_token(value: object) -> str:
 
 
 def _adjustment_blocked_mask(work: pd.DataFrame) -> pd.Series:
-    """True where RAL must not be applied (DISALLOW, RED, or FAS BLOCKED)."""
+    """True where RAL must not be applied (DISALLOW, RED, FAS BLOCKED, or DQC UNKNOWN)."""
     blocked = pd.Series(False, index=work.index)
     if "ral_policy" in work.columns:
         blocked = blocked | work["ral_policy"].map(_enum_token).isin(_BLOCKED_RAL_POLICIES)
@@ -405,6 +406,8 @@ def _adjustment_blocked_mask(work: pd.DataFrame) -> pd.Series:
         blocked = blocked | work["status"].map(_enum_token).isin(_BLOCKED_STATUSES)
     if "fas_class" in work.columns:
         blocked = blocked | work["fas_class"].map(_enum_token).isin(_BLOCKED_FAS_CLASSES)
+    if "dqc_class" in work.columns:
+        blocked = blocked | work["dqc_class"].map(_enum_token).isin(_BLOCKED_DQC_CLASSES)
     return blocked.astype(bool)
 
 
@@ -497,9 +500,9 @@ def apply_ral(
       snap and nonneg policies are inferred **per row** from recommendation
       strings emitted by run.py (comma-joined strings or sequences). Mixed
       entity policies are not collapsed to the first row.
-    - When joined decisions mark ``ral_policy=disallow``, ``status=red``, or
-      ``fas_class=BLOCKED``, ``out_ral_col`` is copied from the governed baseline
-      so readiness adjustment is not applied.
+    - When joined decisions mark ``ral_policy=disallow``, ``status=red``,
+      ``fas_class=BLOCKED``, or ``dqc_class=UNKNOWN``, ``out_ral_col`` is copied
+      from the governed baseline so readiness adjustment is not applied.
     """
 
     # ---- apply legacy aliases (if provided) ----

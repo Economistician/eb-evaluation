@@ -86,6 +86,47 @@ def test_run_governance_gate_incompatible_reroutes_discrete() -> None:
     assert gate.fpc_raw.fpc_class.value == "incompatible"
 
 
+def test_run_governance_gate_unknown_dqc_reroutes_discrete() -> None:
+    from eb_evaluation.diagnostics.dqc import DQCClass, DQCResult, DQCSignals
+
+    y = [0.1 * i for i in range(1, 121)]
+    yhat_base = [v if (i % 2 == 0) else (v * 0.90) for i, v in enumerate(y)]
+    yhat_ral = [v * 1.01 for v in y]
+    fake = DQCResult(
+        dqc_class=DQCClass.UNKNOWN,
+        signals=DQCSignals(
+            n_obs=len(y),
+            nonzero_obs=len(y),
+            granularity=None,
+            multiple_rate=float("nan"),
+            support_size=len(y),
+            zero_mass=0.0,
+            small_value_mass=0.0,
+            offgrid_mad=float("nan"),
+            candidate_units=(),
+            unit_scores=(),
+        ),
+        reasons=("insufficient_data",),
+    )
+    with (
+        patch("eb_evaluation.diagnostics.run.classify_dqc", return_value=fake),
+        patch("eb_evaluation.diagnostics.governance.classify_dqc", return_value=fake),
+    ):
+        gate = run_governance_gate(
+            y=y,
+            yhat_base=yhat_base,
+            yhat_ral=yhat_ral,
+            tau=2.0,
+            cwsl_r=None,
+        )
+    assert gate.dqc.dqc_class is DQCClass.UNKNOWN
+    assert gate.decision.ral_policy == RALPolicy.DISALLOW
+    assert gate.decision.status == GovernanceStatus.RED
+    assert gate.recommended_mode == "reroute_discrete"
+    assert "dqc_unknown_fail_closed" in gate.decision.reasons
+    assert "dqc_unknown_fail_closed" in gate.recommendations
+
+
 def test_run_governance_gate_accepts_numpy_arrays() -> None:
     # Regression test: numpy arrays should be accepted as Sequence[float] inputs.
     # Prior behavior could crash if downstream code performed truthiness checks.
