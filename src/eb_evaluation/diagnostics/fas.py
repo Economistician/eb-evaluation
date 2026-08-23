@@ -1,27 +1,8 @@
-"""
-Forecast Admissibility Surface (FAS).
+"""Forecast Admissibility Surface (FAS).
 
-FAS is a deterministic, slice-keyed decision surface that partitions a forecast
-domain into admissible regions for modeling and control. For a chosen slice
-grain (e.g., entity, entity x interval, site x entity x interval), FAS produces a
-joinable table whose primary output is a three-way class label:
-
-    ALLOWED | CONDITIONAL | BLOCKED
-
-Mathematically, FAS defines a mask over a slice domain D that partitions D into
-A U C U B (allowed, conditional, blocked) using observable signals derived from
-realized demand structure and baseline error anatomy (e.g., tail risk and spike
-frequency). The resulting surface is designed to be merged back onto forecast
-panels at the same grain to constrain downstream training, evaluation, and
-readiness-control execution.
-
-This module provides:
-- Slice-key resolution helpers (slice_keys)
-- Baseline-derived error anatomy aggregation by slice (compute_error_anatomy)
-- Threshold-driven classification into admissibility classes (build_fas_surface)
-
-All outputs are deterministic, audit-friendly, and include a stable thresholds
-fingerprint and JSON-serialized thresholds used for classification.
+Build a deterministic ALLOWED / CONDITIONAL / BLOCKED surface by slice grain from
+demand structure and baseline error anatomy. Helpers: ``slice_keys``,
+``compute_error_anatomy``, ``build_fas_surface``.
 """
 
 from __future__ import annotations

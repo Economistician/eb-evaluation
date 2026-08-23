@@ -1,20 +1,7 @@
-"""
-Run-level orchestration for governance-oriented readiness evaluation.
+"""Orchestrate DQC, FPC, and governance decisions for a single stream.
 
-This module is the "wiring layer" between:
-- raw evaluation series (y, yhat_base, yhat_ral),
-- diagnostic computations (DQC, FPC),
-- governance decision surface (DQC x FPC),
-- and a minimal recommended routing mode for downstream reporting.
-
-Design goals
-------------
-- Keep diagnostic modules pure (no orchestration inside dqc.py / fpc.py).
-- Keep validation entrypoints stable (validate.py remains a thin wrapper layer).
-- Provide a single, auditable choke point to compute + gate readiness evaluation.
-
-This module does NOT persist artifacts. Persistence/adapters should live in a
-separate "artifacts" layer if/when needed.
+Wires evaluation series into diagnostics and a recommended routing mode.
+Does not persist artifacts.
 """
 
 from __future__ import annotations

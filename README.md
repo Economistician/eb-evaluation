@@ -11,19 +11,7 @@ Evaluation and model selection utilities for applying Electric Barometer metrics
 
 ## Overview
 
-`eb-evaluation` provides the evaluation and model selection layer of the Electric Barometer ecosystem. It applies metric primitives to forecasts and observations across entities, groups, and hierarchical structures, enabling consistent assessment of forecasting performance in operational settings.
-
-The package focuses on DataFrame-first evaluation workflows, including cost-sensitive comparison, tolerance-aware scoring given explicit thresholds, and readiness-oriented adjustment logic. It does not define feature construction or model interfaces; instead, it consumes standardized inputs from upstream layers and produces evaluation outputs that can be used for model selection, reporting, and decision support.
-
----
-
-## Role in the Electric Barometer Ecosystem
-
-`eb-evaluation` defines the evaluation and model selection layer used throughout the Electric Barometer ecosystem. It is responsible for applying metric primitives to forecasts and observations across entities, groups, and hierarchies, enabling consistent comparison of forecasting performance in operational contexts.
-
-This package focuses exclusively on evaluation logic, aggregation semantics, and selection workflows. It does not perform feature construction, model training, or metric definition. Those responsibilities are handled by adjacent layers that generate inputs, adapt model interfaces, or define metric behavior.
-
-By separating evaluation orchestration from metric semantics and model implementation details, `eb-evaluation` provides a stable, DataFrame-first foundation for decision-aligned model comparison and readiness assessment across heterogeneous forecasting pipelines.
+`eb-evaluation` applies Electric Barometer metrics across entities, groups, and hierarchies with DataFrame-first workflows, diagnostics, and cost-aware model selection. Metric primitives live in `eb-metrics`; feature construction and model adapters live elsewhere.
 
 ---
 

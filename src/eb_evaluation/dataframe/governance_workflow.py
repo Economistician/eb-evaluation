@@ -1,20 +1,7 @@
-"""
-Governance workflow orchestration (DataFrame utilities).
+"""Compose governance decisions with RAL panel application.
 
-This module provides a *workflow* layer that composes:
-
-1) dataframe.governance_panel.evaluate_governance_panel_df
-   -> per-stream governance summary/decision table
-
-2) adjustment.ral.apply_ral
-   -> join decisions back to a panel and apply governed post-processing
-      (nonneg + snap-to-grid) to prediction columns
-
-Design goals
-------------
-- Keep diagnostics pure: governance math lives in diagnostics/, not here.
-- Keep orchestration explicit: this module wires panel -> decisions -> governed panel.
-- Keep behavior auditable: returns both governed panel and decisions table.
+Runs ``evaluate_governance_panel_df`` then ``apply_ral``: decisions table in,
+governed panel (and decisions) out.
 """
 
 from __future__ import annotations

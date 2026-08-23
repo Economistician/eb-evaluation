@@ -1,19 +1,7 @@
-"""
-Forecast Primitive Compatibility (FPC) diagnostics.
+"""Forecast Primitive Compatibility (FPC) diagnostics.
 
-This module defines a derived, auditable classification that diagnoses whether a
-given forecast primitive (typically point forecasts with scale-based adjustment)
-is structurally compatible with the observed demand process.
-
-FPC is not a performance metric and is not intended as an optimization objective.
-It consumes FRF diagnostics (e.g., NSL, UD, HR@τ, CWSL response) and produces a
-small set of interpretable compatibility states used for governance and policy
-gating.
-
-Design goals:
-- Deterministic and auditable (explicit signals in / signals out)
-- Metric-agnostic (does not require a specific modeling approach)
-- Lightweight dependencies (NumPy optional; Pandas optional)
+Classify whether a point-forecast + scale-adjustment primitive is structurally
+compatible with observed demand. Consumes FRF signals; not an optimization objective.
 """
 
 from __future__ import annotations

@@ -1,17 +1,7 @@
-"""
-Panel-style evaluation output (DataFrame utilities).
+"""Long-form panel evaluation across hierarchy levels.
 
-This module provides a convenience wrapper that evaluates a DataFrame at multiple hierarchy
-levels and returns a long-form (tidy) panel suitable for reporting, plotting, and downstream
-aggregation.
-
-The implementation delegates the core computation to
-``eb_evaluation.dataframe.hierarchy.evaluate_hierarchy_df`` and then reshapes the wide
-per-level outputs into a single stacked table with:
-
-- a ``level`` column (which hierarchy level produced the row)
-- optional grouping key columns (depending on the level)
-- ``metric`` / ``value`` columns for tidy analysis
+Runs ``evaluate_hierarchy_df`` and melts wide per-level metrics into
+``level`` / ``metric`` / ``value`` rows.
 """
 
 from __future__ import annotations
@@ -42,20 +32,14 @@ def evaluate_panel_df(
 ) -> pd.DataFrame:
     """Evaluate metrics at multiple levels and return a long-form panel DataFrame.
 
-    This is a convenience wrapper around
-    ``eb_evaluation.dataframe.hierarchy.evaluate_hierarchy_df`` that:
-
-    1. Computes a wide metrics DataFrame per hierarchy level.
-    2. Stacks them into a single table with a ``level`` column.
-    3. Melts metrics into ``metric`` / ``value`` pairs.
+    Runs ``evaluate_hierarchy_df``, then melts to ``level`` / ``metric`` / ``value``.
 
     Parameters
     ----------
     df : pandas.DataFrame
-        Input DataFrame containing at least ``actual_col`` and ``forecast_col`` plus any
-        grouping columns referenced in ``levels``.
+        Input with ``actual_col``, ``forecast_col``, and grouping columns from ``levels``.
     levels : dict[str, Sequence[str]]
-        Mapping of level name to the column names used to group at that level.
+        Mapping of level name to grouping columns.
 
         Example:
 
@@ -66,34 +50,29 @@ def evaluate_panel_df(
         ...     "by_store_item": ["store_id", "item_id"],
         ... }
     actual_col : str
-        Column name for actual demand / realized values.
+        Column of actual demand / realized values.
     forecast_col : str
-        Column name for forecast values.
+        Column of forecast values.
     cu
-        Underbuild (shortfall) cost coefficient passed through to CWSL/FRS evaluations.
+        Underbuild cost passed through to CWSL/FRS evaluations.
     co
-        Overbuild (excess) cost coefficient passed through to CWSL/FRS evaluations.
+        Overbuild cost passed through to CWSL/FRS evaluations.
     tau : float | None, default=None
-        Tolerance parameter for HR@tau. If ``None``, HR@tau is omitted.
+        Tolerance for HR@tau. If ``None``, HR@tau is omitted.
     cwsl_max : float
-        Required upper bound for FRS scaling, passed through to
-        ``evaluate_hierarchy_df``. Must be finite and strictly greater than 0.
-        There is no default.
+        Finite upper bound for FRS scaling; must be ``> 0``.
     sample_weight_col : str | None, default=None
-        Optional column of non-negative sample weights, passed through to
-        ``evaluate_hierarchy_df``.
+        Optional non-negative weights, passed through to ``evaluate_hierarchy_df``.
 
     Returns
     -------
     pandas.DataFrame
-        Long-form (tidy) panel with columns:
+        Long-form panel with columns:
 
         - ``level`` : hierarchy level name
-        - ``<group cols>`` : the grouping keys for that level (may be empty for overall)
+        - ``<group cols>`` : grouping keys for that level (may be empty for overall)
         - ``metric`` : metric name
         - ``value`` : metric value
-
-        Each row corresponds to a single metric evaluated at a specific level/group.
 
     Notes
     -----

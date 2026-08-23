@@ -118,10 +118,8 @@ def evaluate_hierarchy_df(
 
     Notes
     -----
-    - This function does not catch per-group metric exceptions. If eb_metrics raises a
-      ``ValueError`` for a specific group (e.g., invalid inputs), that error will propagate.
-      If you want best-effort reporting (NaN on failure), wrap metric calls similarly to
-      ``evaluate_groups_df``.
+    - Unlike ``evaluate_groups_df``, metric ``ValueError``s propagate; callers must
+      catch if they want NaN-on-failure.
     - ``groupby(..., dropna=False)`` is used so that missing values in grouping keys form explicit
       groups, which is often desirable in operational reporting.
     """
@@ -152,12 +150,12 @@ def evaluate_hierarchy_df(
             y_true = df[actual_col].to_numpy(dtype=float)
             y_pred = df[forecast_col].to_numpy(dtype=float)
             sample_weight = (
-                df[sample_weight_col].to_numpy(dtype=float) if sample_weight_col is not None else None
+                df[sample_weight_col].to_numpy(dtype=float)
+                if sample_weight_col is not None
+                else None
             )
 
-            cwsl_val = cwsl(
-                y_true=y_true, y_pred=y_pred, cu=cu, co=co, sample_weight=sample_weight
-            )
+            cwsl_val = cwsl(y_true=y_true, y_pred=y_pred, cu=cu, co=co, sample_weight=sample_weight)
             nsl_val = nsl(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight)
             metrics_row = {
                 "n_intervals": len(df),
@@ -193,9 +191,7 @@ def evaluate_hierarchy_df(
                 else None
             )
 
-            cwsl_val = cwsl(
-                y_true=y_true, y_pred=y_pred, cu=cu, co=co, sample_weight=sample_weight
-            )
+            cwsl_val = cwsl(y_true=y_true, y_pred=y_pred, cu=cu, co=co, sample_weight=sample_weight)
             nsl_val = nsl(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight)
             row = {
                 "n_intervals": len(df_g),

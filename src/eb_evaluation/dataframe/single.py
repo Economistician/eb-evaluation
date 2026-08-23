@@ -1,11 +1,6 @@
-"""
-Single-slice CWSL evaluation (DataFrame utilities).
+"""Single-slice CWSL helpers over pandas columns.
 
-This module provides a lightweight DataFrame wrapper around ``eb_metrics.metrics.cwsl`` for
-computing Cost-Weighted Service Loss (CWSL) on a single slice of data (i.e., the entire
-DataFrame provided).
-
-It supports both scalar costs and per-row cost columns for asymmetric cost evaluation.
+Wraps ``eb_metrics.metrics.cwsl`` for one DataFrame slice with scalar or per-row costs.
 """
 
 from __future__ import annotations
@@ -23,52 +18,36 @@ def compute_cwsl_df(
     co: float | str,
     sample_weight_col: str | None = None,
 ) -> float:
-    """Compute CWSL from a DataFrame.
+    """Compute CWSL for one DataFrame slice.
 
-    This is a convenience wrapper around ``eb_metrics.metrics.cwsl`` that accepts a pandas
-    DataFrame and column names.
-
-    Costs can be specified either as scalars or as per-row columns.
+    ``cu`` / ``co`` may be floats or column names; optional ``sample_weight_col``.
 
     Parameters
     ----------
     df : pandas.DataFrame
-        Input table containing at least the actual and forecast columns, and optionally
-        cost/weight columns.
+        Input table with actual and forecast columns, and optional cost/weight columns.
     y_true_col : str
-        Name of the column containing actual demand values.
+        Column of actual demand values.
     y_pred_col : str
-        Name of the column containing forecast values.
+        Column of forecast values.
     cu : float | str
-        Underbuild (shortfall) cost coefficient.
-
-        - If ``float``: scalar cost applied uniformly across all rows.
-        - If ``str``: name of a column in ``df`` containing per-row underbuild costs.
+        Underbuild cost; scalar or column name.
     co : float | str
-        Overbuild (excess) cost coefficient.
-
-        - If ``float``: scalar cost applied uniformly across all rows.
-        - If ``str``: name of a column in ``df`` containing per-row overbuild costs.
+        Overbuild cost; scalar or column name.
     sample_weight_col : str | None, default=None
-        Optional column name containing non-negative sample weights per row. If ``None``,
-        all rows are weighted equally.
+        Optional non-negative per-row weights. If ``None``, rows are weighted equally.
 
     Returns
     -------
     float
-        The Cost-Weighted Service Loss (CWSL) value for the provided DataFrame slice.
+        Cost-Weighted Service Loss for the slice.
 
     Raises
     ------
     KeyError
         If any required columns are missing.
     ValueError
-        If the underlying ``eb_metrics.metrics.cwsl`` raises due to invalid values.
-
-    Notes
-    -----
-    This function performs minimal validation and delegates metric validation to
-    ``eb_metrics.metrics.cwsl``.
+        If ``eb_metrics.metrics.cwsl`` rejects the inputs.
     """
     required_cols = [y_true_col, y_pred_col]
     if isinstance(cu, str):

@@ -1,65 +1,9 @@
-"""
-Governance-oriented panel evaluation (DataFrame utilities).
+"""Per-stream governance gate over a panel DataFrame.
 
-This module provides a DataFrame-oriented orchestration layer for running the
-governance gate (DQC x FPC) across a panel of independent demand streams.
-
-Motivation
-----------
-In most operational forecasting settings, evaluation is not performed on a single
-series. Instead, we evaluate many independent streams, typically defined by a key
-set such as:
-
-- site_id x forecast_entity_id
-- store_id x item_id
-- any other caller-defined grouping grain
-
-The governance layer (DQC/FPC) is fundamentally *per-stream*: it needs aligned
-(y, yhat_base, yhat_ral) series for a single stream to classify:
-
-- whether snapping is required (DQC)
-- whether readiness adjustment is structurally valid (FPC)
-- how τ should be interpreted (TauPolicy)
-- whether to allow RAL (RALPolicy)
-- an overall governance status (green/yellow/red)
-- a recommended evaluation routing mode
-
-This module:
-- groups a DataFrame into per-stream series,
-- runs `eb_evaluation.diagnostics.run.run_governance_gate` per stream,
-- returns a tidy (long-form) summary DataFrame suitable for reporting and joins.
-
-Design goals
-------------
-- Keep diagnostics pure: this module orchestrates; it does not implement DQC/FPC math.
-- Keep the output auditable: include key identifiers + decision fields + a compact reasons string.
-- Be robust to real-world inputs: tolerate numpy/pandas-backed sequences, missing rows,
-  and NaN-demand intervals by letting diagnostics handle NaN semantics.
-- Avoid policy duplication: callers can pass presets/thresholds through unchanged.
-
-Notes
------
-- This module expects `yhat_base` and `yhat_ral` columns to be present for each row.
-  If you only have a single forecast series, you can pass the same column name for
-  both base and ral, or build a second series upstream.
-- The governance gate is run per stream. This means group sizes matter: extremely
-  small streams may produce "continuous-like" or "empty_series" reasons depending
-  on your thresholds.
-
-Output schema
--------------
-The returned DataFrame is one row per stream, with:
-
-- keys (as provided by caller)
-- n (group length)
-- recommended_mode
-- snap_required, snap_unit, tau_policy, ral_policy, status
-- dqc_class, fpc_raw_class, fpc_snapped_class
-- selected compact signal values when available (e.g., granularity, multiple_rate, nsl_base, nsl_ral, delta_nsl, ud)
-- reasons (pipe-delimited string)
-
-This is intended as a *summary* table. If you need full diagnostic artifacts per stream,
-persist them separately (future "artifacts" layer).
+Groups by caller keys, runs ``run_governance_gate`` on each stream, and returns
+one summary row per stream (status, DQC/FPC classes, recommended mode, reasons).
+Expects base and RAL forecast columns; reuse one column name when only a single
+series exists.
 """
 
 from __future__ import annotations

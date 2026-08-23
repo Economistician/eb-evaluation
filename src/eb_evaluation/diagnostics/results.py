@@ -1,28 +1,7 @@
-"""
-Portable result artifacts for Electric Barometer diagnostics.
+"""JSON-friendly result containers for governance and panel summaries.
 
-This module defines small, stable, JSON-friendly result containers intended for:
-
-- returning governance outcomes from orchestration entrypoints,
-- producing consistent panel outputs (DataFrame summaries),
-- persisting or exporting governance decisions without depending on internal
-  diagnostic object layouts.
-
-Design goals
-------------
-- Keep this module *pure* (no orchestration, no pandas dependency).
-- Provide stable, auditable fields with minimal redundancy.
-- Avoid importing orchestration layers (e.g., diagnostics/run.py) to prevent cycles.
-- Support both:
-    * "single-stream" usage (per y / yhat stream)
-    * "panel" summarization workflows (one row per stream)
-
-Notes
------
-- The authoritative governance logic lives in `diagnostics/governance.py`
-  and `diagnostics/run.py`. This module is a *representation* layer only.
-- These dataclasses are intended to be used as stable return types from
-  orchestration functions and as the source for DataFrame row construction.
+Pure representation types for single-stream and per-stream panel rows.
+Governance logic lives in ``diagnostics/governance.py`` and ``diagnostics/run.py``.
 """
 
 from __future__ import annotations

@@ -1,25 +1,7 @@
-"""
-Demand Quantization Compatibility (DQC) diagnostics.
+"""Demand Quantization Compatibility (DQC) diagnostics.
 
-This module detects whether realized demand for an entity behaves as
-continuous-like at the evaluation resolution, or is strongly quantized / packed
-(e.g., items sold in pieces or pack sizes such as 4/8/12).
-
-DQC is a governance-oriented diagnostic that complements Forecast Primitive
-Compatibility (FPC):
-
-- FPC asks: "Is a point-forecast + scale-adjustment primitive structurally valid?"
-- DQC asks: "Is evaluation and control valid in continuous units, or must we
-  respect discrete/pack quantization?"
-
-If demand is quantized, tolerance-based diagnostics (HR@τ) and depth diagnostics
-(UD) should be interpreted in pack units (or snapped to a grid), and readiness
-policies should be quantization-aware (snap-to-grid adjustments).
-
-Design goals:
-- Deterministic and auditable (explicit signals in / signals out)
-- Lightweight dependencies (pure Python)
-- Robust to integer-like floats and mild measurement noise
+Classify whether demand is continuous-like or quantized/packed so τ and snapping
+can use grid units when required. Complements FPC (structural primitive validity).
 """
 
 from __future__ import annotations

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Polished module and public API docstrings to remove prompt-spec essay prose.
+- Tightened README Overview; removed cloned Role section.
+
 ## [0.2.x] - 2026-08-22
 
 ### Breaking Changes

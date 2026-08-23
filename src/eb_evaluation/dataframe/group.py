@@ -1,13 +1,7 @@
-"""
-Group-level evaluation (DataFrame utilities).
+"""Group-level forecast evaluation over a DataFrame.
 
-This module provides helpers for evaluating forecasts on grouped subsets of a DataFrame
-(e.g., by store, item, daypart, region). It orchestrates grouping, parameter handling, and
-tabular output while delegating metric definitions to ``eb_metrics.metrics``.
-
-The primary entry point is ``evaluate_groups_df``, which computes the Electric Barometer
-metric suite (CWSL, NSL, UD, HR@tau, FRS) plus common symmetric diagnostics (wMAPE, MAE,
-RMSE, MAPE) for each group.
+Computes the Electric Barometer metric suite plus common symmetric diagnostics
+per group, delegating primitives to ``eb_metrics.metrics``.
 """
 
 from __future__ import annotations
@@ -45,25 +39,11 @@ def evaluate_groups_df(
 ) -> pd.DataFrame:
     """Evaluate core EB metrics per group from a DataFrame.
 
-    For each group defined by ``group_cols``, this helper computes:
-
-    - CWSL
-    - NSL
-    - UD
-    - wMAPE
-    - HR@tau
-    - FRS
-    - MAE
-    - RMSE
-    - MAPE
-
-    Cost parameters can be provided either globally (scalar) or per-row (column name).
+    Per-group CWSL, NSL, UD, HR@τ, FRS, wMAPE, MAE, RMSE, and MAPE. Costs may be
+    scalar or per-row columns. Invalid groups yield NaN for the failing metric only.
 
     Interval-level shortfall, overbuild, and coverage masks are computed once at
-    the panel level; groups are reduced with a single ``groupby.sum()``. Groups
-    that would make a metric raise ``ValueError`` (zero demand with positive
-    cost, non-finite or negative demand/forecast, zero total weight, etc.)
-    receive NaN for that metric only.
+    the panel level; groups are reduced with a single ``groupby.sum()``.
 
     Parameters
     ----------
@@ -72,39 +52,26 @@ def evaluate_groups_df(
     group_cols : list[str]
         Column names used to define groups (e.g., ``["store_id", "item_id"]``).
     actual_col : str, default="actual_qty"
-        Name of the column containing actual demand values.
+        Column of actual demand values.
     forecast_col : str, default="forecast_qty"
-        Name of the column containing forecast values.
+        Column of forecast values.
     cu : float | str
-        Underbuild (shortfall) cost coefficient. Required; there is no default.
-
-        - If ``float``: scalar cost applied uniformly across all rows/groups.
-        - If ``str``: name of a column in ``df`` containing per-row underbuild costs.
+        Underbuild cost; scalar or column name.
     co : float | str
-        Overbuild (excess) cost coefficient. Required; there is no default.
-
-        - If ``float``: scalar cost applied uniformly across all rows/groups.
-        - If ``str``: name of a column in ``df`` containing per-row overbuild costs.
+        Overbuild cost; scalar or column name.
     tau : float, default=2.0
-        Absolute-error tolerance parameter for the hit-rate metric HR@tau.
+        Absolute-error tolerance for HR@tau.
     sample_weight_col : str | None, default=None
-        Optional column name containing non-negative sample weights per row. If provided,
-        weights are passed into metrics that accept a ``sample_weight`` argument.
+        Optional non-negative per-row weights for metrics that accept ``sample_weight``.
     cwsl_max : float
-        Required upper bound for FRS scaling: the largest economically meaningful CWSL
-        for the application. Must be finite and strictly greater than 0. There is no
-        default.
+        Finite upper bound for FRS scaling; must be ``> 0``.
 
     Returns
     -------
     pandas.DataFrame
-        DataFrame with one row per group and columns::
+        One row per group with columns::
 
             group_cols + ["CWSL", "NSL", "UD", "wMAPE", "HR@tau", "FRS", "MAE", "RMSE", "MAPE"].
-
-        If a metric is undefined for a particular group (e.g., invalid values for that
-        group), the corresponding value is returned as NaN rather than raising an error
-        for the entire evaluation.
 
     Raises
     ------
@@ -269,7 +236,9 @@ def evaluate_groups_df(
     cwsl_out = np.where(demand > 0, tot_cost / demand, np.where(tot_cost == 0.0, 0.0, np.nan))
     cwsl_out = np.where(service_blocked | cost_invalid, np.nan, cwsl_out)
 
-    nsl_out = np.where((w_sum > 0) & ~service_blocked, agg["w_nsl"].to_numpy(dtype=float) / w_sum, np.nan)
+    nsl_out = np.where(
+        (w_sum > 0) & ~service_blocked, agg["w_nsl"].to_numpy(dtype=float) / w_sum, np.nan
+    )
 
     ud_raw = np.divide(
         agg["w_short"].to_numpy(dtype=float),
@@ -296,7 +265,9 @@ def evaluate_groups_df(
     abs_y = agg["abs_y"].to_numpy(dtype=float)
     wmape_out = np.where(abs_y == 0.0, np.nan, 100.0 * agg["abs_err"].to_numpy(dtype=float) / abs_y)
     mape_n = agg["mape_n"].to_numpy(dtype=float)
-    mape_out = np.where(mape_n == 0.0, np.nan, 100.0 * agg["mape_term"].to_numpy(dtype=float) / mape_n)
+    mape_out = np.where(
+        mape_n == 0.0, np.nan, 100.0 * agg["mape_term"].to_numpy(dtype=float) / mape_n
+    )
 
     out = agg.reset_index()
     result = out.loc[:, group_cols].copy()
