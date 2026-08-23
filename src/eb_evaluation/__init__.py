@@ -46,6 +46,8 @@ This package is intended to be used alongside ``eb_metrics`` and
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
+
 from .dataframe import (
     compute_cwsl_df,
     evaluate_governance_panel_df,
@@ -56,8 +58,30 @@ from .dataframe import (
     run_governance_workflow_df,
     run_governance_workflow_df_dict,
 )
+from .model_selection import compare_forecasts
+
+
+def _resolve_version() -> str:
+    """
+    Resolve the installed package version.
+
+    Returns
+    -------
+    str
+        Installed version string. If the package is not installed (e.g., running
+        from source without installation), returns ``"0.0.0"``.
+    """
+    try:
+        return version("eb-evaluation")
+    except PackageNotFoundError:
+        return "0.0.0"
+
+
+__version__ = _resolve_version()
 
 __all__ = [
+    "__version__",
+    "compare_forecasts",
     "compute_cwsl_df",
     "evaluate_governance_panel_df",
     "evaluate_groups_df",

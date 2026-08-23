@@ -41,6 +41,8 @@ def test_evaluate_groups_df_produces_expected_columns():
         evaluate_groups_df(
             df=df,
             group_cols=["store_id", "item_id"],
+            cu=2.0,
+            co=1.0,
             cwsl_max=CWSL_MAX,
         ),
     )

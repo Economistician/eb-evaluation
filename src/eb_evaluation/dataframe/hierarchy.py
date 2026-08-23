@@ -28,8 +28,8 @@ def evaluate_hierarchy_df(
     levels: dict[str, Sequence[str]],
     actual_col: str,
     forecast_col: str,
-    cu,
-    co,
+    cu: float | str,
+    co: float | str,
     tau: float | None = None,
     *,
     cwsl_max: float,
@@ -74,10 +74,10 @@ def evaluate_hierarchy_df(
         Column name for actual demand / realized values.
     forecast_col : str
         Column name for forecast values.
-    cu
+    cu : float | str
         Underbuild (shortfall) cost coefficient passed through to ``eb_metrics.metrics.cwsl``
         and ``eb_metrics.metrics.frs``.
-    co
+    co : float | str
         Overbuild (excess) cost coefficient passed through to ``eb_metrics.metrics.cwsl``
         and ``eb_metrics.metrics.frs``.
     tau : float | None, default=None

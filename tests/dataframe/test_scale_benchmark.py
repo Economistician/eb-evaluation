@@ -85,7 +85,7 @@ def test_daily_window_groups_by_node_and_series_is_subsecond() -> None:
     assert primitive_s < PRIMITIVE_BUDGET_S
 
     t0 = time.perf_counter()
-    grouped = evaluate_groups_df(df, GROUP_COLS, cwsl_max=CWSL_MAX)
+    grouped = evaluate_groups_df(df, GROUP_COLS, cu=2.0, co=1.0, cwsl_max=CWSL_MAX)
     groups_s = time.perf_counter() - t0
 
     assert set(GROUP_COLS).issubset(grouped.columns)

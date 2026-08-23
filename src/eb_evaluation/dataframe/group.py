@@ -37,8 +37,8 @@ def evaluate_groups_df(
     *,
     actual_col: str = "actual_qty",
     forecast_col: str = "forecast_qty",
-    cu: float | str = 2.0,
-    co: float | str = 1.0,
+    cu: float | str,
+    co: float | str,
     tau: float = 2.0,
     sample_weight_col: str | None = None,
     cwsl_max: float,
@@ -75,13 +75,13 @@ def evaluate_groups_df(
         Name of the column containing actual demand values.
     forecast_col : str, default="forecast_qty"
         Name of the column containing forecast values.
-    cu : float | str, default=2.0
-        Underbuild (shortfall) cost coefficient.
+    cu : float | str
+        Underbuild (shortfall) cost coefficient. Required; there is no default.
 
         - If ``float``: scalar cost applied uniformly across all rows/groups.
         - If ``str``: name of a column in ``df`` containing per-row underbuild costs.
-    co : float | str, default=1.0
-        Overbuild (excess) cost coefficient.
+    co : float | str
+        Overbuild (excess) cost coefficient. Required; there is no default.
 
         - If ``float``: scalar cost applied uniformly across all rows/groups.
         - If ``str``: name of a column in ``df`` containing per-row overbuild costs.
