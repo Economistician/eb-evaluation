@@ -192,8 +192,10 @@ def run_governance_gate(
 
         Explicit ``allow`` / ``clip`` / ``clip_zero`` always override the preset.
     fas_class:
-        Optional upstream Forecast Admissibility Surface class. ``BLOCKED``
+        Required upstream Forecast Admissibility Surface class. ``BLOCKED``
         skips DQC/FPC evaluation and returns a red / disallow decision.
+        ``None`` or a blank value fail-closes as ``BLOCKED`` / ``RED`` /
+        ``DISALLOW``.
 
     Returns
     -------
@@ -265,10 +267,11 @@ def run_governance_gate(
     elif isinstance(fas_class, FASClass):
         fas_token = fas_class.value
     else:
-        fas_token = str(fas_class).strip().upper()
+        fas_token = str(fas_class).strip().upper() or None
 
-    if fas_token == FASClass.BLOCKED.value:
+    if fas_token is None or fas_token == FASClass.BLOCKED.value:
         dummy_signals = _placeholder_fpc_signals()
+        fas_missing = fas_token is None
         decision = decide_governance(
             y=y_list,
             fpc_signals_raw=dummy_signals,
@@ -276,9 +279,9 @@ def run_governance_gate(
             dqc_thresholds=dqc_thresholds,
             fpc_thresholds=fpc_thresholds,
             preset=effective_preset,
-            fas_class=FASClass.BLOCKED,
+            fas_class=None if fas_missing else FASClass.BLOCKED,
         )
-        recommendations.append("blocked_by_fas")
+        recommendations.append("fas_required_fail_closed" if fas_missing else "blocked_by_fas")
         return GateResult(
             dqc=decision.dqc,
             fpc_raw=decision.fpc_raw,

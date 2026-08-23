@@ -42,6 +42,7 @@ def test_run_governance_gate_continuous_returns_continuous() -> None:
         yhat_ral=yhat_ral,
         tau=2.0,
         cwsl_r=None,
+        fas_class="ALLOWED",
     )
 
     assert gate.recommended_mode == "continuous"
@@ -62,6 +63,7 @@ def test_run_governance_gate_quantized_routes_pack_aware_or_reroute() -> None:
         yhat_ral=yhat_ral,
         tau=1.0,
         cwsl_r=None,
+        fas_class="ALLOWED",
     )
 
     assert gate.decision.snap_required is True
@@ -80,6 +82,7 @@ def test_run_governance_gate_incompatible_reroutes_discrete() -> None:
         yhat_ral=yhat_ral,
         tau=0.5,
         cwsl_r=None,
+        fas_class="ALLOWED",
     )
 
     assert gate.recommended_mode == "reroute_discrete"
@@ -118,6 +121,7 @@ def test_run_governance_gate_unknown_dqc_reroutes_discrete() -> None:
             yhat_ral=yhat_ral,
             tau=2.0,
             cwsl_r=None,
+            fas_class="ALLOWED",
         )
     assert gate.dqc.dqc_class is DQCClass.UNKNOWN
     assert gate.decision.ral_policy == RALPolicy.DISALLOW
@@ -140,6 +144,7 @@ def test_run_governance_gate_accepts_numpy_arrays() -> None:
         yhat_ral=yhat_ral,
         tau=1.0,
         cwsl_r=None,
+        fas_class="ALLOWED",
     )
 
     assert gate is not None
@@ -208,6 +213,7 @@ def test_run_governance_gate_nonneg_clip_adds_recommendation_and_preserves_routi
         tau=2.0,
         cwsl_r=None,
         nonneg_mode="clip",
+        fas_class="ALLOWED",
     )
 
     # The run should succeed and record an auditable recommendation.
@@ -230,6 +236,7 @@ def test_run_governance_gate_nonneg_allow_records_allow_recommendation() -> None
         tau=2.0,
         cwsl_r=None,
         nonneg_mode="allow",
+        fas_class="ALLOWED",
     )
 
     assert any(r == "forecast_postprocess_nonneg(mode=allow)" for r in gate.recommendations)
@@ -246,6 +253,7 @@ def test_run_governance_gate_omitted_preset_applies_balanced_clip_zero() -> None
         yhat_ral=yhat_ral,
         tau=1.0,
         cwsl_r=None,
+        fas_class="ALLOWED",
     )
 
     assert any(r == "forecast_postprocess_nonneg(mode=clip_zero)" for r in gate.recommendations)
@@ -266,6 +274,7 @@ def test_run_governance_gate_preset_balanced_applies_nonneg_policy_by_default() 
         tau=1.0,
         cwsl_r=None,
         preset="balanced",
+        fas_class="ALLOWED",
         # nonneg_mode intentionally omitted so preset policy is used
     )
 
@@ -282,6 +291,7 @@ def test_run_governance_gate_preset_balanced_applies_nonneg_policy_by_default() 
         tau=1.0,
         cwsl_r=None,
         nonneg_mode="clip",
+        fas_class="ALLOWED",
     )
 
     assert gate_preset.recommended_mode == gate_explicit.recommended_mode
@@ -333,6 +343,7 @@ def test_run_governance_gate_fas_conditional_downgrades_green_allow() -> None:
         yhat_ral=yhat_ral,
         tau=2.0,
         cwsl_r=None,
+        fas_class="ALLOWED",
     )
     assert baseline.decision.ral_policy == RALPolicy.ALLOW
     assert baseline.decision.status == GovernanceStatus.GREEN
@@ -350,7 +361,7 @@ def test_run_governance_gate_fas_conditional_downgrades_green_allow() -> None:
     assert "fas_conditional_downgrade" in gate.decision.reasons
 
 
-def test_run_governance_gate_fas_class_none_matches_omitted() -> None:
+def test_run_governance_gate_fas_class_none_fails_closed() -> None:
     y = [0.1 * i for i in range(1, 121)]
     yhat_base = [v if (i % 2 == 0) else (v * 0.90) for i, v in enumerate(y)]
     yhat_ral = [v * 1.01 for v in y]
@@ -370,10 +381,17 @@ def test_run_governance_gate_fas_class_none_matches_omitted() -> None:
         cwsl_r=None,
         fas_class=None,
     )
-    assert omitted.decision == explicit.decision
     assert omitted.recommended_mode == explicit.recommended_mode
     assert omitted.recommendations == explicit.recommendations
-    assert omitted.decision.fas_class is None
+    assert omitted.decision.fas_class == FASClass.BLOCKED
+    assert omitted.decision.status == GovernanceStatus.RED
+    assert omitted.decision.ral_policy == RALPolicy.DISALLOW
+    assert omitted.decision.snap_required is False
+    assert explicit.decision.fas_class == FASClass.BLOCKED
+    assert explicit.decision.status == GovernanceStatus.RED
+    assert explicit.decision.ral_policy == RALPolicy.DISALLOW
+    assert "fas_required_fail_closed" in omitted.recommendations
+    assert "fas_required_fail_closed" in omitted.decision.reasons
 
 
 def test_run_governance_gate_nan_y_fails_closed() -> None:
@@ -387,6 +405,7 @@ def test_run_governance_gate_nan_y_fails_closed() -> None:
         yhat_ral=yhat_ral,
         tau=2.0,
         cwsl_r=None,
+        fas_class="ALLOWED",
     )
     assert gate.dqc.dqc_class.value == "unknown"
     assert gate.decision.status == GovernanceStatus.RED
@@ -407,6 +426,7 @@ def test_run_governance_gate_negative_y_fails_closed() -> None:
         yhat_ral=yhat_ral,
         tau=2.0,
         cwsl_r=None,
+        fas_class="ALLOWED",
     )
     assert gate.dqc.dqc_class.value == "unknown"
     assert gate.decision.status == GovernanceStatus.RED

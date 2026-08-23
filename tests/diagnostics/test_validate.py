@@ -166,6 +166,7 @@ def test_validate_governance_delegates_and_returns_decision_artifact() -> None:
         y=y,
         fpc_signals_raw=fpc_raw,
         fpc_signals_snapped=fpc_snapped,
+        fas_class="ALLOWED",
     )
 
     # Contract-level assertions: we got a decision artifact with consistent policy fields.
@@ -220,6 +221,7 @@ def test_validate_governance_accepts_numpy_y_input() -> None:
         y=y,
         fpc_signals_raw=fpc_raw,
         fpc_signals_snapped=fpc_snapped,
+        fas_class="ALLOWED",
     )
     assert decision.snap_required is True
 
@@ -258,6 +260,7 @@ def test_validate_governance_respects_threshold_overrides() -> None:
         fpc_signals_snapped=fpc,
         dqc_thresholds=dqc_thr,
         fpc_thresholds=fpc_thr,
+        fas_class="ALLOWED",
     )
 
     assert decision.snap_required is True
@@ -300,6 +303,7 @@ def test_validate_governance_accepts_preset_and_matches_preset_thresholds() -> N
         fpc_signals_raw=fpc_ok,
         fpc_signals_snapped=fpc_ok,
         preset=preset_name,
+        fas_class="ALLOWED",
     )
     explicit = validate_governance(
         y=y,
@@ -307,6 +311,7 @@ def test_validate_governance_accepts_preset_and_matches_preset_thresholds() -> N
         fpc_signals_snapped=fpc_ok,
         dqc_thresholds=dqc_thr,
         fpc_thresholds=fpc_thr,
+        fas_class="ALLOWED",
     )
 
     assert by_preset.dqc.dqc_class == explicit.dqc.dqc_class
@@ -348,6 +353,7 @@ def test_validate_governance_preset_does_not_emit_preset_reason_string() -> None
         fpc_signals_raw=fpc_ok,
         fpc_signals_snapped=fpc_ok,
         preset="balanced",
+        fas_class="ALLOWED",
     )
 
     assert not any(str(r).startswith("preset=") for r in getattr(decision, "reasons", ()))
@@ -396,6 +402,7 @@ def test_run_governance_gate_recommended_modes() -> None:
         yhat_ral=yhat_ral_cont,
         tau=2.0,
         cwsl_r=None,
+        fas_class="ALLOWED",
     )
     assert gate.recommended_mode == "continuous"
 
@@ -409,6 +416,7 @@ def test_run_governance_gate_recommended_modes() -> None:
         yhat_ral=yhat_ral_q,
         tau=1.0,
         cwsl_r=None,
+        fas_class="ALLOWED",
     )
     assert gate_q.recommended_mode in ("pack_aware", "reroute_discrete")
     assert gate_q.decision.snap_required is True
@@ -423,6 +431,7 @@ def test_run_governance_gate_recommended_modes() -> None:
         yhat_ral=yhat_ral_bad,
         tau=0.5,
         cwsl_r=None,
+        fas_class="ALLOWED",
     )
     assert gate_bad.recommended_mode == "reroute_discrete"
 
@@ -445,6 +454,7 @@ def test_validate_run_governance_gate_delegates_to_diagnostics_run() -> None:
         yhat_ral=yhat_ral,
         tau=2.0,
         cwsl_r=None,
+        fas_class="ALLOWED",
     )
     impl_gate = run_governance_gate_impl(
         y=y,
@@ -454,6 +464,7 @@ def test_validate_run_governance_gate_delegates_to_diagnostics_run() -> None:
         cwsl_r=None,
         snap_mode="ceil",
         nonneg_mode="none",
+        fas_class="ALLOWED",
     )
 
     assert v_gate.recommended_mode == impl_gate.recommended_mode

@@ -278,6 +278,8 @@ def _coerce_fas_class(fas_class: FASClass | str | None) -> FASClass | None:
     if isinstance(fas_class, FASClass):
         return fas_class
     token = str(fas_class).strip().upper()
+    if not token:
+        return None
     try:
         return FASClass(token)
     except ValueError as exc:
@@ -374,9 +376,10 @@ def decide_governance(
         explicit GovernancePreset instance. Used only when explicit thresholds
         are not provided. Defaults to ``"balanced"``.
     fas_class:
-        Optional upstream Forecast Admissibility Surface class. ``BLOCKED``
+        Required upstream Forecast Admissibility Surface class. ``BLOCKED``
         short-circuits DQC/FPC. ``CONDITIONAL`` downgrades permissive RAL
-        outcomes. ``None`` leaves the DQC x FPC contract unchanged.
+        outcomes. ``None`` or a missing/blank value fail-closes as
+        ``BLOCKED`` / ``DISALLOW`` / ``RED``.
 
     Returns
     -------
@@ -385,6 +388,20 @@ def decide_governance(
     """
     reasons: list[str] = []
     fas = _coerce_fas_class(fas_class)
+    if fas is None:
+        dqc_skip, fpc_skip = _skipped_fas_blocked_diagnostics()
+        return GovernanceDecision(
+            dqc=dqc_skip,
+            fpc_raw=fpc_skip,
+            fpc_snapped=fpc_skip,
+            snap_required=False,
+            snap_unit=None,
+            tau_policy=TauPolicy.RAW_UNITS,
+            ral_policy=RALPolicy.DISALLOW,
+            status=GovernanceStatus.RED,
+            fas_class=FASClass.BLOCKED,
+            reasons=("fas_required_fail_closed",),
+        )
 
     if fas is FASClass.BLOCKED:
         dqc_skip, fpc_skip = _skipped_fas_blocked_diagnostics()

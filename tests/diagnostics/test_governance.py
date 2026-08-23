@@ -192,7 +192,9 @@ def test_governance_continuous_like_uses_raw_fpc() -> None:
         ud=20.0,
     )
 
-    res = decide_governance(y=y, fpc_signals_raw=raw, fpc_signals_snapped=snapped)
+    res = decide_governance(
+        y=y, fpc_signals_raw=raw, fpc_signals_snapped=snapped, fas_class="ALLOWED"
+    )
 
     assert res.snap_required is False
     assert res.snap_unit is None
@@ -238,7 +240,9 @@ def test_governance_quantized_requires_snap_and_uses_snapped_fpc() -> None:
         ud=3.0,
     )
 
-    res = decide_governance(y=y, fpc_signals_raw=raw, fpc_signals_snapped=snapped)
+    res = decide_governance(
+        y=y, fpc_signals_raw=raw, fpc_signals_snapped=snapped, fas_class="ALLOWED"
+    )
 
     assert res.snap_required is True
     assert res.snap_unit is not None
@@ -281,7 +285,9 @@ def test_governance_quantized_marginal_after_snap_is_yellow() -> None:
         ud=3.0,
     )
 
-    res = decide_governance(y=y, fpc_signals_raw=raw, fpc_signals_snapped=snapped)
+    res = decide_governance(
+        y=y, fpc_signals_raw=raw, fpc_signals_snapped=snapped, fas_class="ALLOWED"
+    )
 
     assert res.snap_required is True
     assert res.tau_policy == TauPolicy.GRID_UNITS
@@ -311,7 +317,9 @@ def test_governance_incompatible_is_red_and_disallow() -> None:
         ud=20.0,
     )
 
-    res = decide_governance(y=y, fpc_signals_raw=raw, fpc_signals_snapped=snapped)
+    res = decide_governance(
+        y=y, fpc_signals_raw=raw, fpc_signals_snapped=snapped, fas_class="ALLOWED"
+    )
 
     assert res.snap_required is True
     assert res.ral_policy == RALPolicy.DISALLOW
@@ -352,6 +360,7 @@ def test_governance_respects_threshold_overrides_through_upstream_components() -
         fpc_signals_snapped=raw,
         dqc_thresholds=dqc_thr,
         fpc_thresholds=fpc_thr,
+        fas_class="ALLOWED",
     )
 
     # If DQC triggers snapping, allowability follows snapped FPC (same as raw here).
@@ -379,6 +388,7 @@ def test_governance_preset_is_recorded_in_reasons_when_not_overridden() -> None:
         fpc_signals_raw=raw,
         fpc_signals_snapped=raw,
         preset=CONSERVATIVE,
+        fas_class="ALLOWED",
     )
     reasons = _get_reasons(res)
 
@@ -407,6 +417,7 @@ def test_governance_preset_reason_not_added_when_thresholds_overridden() -> None
         dqc_thresholds=DQCThresholds(),
         fpc_thresholds=FPCThresholds(),
         preset=AGGRESSIVE,
+        fas_class="ALLOWED",
     )
     reasons = _get_reasons(res)
 
@@ -462,7 +473,9 @@ def test_governance_fas_blocked_short_circuits_dqc_fpc() -> None:
 def test_governance_fas_conditional_downgrades_green_allow() -> None:
     y, raw, snapped = _continuous_compatible_inputs()
 
-    baseline = decide_governance(y=y, fpc_signals_raw=raw, fpc_signals_snapped=snapped)
+    baseline = decide_governance(
+        y=y, fpc_signals_raw=raw, fpc_signals_snapped=snapped, fas_class="ALLOWED"
+    )
     assert baseline.ral_policy == RALPolicy.ALLOW
     assert baseline.status == GovernanceStatus.GREEN
 
@@ -489,7 +502,9 @@ def test_governance_fas_conditional_does_not_upgrade_disallow() -> None:
         ud=20.0,
     )
 
-    baseline = decide_governance(y=y, fpc_signals_raw=raw, fpc_signals_snapped=raw)
+    baseline = decide_governance(
+        y=y, fpc_signals_raw=raw, fpc_signals_snapped=raw, fas_class="ALLOWED"
+    )
     assert baseline.ral_policy == RALPolicy.DISALLOW
     assert baseline.status == GovernanceStatus.RED
 
@@ -505,7 +520,7 @@ def test_governance_fas_conditional_does_not_upgrade_disallow() -> None:
     assert "fas_conditional_downgrade" not in res.reasons
 
 
-def test_governance_fas_class_none_matches_omitted() -> None:
+def test_governance_fas_class_none_fails_closed() -> None:
     y, raw, snapped = _continuous_compatible_inputs()
     omitted = decide_governance(y=y, fpc_signals_raw=raw, fpc_signals_snapped=snapped)
     explicit = decide_governance(
@@ -514,10 +529,15 @@ def test_governance_fas_class_none_matches_omitted() -> None:
         fpc_signals_snapped=snapped,
         fas_class=None,
     )
-    assert omitted == explicit
-    assert omitted.fas_class is None
-    assert omitted.ral_policy == RALPolicy.ALLOW
-    assert omitted.status == GovernanceStatus.GREEN
+    assert omitted.fas_class == FASClass.BLOCKED
+    assert omitted.ral_policy == RALPolicy.DISALLOW
+    assert omitted.status == GovernanceStatus.RED
+    assert omitted.snap_required is False
+    assert omitted.reasons == explicit.reasons
+    assert "fas_required_fail_closed" in omitted.reasons
+    assert explicit.fas_class == FASClass.BLOCKED
+    assert explicit.ral_policy == RALPolicy.DISALLOW
+    assert explicit.status == GovernanceStatus.RED
 
 
 def test_decide_governance_unknown_disallows_ral() -> None:
@@ -549,7 +569,7 @@ def test_decide_governance_unknown_disallows_ral() -> None:
         reasons=("insufficient_data",),
     )
     with patch("eb_evaluation.diagnostics.governance.classify_dqc", return_value=fake):
-        res = decide_governance(y=y, fpc_signals_raw=raw)
+        res = decide_governance(y=y, fpc_signals_raw=raw, fas_class="ALLOWED")
     assert res.dqc.dqc_class is DQCClass.UNKNOWN
     assert res.snap_required is False
     assert res.ral_policy == RALPolicy.DISALLOW
@@ -566,7 +586,7 @@ def test_decide_governance_snap_required_omitted_snapped_fpc_is_incompatible() -
         hr_ral_tau=0.07,
         ud=3.0,
     )
-    res = decide_governance(y=y, fpc_signals_raw=raw)
+    res = decide_governance(y=y, fpc_signals_raw=raw, fas_class="ALLOWED")
     assert res.snap_required is True
     assert res.fpc_snapped.fpc_class is FPCClass.INCOMPATIBLE
     assert res.ral_policy == RALPolicy.DISALLOW
@@ -604,4 +624,4 @@ def test_decide_governance_quantized_without_unit_raises() -> None:
         patch("eb_evaluation.diagnostics.governance.classify_dqc", return_value=fake),
         pytest.raises(ValueError, match="snap_unit"),
     ):
-        decide_governance(y=[1.0, 2.0, 3.0], fpc_signals_raw=raw)
+        decide_governance(y=[1.0, 2.0, 3.0], fpc_signals_raw=raw, fas_class="ALLOWED")

@@ -435,7 +435,8 @@ def _adjustment_blocked_mask(work: pd.DataFrame) -> pd.Series:
         tokens = work["status"].map(_enum_token)
         blocked = blocked | tokens.isin(_BLOCKED_STATUSES) | (tokens == "")
     if "fas_class" in work.columns:
-        blocked = blocked | work["fas_class"].map(_enum_token).isin(_BLOCKED_FAS_CLASSES)
+        tokens = work["fas_class"].map(_enum_token)
+        blocked = blocked | tokens.isin(_BLOCKED_FAS_CLASSES) | (tokens == "")
     if "dqc_class" in work.columns:
         tokens = work["dqc_class"].map(_enum_token)
         blocked = blocked | tokens.isin(_BLOCKED_DQC_CLASSES) | (tokens == "")
@@ -595,8 +596,9 @@ def apply_ral(
       strings emitted by run.py (comma-joined strings or sequences). Mixed
       entity policies are not collapsed to the first row.
     - When joined decisions mark ``ral_policy=disallow``, ``status=red``,
-      ``fas_class=BLOCKED``, or ``dqc_class=UNKNOWN``, ``out_ral_col`` is copied
-      from the governed baseline so readiness adjustment is not applied.
+      ``fas_class=BLOCKED`` (including NA/empty FAS), or ``dqc_class=UNKNOWN``,
+      ``out_ral_col`` is copied from the governed baseline so readiness
+      adjustment is not applied.
     """
     decisions = _require_decisions_table(decisions)
 

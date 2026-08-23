@@ -7,10 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-08-23
+
 ### Fixed
 
 - `evaluate_governance_panel_df` and `run_governance_workflow_df` require FAS review. Omitted or null FAS fail-closes as `fas_class=BLOCKED`, `status=red`, `ral_policy=disallow`.
 - `classify_dqc` and `run_governance_gate` fail-close on NaN or negative demand cells instead of classifying a cleaned remainder (`dqc_class=UNKNOWN`, `status=red`).
+- `apply_ral` treats NA, null, or empty `fas_class` cells as `BLOCKED` and copies the baseline forecast.
+- `decide_governance` and `run_governance_gate` require FAS review. Omitted or blank `fas_class` fail-closes as `BLOCKED` / `RED` / `DISALLOW`.
 
 ## [0.2.8] - 2026-08-23
 

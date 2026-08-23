@@ -122,9 +122,10 @@ def validate_governance(
         - a GovernancePreset instance.
         When omitted, ``decide_governance`` applies the ``"balanced"`` preset.
     fas_class:
-        Optional upstream Forecast Admissibility Surface class. ``BLOCKED``
+        Required upstream Forecast Admissibility Surface class. ``BLOCKED``
         short-circuits DQC/FPC. ``CONDITIONAL`` downgrades permissive RAL
-        outcomes.
+        outcomes. ``None`` or a missing/blank value fail-closes as
+        ``BLOCKED`` / ``DISALLOW`` / ``RED``.
 
     Returns
     -------

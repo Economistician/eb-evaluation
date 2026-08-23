@@ -687,6 +687,43 @@ def test_apply_ral_unknown_dqc_copies_baseline() -> None:
     assert not out["ral_apply_ral_applied"].to_numpy(dtype=bool).any()
 
 
+def test_apply_ral_na_fas_class_copies_baseline() -> None:
+    from eb_evaluation.adjustment.ral import apply_ral
+
+    df = pd.DataFrame(
+        {
+            "forecast_entity_id": [1, 1],
+            "yhat_base": [1.0, 2.0],
+            "yhat_ral": [9.0, 10.0],
+        }
+    )
+    decisions = pd.DataFrame(
+        {
+            "forecast_entity_id": [1],
+            "ral_policy": ["allow"],
+            "status": ["green"],
+            "fas_class": [np.nan],
+            "dqc_class": ["continuous_like"],
+            "snap_required": [False],
+        }
+    )
+    out = apply_ral(
+        df=df,
+        decisions=decisions,
+        join_keys=["forecast_entity_id"],
+        yhat_base_col="yhat_base",
+        yhat_ral_col="yhat_ral",
+        nonneg_mode="allow",
+    )
+    np.testing.assert_allclose(
+        out["yhat_ral_governed"].to_numpy(dtype=float),
+        out["yhat_base_governed"].to_numpy(dtype=float),
+        rtol=0,
+        atol=1e-12,
+    )
+    assert not out["ral_apply_ral_applied"].to_numpy(dtype=bool).any()
+
+
 def test_apply_ral_raises_without_decisions() -> None:
     from eb_evaluation.adjustment.ral import apply_ral
 
