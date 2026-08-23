@@ -70,9 +70,12 @@ def test_run_governance_workflow_df_returns_panel_and_decisions() -> None:
 
     # Decisions: one row per stream
     assert len(decisions) == 2
-    assert {"site_id", "forecast_entity_id", "recommended_mode", "snap_required"}.issubset(
-        decisions.columns
-    )
+    assert {
+        "site_id",
+        "forecast_entity_id",
+        "recommended_mode",
+        "snap_required",
+    }.issubset(decisions.columns)
 
     # Panel: governed columns exist (defaults are <forecast_col>_governed)
     assert "yhat_base_governed" in panel.columns
@@ -273,7 +276,9 @@ def test_run_governance_workflow_df_injected_decisions_missing_controls_fail_clo
     )
     assert (out_decisions["ral_policy"] == "disallow").all()
     assert (out_decisions["status"] == "red").all()
-    assert (out_decisions["dqc_class"] == "unknown").all()
+    row_q = out_decisions[out_decisions["forecast_entity_id"] == 20].iloc[0]
+    assert str(row_q["dqc_class"]).lower() in {"quantized", "piecewise_packed"}
+    assert bool(row_q["snap_required"]) is True
     np.testing.assert_allclose(
         panel["yhat_ral_governed"].to_numpy(dtype=float),
         panel["yhat_base_governed"].to_numpy(dtype=float),
@@ -311,3 +316,33 @@ def test_run_governance_workflow_df_injected_decisions_na_controls_fail_closed()
     assert row_na["status"] == "red"
     blocked = panel.loc[panel["forecast_entity_id"] == 20]
     assert not blocked["ral_apply_ral_applied"].to_numpy(dtype=bool).any()
+
+
+def test_run_governance_workflow_df_injected_forged_allow_cannot_bypass_snap() -> None:
+    df = _build_sample_panel_df()
+    decisions = pd.DataFrame(
+        {
+            "site_id": [1, 2],
+            "forecast_entity_id": [10, 20],
+            "ral_policy": ["allow", "allow"],
+            "status": ["green", "green"],
+            "fas_class": ["ALLOWED", "ALLOWED"],
+            "dqc_class": ["continuous_like", "continuous_like"],
+            "snap_required": [False, False],
+            "snap_unit": [np.nan, np.nan],
+        }
+    )
+    _panel, out_decisions = run_governance_workflow_df(
+        df=df,
+        keys=["site_id", "forecast_entity_id"],
+        actual_col="y",
+        base_forecast_col="yhat_base",
+        ral_forecast_col="yhat_ral",
+        tau=2.0,
+        decisions_df=decisions,
+    )
+    row_q = out_decisions[out_decisions["forecast_entity_id"] == 20].iloc[0]
+    assert str(row_q["dqc_class"]).lower() in {"quantized", "piecewise_packed"}
+    assert bool(row_q["snap_required"]) is True
+    snap_unit = float(str(row_q["snap_unit"]))
+    assert np.isfinite(snap_unit) and snap_unit > 0.0

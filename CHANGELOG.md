@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `snap_to_grid` raises on `None` or unparseable non-numeric values instead of passing them through.
 - `apply_ral` requires a decisions table with `ral_policy`, `status`, `fas_class`, `dqc_class`, and `snap_required`; ungated calls raise.
 - Injected `decisions_df` overrides in `run_governance_workflow_df` fail closed to `DISALLOW` / `RED` when required control columns are missing or NA.
+- Injected `decisions_df` overrides are reconciled against the live governance gate so forged `allow` / `green` / `continuous_like` rows cannot disable required snap or flagging.
+- Re-exported `results_to_dict` from the package root.
 - `run_governance_panel_df` drops `±inf` with NaN and fail-closes non-finite streams.
 
 ### Changed

@@ -26,6 +26,8 @@ validate_fpc
 build_signals_from_series
     Convenience builder for constructing `FPCSignals` from common raw series
     inputs.
+results_to_dict
+    JSON-friendly serialization for FPCResult.
 
 DQCClass
     Enumeration of demand quantization compatibility states.
@@ -144,6 +146,7 @@ from .fpc import (
     FPCThresholds,
     build_signals_from_series,
     classify_fpc,
+    results_to_dict,
 )
 from .governance import (
     GovernanceDecision,
@@ -201,6 +204,7 @@ __all__ = [
     "get_governance_preset",
     "preset_policy",
     "preset_thresholds",
+    "results_to_dict",
     "run_governance_gate",
     "slice_keys",
     "snap_to_grid",

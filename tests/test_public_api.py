@@ -25,6 +25,7 @@ def test_root_reexports_core_diagnostics() -> None:
         "GovernanceTauPolicy",
         "DQCResult",
         "apply_ral",
+        "results_to_dict",
         "__version__",
     )
     for name in names:

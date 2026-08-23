@@ -29,6 +29,29 @@ __all__ = ["run_governance_workflow_df", "run_governance_workflow_df_dict"]
 _FAIL_CLOSED_RAL = "disallow"
 _FAIL_CLOSED_STATUS = "red"
 _FAIL_CLOSED_DQC = "unknown"
+_SNAP_DQC_CLASSES = ("quantized", "piecewise_packed")
+_STATUS_RANK = {"green": 0, "yellow": 1, "red": 2}
+
+
+def _ctrl_token(value: object) -> str:
+    if value is None:
+        return ""
+    try:
+        if bool(pd.isna(value)):
+            return ""
+    except (ValueError, TypeError):
+        pass
+    raw = getattr(value, "value", None)
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip().lower()
+    return str(value).strip().lower().rsplit(".", 1)[-1]
+
+
+def _as_series(frame: pd.DataFrame, col: str) -> pd.Series:
+    obj = frame[col]
+    if isinstance(obj, pd.Series):
+        return obj
+    return pd.Series(obj, index=frame.index, name=col)
 
 
 def _fail_close_incomplete_decisions(decisions: pd.DataFrame) -> pd.DataFrame:
@@ -69,6 +92,84 @@ def _fail_close_incomplete_decisions(decisions: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _reconcile_injected_with_gate(
+    injected: pd.DataFrame,
+    gate: pd.DataFrame,
+    keys: Sequence[str],
+) -> pd.DataFrame:
+    """Keep injected tightenings; never loosen snap, DQC, RAL, or status vs the gate."""
+    key_list = list(keys)
+    merged = injected.merge(gate, on=key_list, how="left", suffixes=("", "_gate"))
+
+    if "dqc_class_gate" in merged.columns:
+        gate_dqc = _as_series(merged, "dqc_class_gate").map(_ctrl_token)
+        use_gate_dqc = gate_dqc.isin((*_SNAP_DQC_CLASSES, "unknown"))
+        inj_dqc = _as_series(merged, "dqc_class")
+        merged["dqc_class"] = inj_dqc.where(~use_gate_dqc, _as_series(merged, "dqc_class_gate"))
+    else:
+        gate_dqc = pd.Series("", index=merged.index)
+        use_gate_dqc = pd.Series(False, index=merged.index)
+
+    inj_snap = _as_series(merged, "snap_required").fillna(False).astype(bool)
+    if "snap_required_gate" in merged.columns:
+        gate_snap = _as_series(merged, "snap_required_gate").fillna(False).astype(bool)
+    else:
+        gate_snap = pd.Series(False, index=merged.index)
+    dqc_implies_snap = gate_dqc.isin(_SNAP_DQC_CLASSES)
+    merged["snap_required"] = inj_snap | gate_snap | dqc_implies_snap
+
+    if "snap_unit_gate" in merged.columns:
+        need_unit = merged["snap_required"].astype(bool)
+        inj_unit = (
+            _as_series(merged, "snap_unit")
+            if "snap_unit" in merged.columns
+            else pd.Series(np.nan, index=merged.index)
+        )
+        merged["snap_unit"] = inj_unit.where(~need_unit, _as_series(merged, "snap_unit_gate"))
+
+    if "ral_policy_gate" in merged.columns:
+        gate_ral = _as_series(merged, "ral_policy_gate").map(_ctrl_token)
+        inj_ral = _as_series(merged, "ral_policy").map(_ctrl_token)
+        merged["ral_policy"] = np.where(
+            (gate_ral == "disallow") | (inj_ral == "disallow"),
+            _FAIL_CLOSED_RAL,
+            _as_series(merged, "ral_policy"),
+        )
+
+    if "status_gate" in merged.columns:
+        gate_status = _as_series(merged, "status_gate").map(_ctrl_token)
+        inj_status = _as_series(merged, "status").map(_ctrl_token)
+        gate_rank = gate_status.map(lambda t: _STATUS_RANK.get(t, 2))
+        inj_rank = inj_status.map(lambda t: _STATUS_RANK.get(t, 2))
+        use_gate_status = gate_rank >= inj_rank
+        merged["status"] = _as_series(merged, "status").where(
+            ~use_gate_status, _as_series(merged, "status_gate")
+        )
+
+    if "fas_class_gate" in merged.columns:
+        gate_fas = _as_series(merged, "fas_class_gate").map(_ctrl_token)
+        inj_fas = _as_series(merged, "fas_class").map(_ctrl_token)
+        blocked = (gate_fas == "blocked") | (inj_fas == "blocked")
+        if bool(blocked.any()):
+            merged.loc[blocked, "fas_class"] = "BLOCKED"
+            merged.loc[blocked, "ral_policy"] = _FAIL_CLOSED_RAL
+            merged.loc[blocked, "status"] = _FAIL_CLOSED_STATUS
+
+    if "recommended_mode_gate" in merged.columns and (
+        bool(use_gate_dqc.any()) or bool((gate_snap | dqc_implies_snap).any())
+    ):
+        merged["recommended_mode"] = _as_series(merged, "recommended_mode_gate")
+    if "recommendations_gate" in merged.columns and (
+        bool(use_gate_dqc.any()) or bool((gate_snap | dqc_implies_snap).any())
+    ):
+        merged["recommendations"] = _as_series(merged, "recommendations_gate")
+
+    drop_gate = [c for c in merged.columns if c.endswith("_gate")]
+    if drop_gate:
+        merged = merged.drop(columns=drop_gate)
+    return merged
+
+
 def run_governance_workflow_df(
     *,
     df: pd.DataFrame,
@@ -107,10 +208,11 @@ def run_governance_workflow_df(
     - `decisions_df` is a per-stream summary table and is directly joinable back to `df`
       on `keys`.
     - `panel_governed_df` includes governed prediction columns plus audit columns.
-    - If `decisions_df` is provided, the workflow will NOT recompute decisions; it will
-      schema-validate required control columns (``ral_policy``, ``status``,
-      ``fas_class``, ``dqc_class``, ``snap_required``). Missing columns or NA
-      control cells fail closed to ``DISALLOW`` / ``RED`` / DQC ``UNKNOWN``.
+    - The governance gate always runs. A custom ``decisions_df`` is schema-fail-closed
+      (missing or NA ``ral_policy`` / ``status`` / ``fas_class`` / ``dqc_class`` /
+      ``snap_required`` become ``DISALLOW`` / ``RED`` / DQC ``UNKNOWN``), then
+      reconciled against the gate: injected rows may tighten, never loosen snap,
+      DQC class, RAL policy, or status.
     - Empty, missing, or non-finite ``y`` / ``yhat`` streams fail closed in
       ``evaluate_governance_panel_df`` (``status=red``, ``ral_policy=disallow``,
       FPC ``incompatible``) instead of raising from ``eb-metrics``.
@@ -124,29 +226,34 @@ def run_governance_workflow_df(
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
 
+    gate_decisions = evaluate_governance_panel_df(
+        df=df,
+        keys=keys_list,
+        actual_col=actual_col,
+        base_forecast_col=base_forecast_col,
+        ral_forecast_col=ral_forecast_col,
+        tau=tau,
+        cwsl_r=cwsl_r,
+        preset=preset,
+        dqc_thresholds=dqc_thresholds,
+        fpc_thresholds=fpc_thresholds,
+        dropna_keys=dropna_keys,
+        fas_class=fas_class,
+        fas_class_col=fas_class_col,
+    )
     if decisions_df is None:
-        decisions_df = evaluate_governance_panel_df(
-            df=df,
-            keys=keys_list,
-            actual_col=actual_col,
-            base_forecast_col=base_forecast_col,
-            ral_forecast_col=ral_forecast_col,
-            tau=tau,
-            cwsl_r=cwsl_r,
-            preset=preset,
-            dqc_thresholds=dqc_thresholds,
-            fpc_thresholds=fpc_thresholds,
-            dropna_keys=dropna_keys,
-            fas_class=fas_class,
-            fas_class_col=fas_class_col,
-        )
+        decisions_df = gate_decisions
     else:
         missing_decision_keys = sorted(set(keys_list) - set(decisions_df.columns))
         if missing_decision_keys:
             raise ValueError(
                 f"Provided decisions_df is missing required key columns: {missing_decision_keys}"
             )
-        decisions_df = _fail_close_incomplete_decisions(decisions_df)
+        decisions_df = _reconcile_injected_with_gate(
+            _fail_close_incomplete_decisions(decisions_df),
+            gate_decisions,
+            keys_list,
+        )
 
     # Defaults for governed output columns.
     out_base = out_base_col if out_base_col is not None else f"{base_forecast_col}_governed"
