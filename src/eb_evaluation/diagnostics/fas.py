@@ -20,6 +20,7 @@ FASSliceMode = Literal["entity", "entity_interval", "site_entity_interval"]
 _FAS_CLASS_ALLOWED: Final[str] = "ALLOWED"
 _FAS_CLASS_CONDITIONAL: Final[str] = "CONDITIONAL"
 _FAS_CLASS_BLOCKED: Final[str] = "BLOCKED"
+_FAS_FINGERPRINT_HEX_LEN: Final[int] = 16
 
 
 @dataclass(frozen=True)
@@ -48,7 +49,39 @@ class FASThresholds:
 
 def _fingerprint_payload(payload: dict[str, Any]) -> str:
     encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()[:12]
+    return hashlib.sha256(encoded).hexdigest()[:_FAS_FINGERPRINT_HEX_LEN]
+
+
+def _payload_spike_ge(fas: pd.DataFrame) -> float | list[float] | None:
+    """Serialize anatomy ``spike_ge`` into a stable fingerprint field.
+
+    The key is always present in the payload. Missing or all-NaN values become
+    ``None``; a single unique value is stored as a float; mixed values are a
+    sorted list.
+    """
+    if "spike_ge" not in fas.columns:
+        return None
+    uniq = sorted({float(x) for x in fas["spike_ge"].dropna().unique().tolist()})
+    if len(uniq) == 0:
+        return None
+    if len(uniq) == 1:
+        return uniq[0]
+    return uniq
+
+
+def _finite_gt_rate(x: np.ndarray, threshold: float) -> float:
+    """Share of finite values strictly greater than ``threshold``; NaN if none."""
+    finite = x[np.isfinite(x)]
+    if finite.size == 0:
+        return float("nan")
+    return float((finite > threshold).mean())
+
+
+def _safe_nanmean(x: np.ndarray) -> float:
+    finite = x[np.isfinite(x)]
+    if finite.size == 0:
+        return float("nan")
+    return float(np.mean(finite))
 
 
 def slice_keys(
@@ -159,7 +192,9 @@ def compute_error_anatomy(
     Requires a baseline prediction column (yhat_col).
 
     Notes:
-    - Rows with NaN in y or yhat are dropped before anatomy aggregation.
+    - Rows with NaN in y or yhat are excluded from anatomy statistics.
+    - Slices that remain with zero valid rows are preserved (n_valid=0).
+    - Spike rate uses strict inequality (abs_error > spike_ge).
     - Slice keys are coerced to StringDtype for stability and joinability.
     - Returns both symmetric absolute-error anatomy and shortfall (underbuild)
       anatomy suitable for production-management contexts.
@@ -180,48 +215,65 @@ def compute_error_anatomy(
     for k in keys:
         work[k] = _coerce_key_series(work, k, context="compute_error_anatomy")
 
-    # Coerce numeric defensively; any non-numeric becomes NaN and gets dropped.
+    # Coerce numeric defensively; non-numeric becomes NaN. Keep every slice key
+    # so zero-valid groups remain in the anatomy table (Domain exhaustiveness).
     work[y_col] = _coerce_numeric_series(work, y_col, context="compute_error_anatomy")
     work[yhat_col] = _coerce_numeric_series(work, yhat_col, context="compute_error_anatomy")
 
-    work = work.dropna(subset=[y_col, yhat_col])
+    is_valid = work[y_col].notna() & work[yhat_col].notna()
 
-    # Residuals
+    # Residuals (NaN where either side is missing)
     err = work[yhat_col] - work[y_col]
     abs_error = err.abs()
 
     # Underbuild / shortfall: y - yhat, floored at 0.
     shortfall = (work[y_col] - work[yhat_col]).clip(lower=0)
 
-    # Nonzero demand indicator (for support diagnostics)
-    is_nonzero = work[y_col].ne(0)
+    # Support indicators counted only on valid (y, yhat) pairs.
+    is_nonzero = is_valid & work[y_col].ne(0)
+    is_zero = is_valid & work[y_col].eq(0)
 
     out = (
         work.assign(
+            is_valid=is_valid,
+            is_nonzero=is_nonzero,
+            is_zero=is_zero,
             abs_error=abs_error,
             shortfall=shortfall,
-            is_nonzero=is_nonzero,
         )
         .groupby(keys, dropna=False)
         .agg(
             # Support
-            n_valid=("abs_error", "size"),
+            n_valid=("is_valid", "sum"),
             n_nonzero=("is_nonzero", "sum"),
-            zero_rate=(y_col, lambda s: float((s == 0).mean())),
-            # Symmetric AE anatomy
-            spike_rate=("abs_error", lambda s: float((s >= spike_ge).mean())),
+            n_zero=("is_zero", "sum"),
+            # Symmetric AE anatomy (strict exceedance for spikes)
+            spike_rate=(
+                "abs_error",
+                lambda s: _finite_gt_rate(s.to_numpy(dtype=float), spike_ge),
+            ),
             p95_ae=("abs_error", lambda s: _safe_nanquantile(s.to_numpy(dtype=float), 0.95)),
             p90_ae=("abs_error", lambda s: _safe_nanquantile(s.to_numpy(dtype=float), 0.90)),
-            mae=("abs_error", lambda s: float(np.nanmean(s.to_numpy(dtype=float)))),
+            mae=("abs_error", lambda s: _safe_nanmean(s.to_numpy(dtype=float))),
             # Shortfall (underbuild) anatomy
-            shortfall_rate=("shortfall", lambda s: float((s > 0).mean())),
-            shortfall_spike_rate=("shortfall", lambda s: float((s >= spike_ge).mean())),
+            shortfall_rate=(
+                "shortfall",
+                lambda s: _finite_gt_rate(s.to_numpy(dtype=float), 0.0),
+            ),
+            shortfall_spike_rate=(
+                "shortfall",
+                lambda s: _finite_gt_rate(s.to_numpy(dtype=float), spike_ge),
+            ),
             p95_shortfall=("shortfall", lambda s: _safe_nanquantile(s.to_numpy(dtype=float), 0.95)),
             p90_shortfall=("shortfall", lambda s: _safe_nanquantile(s.to_numpy(dtype=float), 0.90)),
-            mean_shortfall=("shortfall", lambda s: float(np.nanmean(s.to_numpy(dtype=float)))),
+            mean_shortfall=("shortfall", lambda s: _safe_nanmean(s.to_numpy(dtype=float))),
         )
         .reset_index()
     )
+
+    n_valid_f = out["n_valid"].astype(float)
+    out["zero_rate"] = out["n_zero"].astype(float).div(n_valid_f).where(n_valid_f.gt(0.0))
+    out = out.drop(columns=["n_zero"])
 
     # Record spike threshold used to compute spike rates for auditability.
     out["spike_ge"] = float(spike_ge)
@@ -241,8 +293,8 @@ def build_fas_surface(
       keys + ['n_valid','zero_rate','spike_rate','p95_ae']
 
     Additional columns (if present) are carried through to output.
-    If 'spike_ge' exists in anatomy, it is included in the thresholds fingerprint
-    + JSON payload for full auditability.
+    The thresholds fingerprint always includes ``spike_ge`` (``None`` when the
+    anatomy column is absent or all-NaN).
     """
     _require_unique_keys(keys, context="build_fas_surface")
 
@@ -335,12 +387,8 @@ def build_fas_surface(
     # Canonical status column for downstream use (stable, ergonomic).
     fas["fas_status"] = fas["fas_class"]
 
-    # Audit payload: thresholds + spike_ge (if present).
-    payload: dict[str, Any] = {**thr.__dict__}
-    if "spike_ge" in fas.columns:
-        # If spike_ge differs across rows, store the sorted unique set.
-        uniq = sorted({float(x) for x in fas["spike_ge"].dropna().unique().tolist()})
-        payload["spike_ge"] = uniq[0] if len(uniq) == 1 else uniq
+    # Audit payload: thresholds + spike_ge (always present for a stable schema).
+    payload: dict[str, Any] = {**thr.__dict__, "spike_ge": _payload_spike_ge(fas)}
 
     fas["thr_fingerprint"] = _fingerprint_payload(payload)
     fas["thr_json"] = json.dumps(payload, sort_keys=True)

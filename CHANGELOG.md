@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- FAS spike rate uses strict inequality (`abs_error > spike_ge`) to match the technical note.
+- FAS preserves slices with zero valid observations and classifies them as `CONDITIONAL`.
+- FAS threshold fingerprints always include `spike_ge` and use a 16-character SHA-256 prefix.
+
 ### Changed
 
 - Polished module and public API docstrings to remove prompt-spec essay prose.

@@ -9,6 +9,8 @@ implementation is stable and auditable.
 
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 import pytest
 
@@ -181,8 +183,8 @@ def test_compute_error_anatomy_outputs_expected_columns_and_values() -> None:
     assert int(row1["n_valid"]) == 4
     # 2 zeros out of 4
     assert row1["zero_rate"] == pytest.approx(0.5)
-    # one abs_error == 10 out of 4 when spike_ge=10
-    assert row1["spike_rate"] == pytest.approx(0.25)
+    # abs_error == spike_ge is not a spike (strict inequality)
+    assert row1["spike_rate"] == pytest.approx(0.0)
     assert row1["mae"] == pytest.approx(2.5)
 
     # Underbuild (shortfall) for entity 1:
@@ -196,8 +198,8 @@ def test_compute_error_anatomy_outputs_expected_columns_and_values() -> None:
     row2 = anatomy.loc[anatomy["forecast_entity_id"] == "2"].iloc[0]
     assert int(row2["n_valid"]) == 4
     assert row2["zero_rate"] == pytest.approx(0.0)
-    # two spikes (10,10) out of 4
-    assert row2["spike_rate"] == pytest.approx(0.5)
+    # two abs_error == 10 out of 4; equality is not a spike
+    assert row2["spike_rate"] == pytest.approx(0.0)
     assert row2["mae"] == pytest.approx(5.0)
 
     # Underbuild (shortfall) for entity 2:
@@ -408,3 +410,125 @@ def test_thr_fingerprint_changes_when_spike_ge_changes_in_anatomy() -> None:
 
     assert fas_a.iloc[0]["thr_fingerprint"] != fas_b.iloc[0]["thr_fingerprint"]
     assert fas_a.iloc[0]["thr_json"] != fas_b.iloc[0]["thr_json"]
+
+
+def test_low_support_overrides_blocked_anatomy() -> None:
+    # n below min_valid_rows with extreme spike/tail must still be CONDITIONAL.
+    anatomy = pd.DataFrame(
+        {
+            "forecast_entity_id": [1],
+            "n_valid": [10],
+            "n_nonzero": [10],
+            "zero_rate": [0.0],
+            "spike_rate": [0.99],
+            "p90_ae": [80.0],
+            "p95_ae": [100.0],
+            "mae": [50.0],
+            "spike_ge": [10.0],
+        }
+    )
+    thr = FASThresholds(
+        blocked_spike_rate_ge=0.30,
+        blocked_p95_ae_ge=25.0,
+        min_valid_rows=200,
+    )
+    fas = build_fas_surface(anatomy=anatomy, keys=["forecast_entity_id"], thr=thr)
+    assert fas.iloc[0]["fas_class"] == "CONDITIONAL"
+    assert bool(fas.iloc[0]["fas_conditional"]) is True
+    assert bool(fas.iloc[0]["fas_blocked"]) is False
+
+
+def test_all_nan_slice_is_preserved_and_conditional() -> None:
+    df = pd.DataFrame(
+        {
+            "forecast_entity_id": [1, 1, 2, 2],
+            "y": [1.0, 2.0, float("nan"), float("nan")],
+            "y_hat": [1.0, 2.0, float("nan"), float("nan")],
+        }
+    )
+    anatomy = compute_error_anatomy(
+        df,
+        y_col="y",
+        yhat_col="y_hat",
+        keys=["forecast_entity_id"],
+        spike_ge=10.0,
+    )
+    by_id = {str(r["forecast_entity_id"]): r for _, r in anatomy.iterrows()}
+    assert set(by_id) == {"1", "2"}
+    assert int(by_id["1"]["n_valid"]) == 2
+    assert int(by_id["2"]["n_valid"]) == 0
+    assert pd.isna(by_id["2"]["spike_rate"])
+    assert pd.isna(by_id["2"]["p95_ae"])
+
+    fas = build_fas_surface(anatomy=anatomy, keys=["forecast_entity_id"])
+    row2 = fas.loc[fas["forecast_entity_id"] == "2"].iloc[0]
+    assert row2["fas_class"] == "CONDITIONAL"
+    assert bool(row2["fas_conditional"]) is True
+    assert bool(row2["fas_blocked"]) is False
+
+
+def test_spike_rate_excludes_error_equal_to_spike_ge() -> None:
+    # abs_error = [0, 10, 11]; only 11 exceeds spike_ge=10.
+    df = pd.DataFrame(
+        {
+            "forecast_entity_id": [1, 1, 1],
+            "y": [0.0, 0.0, 0.0],
+            "y_hat": [0.0, 10.0, 11.0],
+        }
+    )
+    anatomy = compute_error_anatomy(
+        df,
+        y_col="y",
+        yhat_col="y_hat",
+        keys=["forecast_entity_id"],
+        spike_ge=10.0,
+    )
+    row = anatomy.iloc[0]
+    assert int(row["n_valid"]) == 3
+    assert float(row["spike_rate"]) == pytest.approx(1.0 / 3.0)
+
+
+def test_thr_fingerprint_identity_is_stable_and_includes_spike_ge() -> None:
+    anatomy = pd.DataFrame(
+        {
+            "forecast_entity_id": [1],
+            "n_valid": [500],
+            "n_nonzero": [500],
+            "zero_rate": [0.0],
+            "spike_rate": [0.10],
+            "p90_ae": [1.0],
+            "p95_ae": [12.0],
+            "mae": [3.0],
+            "spike_ge": [10.0],
+        }
+    )
+    thr = FASThresholds(conditional_p95_ae_ge=10.0)
+
+    fas_a = build_fas_surface(anatomy=anatomy, keys=["forecast_entity_id"], thr=thr)
+    fas_b = build_fas_surface(anatomy=anatomy, keys=["forecast_entity_id"], thr=thr)
+
+    fp_a = str(fas_a.iloc[0]["thr_fingerprint"])
+    fp_b = str(fas_b.iloc[0]["thr_fingerprint"])
+    assert fp_a == fp_b
+    assert len(fp_a) == 16
+    assert all(ch in "0123456789abcdef" for ch in fp_a)
+
+    payload_a = json.loads(str(fas_a.iloc[0]["thr_json"]))
+    payload_b = json.loads(str(fas_b.iloc[0]["thr_json"]))
+    assert payload_a == payload_b
+    assert "spike_ge" in payload_a
+    assert payload_a["spike_ge"] == pytest.approx(10.0)
+
+    # Missing spike_ge column still serializes the key (as null).
+    anatomy_no_spike = anatomy.drop(columns=["spike_ge"])
+    fas_c = build_fas_surface(anatomy=anatomy_no_spike, keys=["forecast_entity_id"], thr=thr)
+    payload_c = json.loads(str(fas_c.iloc[0]["thr_json"]))
+    assert "spike_ge" in payload_c
+    assert payload_c["spike_ge"] is None
+    fp_c = str(fas_c.iloc[0]["thr_fingerprint"])
+    assert fp_c == str(
+        build_fas_surface(anatomy=anatomy_no_spike, keys=["forecast_entity_id"], thr=thr).iloc[0][
+            "thr_fingerprint"
+        ]
+    )
+    assert fp_c != fp_a
