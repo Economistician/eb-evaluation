@@ -150,6 +150,24 @@ def _fail_closed_panel_row(
     return row
 
 
+def _to_float64_1d(frame: pd.DataFrame, col: str) -> np.ndarray:
+    """Coerce a panel column to 1D float64 (non-numeric → NaN), matching ``to_numeric``."""
+    s = frame[col]
+    if not isinstance(s, pd.Series):
+        raise ValueError(
+            f"expected column {col!r} to be a Series, but got {type(s).__name__}. "
+            "This often happens when the dataframe has duplicate column names."
+        )
+    coerced = pd.to_numeric(s, errors="coerce")
+    return np.asarray(coerced, dtype=np.float64)
+
+
+def _group_key_tuple(key: object) -> tuple[object, ...]:
+    if isinstance(key, tuple):
+        return key
+    return (key,)
+
+
 def evaluate_governance_panel_df(
     *,
     df: pd.DataFrame,
@@ -242,15 +260,58 @@ def evaluate_governance_panel_df(
     out_rows: list[dict[str, Any]] = []
 
     grouped = work.groupby(keys_list, dropna=not dropna_keys, sort=False)
+    raw_labels = grouped.ngroup().to_numpy()
+    grouped_rows = np.isfinite(raw_labels) & (raw_labels >= 0)
+    if not bool(np.any(grouped_rows)):
+        return pd.DataFrame(out_rows)
 
-    for key_vals, g in grouped:
-        if not isinstance(key_vals, tuple):
-            key_vals = (key_vals,)
+    labels_kept = np.rint(raw_labels[grouped_rows]).astype(np.intp, copy=False)
+    n_groups = int(labels_kept.max()) + 1
+    idx = np.flatnonzero(grouped_rows)
+    order = idx[np.argsort(labels_kept, kind="mergesort")]
+    counts = np.bincount(labels_kept, minlength=n_groups)
+    starts = np.empty(n_groups, dtype=np.intp)
+    starts[0] = 0
+    if n_groups > 1:
+        np.cumsum(counts[:-1], out=starts[1:])
 
-        stream_fas = resolve_panel_fas_class(g, fas_class=fas_class, fas_class_col=fas_class_col)
-        finite = _finite_aligned_subset(g, (actual_col, base_forecast_col, ral_forecast_col))
-        n_total = len(g)
-        n_finite = len(finite)
+    y_all = _to_float64_1d(work, actual_col)
+    yhat_base_all = _to_float64_1d(work, base_forecast_col)
+    yhat_ral_all = _to_float64_1d(work, ral_forecast_col)
+    y_ord = y_all[order]
+    base_ord = yhat_base_all[order]
+    ral_ord = yhat_ral_all[order]
+    finite_ord = np.isfinite(y_ord) & np.isfinite(base_ord) & np.isfinite(ral_ord)
+
+    if fas_class_col is not None and fas_class_col not in work.columns:
+        raise ValueError(f"fas_class_col {fas_class_col!r} is missing from the panel.")
+
+    key_index = grouped.size().index
+    work_index = work.index
+
+    for g_i, key in enumerate(key_index):
+        key_vals = _group_key_tuple(key)
+        start = int(starts[g_i])
+        n_total = int(counts[g_i])
+        stop = start + n_total
+        pos = order[start:stop]
+        group_index = work_index[pos]
+
+        if fas_class_col is not None:
+            stream_fas = resolve_panel_fas_class(
+                work[[fas_class_col]].iloc[pos],
+                fas_class_col=fas_class_col,
+            )
+        elif isinstance(fas_class, pd.Series):
+            stream_fas = resolve_panel_fas_class(
+                pd.DataFrame(index=group_index),
+                fas_class=fas_class,
+            )
+        else:
+            stream_fas = fas_class
+
+        fin = finite_ord[start:stop]
+        n_finite = int(np.count_nonzero(fin))
         if fas_review_is_missing(stream_fas):
             out_rows.append(
                 _fail_closed_panel_row(
@@ -295,9 +356,9 @@ def evaluate_governance_panel_df(
         row["n_finite"] = n_finite
         row["finite_coverage"] = float(n_finite) / float(n_total)
 
-        y = finite[actual_col].to_numpy(dtype=float)
-        yhat_base = finite[base_forecast_col].to_numpy(dtype=float)
-        yhat_ral = finite[ral_forecast_col].to_numpy(dtype=float)
+        y = y_ord[start:stop][fin]
+        yhat_base = base_ord[start:stop][fin]
+        yhat_ral = ral_ord[start:stop][fin]
 
         gate = run_governance_gate(
             y=y,

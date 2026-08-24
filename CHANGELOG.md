@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `compute_error_anatomy` aggregates FAS slice stats with `np.bincount` / `np.add.at` and segmented quantiles instead of Python lambdas in `groupby.agg`.
 - `build_signals_from_series` validates each `(y, yhat)` pair once and reuses the arrays in NSL / HR / UD / CWSL.
 - `apply_ral` broadcasts `uint8` nonneg/snap codes internally and writes the existing string audit columns on export.
+- `ReadinessAdjustmentLayer._best_uplift` validates `(y, yhat)` once and scores the uplift grid with `_cwsl_from_validated`.
+- `evaluate_governance_panel_df` slices pre-grouped 1D forecast arrays into `run_governance_gate` instead of copying a per-stream DataFrame of `y` / `yhat`.
 
 ## [0.2.9] - 2026-08-23
 

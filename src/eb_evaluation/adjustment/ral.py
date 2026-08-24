@@ -24,7 +24,8 @@ import pandas as pd
 
 from eb_evaluation.diagnostics.governance import _snap_to_grid_array
 from eb_evaluation.diagnostics.presets import preset_policy
-from eb_metrics.metrics import cwsl
+from eb_metrics._utils import _validated_nonneg_pair
+from eb_metrics.metrics.loss import _cwsl_from_validated
 
 
 class ReadinessAdjustmentLayer:
@@ -98,25 +99,23 @@ class ReadinessAdjustmentLayer:
         """Return (best_uplift, cwsl_before, cwsl_after)."""
         y_true = y_true.astype(float, copy=False)
         y_pred = y_pred.astype(float, copy=False)
+        y_true, y_pred = _validated_nonneg_pair(y_true, y_pred)
 
-        before = float(
-            cwsl(y_true=y_true, y_pred=y_pred, cu=cu, co=co, sample_weight=sample_weight)
-        )
+        before = float(_cwsl_from_validated(y_true, y_pred, cu, co, sample_weight))
 
         grid = self._grid()
         best_u = float(grid[0])
         best_loss = float("inf")
+        # Public cwsl would re-check nonnegativity of y_pred * u. Uplift grids
+        # are non-negative in normal use; if a negative candidate appears, keep
+        # the same domain error as the validating wrapper.
+        check_scaled_nonneg = bool(np.any(grid < 0.0))
 
         for u in grid:
-            loss = float(
-                cwsl(
-                    y_true=y_true,
-                    y_pred=y_pred * float(u),
-                    cu=cu,
-                    co=co,
-                    sample_weight=sample_weight,
-                )
-            )
+            scaled = y_pred * float(u)
+            if check_scaled_nonneg and np.any(scaled < 0):
+                raise ValueError("y_pred must be non-negative (forecast cannot be negative).")
+            loss = float(_cwsl_from_validated(y_true, scaled, cu, co, sample_weight))
             # Tie-break: prefer the smaller uplift
             if (loss < best_loss) or (abs(loss - best_loss) < 1e-12 and float(u) < best_u):
                 best_loss = loss
