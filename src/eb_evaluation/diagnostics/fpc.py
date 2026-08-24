@@ -13,7 +13,13 @@ from math import isnan
 
 import numpy as np
 
-from eb_metrics.metrics import cwsl, hr_at_tau, nsl, ud as ud_metric
+from eb_metrics._utils import _validated_nonneg_pair
+from eb_metrics.metrics.loss import _cwsl_from_validated
+from eb_metrics.metrics.service import (
+    _hr_at_tau_from_validated,
+    _nsl_from_validated,
+    _ud_from_validated,
+)
 
 
 def _eb_metric(fn, *args, **kwargs) -> float:
@@ -222,20 +228,25 @@ def build_signals_from_series(
     if cwsl_r is None and cost_ratio is not None:
         cwsl_r = cost_ratio
 
-    nsl_base = _eb_metric(nsl, y, yhat_base)
-    nsl_ral = _eb_metric(nsl, y, yhat_ral)
+    # Validate each (y, yhat) pair once. Public metric wrappers would otherwise
+    # re-run _validated_nonneg_pair on every NSL / HR / UD / CWSL call.
+    y_arr, yhat_base_arr = _validated_nonneg_pair(y, yhat_base)
+    _, yhat_ral_arr = _validated_nonneg_pair(y, yhat_ral)
+
+    nsl_base = _eb_metric(_nsl_from_validated, y_arr, yhat_base_arr)
+    nsl_ral = _eb_metric(_nsl_from_validated, y_arr, yhat_ral_arr)
     delta_nsl = nsl_ral - nsl_base
 
-    hr_base = _eb_metric(hr_at_tau, y, yhat_base, tau=tau)
-    hr_ral = _eb_metric(hr_at_tau, y, yhat_ral, tau=tau)
+    hr_base = _eb_metric(_hr_at_tau_from_validated, y_arr, yhat_base_arr, tau)
+    hr_ral = _eb_metric(_hr_at_tau_from_validated, y_arr, yhat_ral_arr, tau)
     delta_hr = hr_ral - hr_base
 
-    ud_val = ud if ud is not None else _eb_metric(ud_metric, y, yhat_base)
+    ud_val = ud if ud is not None else _eb_metric(_ud_from_validated, y_arr, yhat_base_arr)
 
     cwsl_base = cwsl_ral = delta_cwsl = None
     if cwsl_r is not None:
-        cwsl_base = _eb_metric(cwsl, y, yhat_base, cu=cwsl_r, co=1.0)
-        cwsl_ral = _eb_metric(cwsl, y, yhat_ral, cu=cwsl_r, co=1.0)
+        cwsl_base = _eb_metric(_cwsl_from_validated, y_arr, yhat_base_arr, cwsl_r, 1.0)
+        cwsl_ral = _eb_metric(_cwsl_from_validated, y_arr, yhat_ral_arr, cwsl_r, 1.0)
         delta_cwsl = cwsl_ral - cwsl_base
 
     return FPCSignals(

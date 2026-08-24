@@ -15,10 +15,11 @@ Responsibilities
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Literal, cast
 
 import numpy as np
+from numpy.typing import DTypeLike
 import pandas as pd
 
 from eb_evaluation.diagnostics.governance import _snap_to_grid_array
@@ -325,6 +326,18 @@ _BLOCKED_STATUSES = ("red",)
 _BLOCKED_FAS_CLASSES = ("blocked",)
 _BLOCKED_DQC_CLASSES = ("unknown",)
 _RECOMMENDATION_SEP = ","
+_NONNEG_CLIP: np.uint8 = np.uint8(0)
+_NONNEG_ALLOW: np.uint8 = np.uint8(1)
+_NONNEG_LABELS = np.asarray(("clip_zero", "allow"), dtype=object)
+_SNAP_CEIL: np.uint8 = np.uint8(0)
+_SNAP_ROUND: np.uint8 = np.uint8(1)
+_SNAP_FLOOR: np.uint8 = np.uint8(2)
+_SNAP_LABELS = np.asarray(("ceil", "round", "floor"), dtype=object)
+_SNAP_MODE_CODES: dict[str, np.uint8] = {
+    "ceil": _SNAP_CEIL,
+    "round": _SNAP_ROUND,
+    "floor": _SNAP_FLOOR,
+}
 REQUIRED_DECISION_COLUMNS = (
     "ral_policy",
     "status",
@@ -470,22 +483,72 @@ def _enum_token(value: object) -> str:
     return str(value).strip().lower().rsplit(".", 1)[-1]
 
 
+def _factorize_codes(series: pd.Series) -> tuple[np.ndarray, np.ndarray]:
+    """Factorize a Series; fall back to tokenized keys for unhashable cells."""
+    try:
+        codes, uniques = pd.factorize(series, use_na_sentinel=True)
+        return np.asarray(codes), np.asarray(uniques, dtype=object)
+    except TypeError:
+        keys = series.map(_tokenize_recommendations)
+        codes, uniques = pd.factorize(keys, use_na_sentinel=True)
+        return np.asarray(codes), np.asarray(uniques, dtype=object)
+
+
+def _map_uniques(
+    series: pd.Series,
+    encode: Callable[[object], object],
+    *,
+    na_value: object,
+    dtype: DTypeLike,
+) -> np.ndarray:
+    """Apply ``encode`` to unique values and broadcast back to row codes."""
+    codes, uniques = _factorize_codes(series)
+    mapped = np.fromiter((encode(u) for u in uniques), dtype=dtype, count=len(uniques))
+    out = np.empty(len(series), dtype=dtype)
+    na = codes < 0
+    out[na] = na_value
+    if np.any(~na):
+        out[~na] = mapped[codes[~na]]
+    return out
+
+
+def _series_enum_tokens(series: pd.Series) -> np.ndarray:
+    """Lowercase policy tokens per row; ``''`` for missing. Maps uniques only."""
+    return _map_uniques(series, _enum_token, na_value="", dtype=object)
+
+
+def _nonneg_code(policy: NonnegPolicy) -> np.uint8:
+    return _NONNEG_ALLOW if policy == "allow" else _NONNEG_CLIP
+
+
+def _snap_code(mode: SnapMode) -> np.uint8:
+    return _SNAP_MODE_CODES[mode]
+
+
+def _nonneg_code_from_recs(recs: object | None) -> np.uint8:
+    return _nonneg_code(_infer_nonneg_policy_from_recommendations(recs))
+
+
+def _snap_code_from_recs(recs: object | None, *, default: SnapMode) -> np.uint8:
+    return _snap_code(_infer_snap_mode_from_recommendations(recs, default=default))
+
+
 def _adjustment_blocked_mask(work: pd.DataFrame) -> pd.Series:
     """True where RAL must not be applied (DISALLOW, RED, FAS BLOCKED, or DQC UNKNOWN)."""
-    blocked = pd.Series(False, index=work.index)
+    blocked = np.zeros(len(work), dtype=bool)
     if "ral_policy" in work.columns:
-        tokens = work["ral_policy"].map(_enum_token)
-        blocked = blocked | tokens.isin(_BLOCKED_RAL_POLICIES) | (tokens == "")
+        tokens = _series_enum_tokens(_series_from_column(work, "ral_policy"))
+        blocked |= np.isin(tokens, _BLOCKED_RAL_POLICIES) | (tokens == "")
     if "status" in work.columns:
-        tokens = work["status"].map(_enum_token)
-        blocked = blocked | tokens.isin(_BLOCKED_STATUSES) | (tokens == "")
+        tokens = _series_enum_tokens(_series_from_column(work, "status"))
+        blocked |= np.isin(tokens, _BLOCKED_STATUSES) | (tokens == "")
     if "fas_class" in work.columns:
-        tokens = work["fas_class"].map(_enum_token)
-        blocked = blocked | tokens.isin(_BLOCKED_FAS_CLASSES) | (tokens == "")
+        tokens = _series_enum_tokens(_series_from_column(work, "fas_class"))
+        blocked |= np.isin(tokens, _BLOCKED_FAS_CLASSES) | (tokens == "")
     if "dqc_class" in work.columns:
-        tokens = work["dqc_class"].map(_enum_token)
-        blocked = blocked | tokens.isin(_BLOCKED_DQC_CLASSES) | (tokens == "")
-    return blocked.astype(bool)
+        tokens = _series_enum_tokens(_series_from_column(work, "dqc_class"))
+        blocked |= np.isin(tokens, _BLOCKED_DQC_CLASSES) | (tokens == "")
+    return pd.Series(blocked, index=work.index, dtype=bool)
 
 
 def _require_decisions_table(decisions: pd.DataFrame | None) -> pd.DataFrame:
@@ -742,24 +805,38 @@ def apply_ral(
 
     infer_from_recs = infer_policy_from_recommendations and recommendations_col in work.columns
     recs_col = _series_from_column(work, recommendations_col) if infer_from_recs else None
+    n_rows = len(work)
 
     if nonneg_policy is not None:
-        nonneg_s = pd.Series(nonneg_policy, index=work.index, dtype=object)
+        nonneg_codes = np.full(n_rows, _nonneg_code(nonneg_policy), dtype=np.uint8)
     elif recs_col is not None:
-        nonneg_s = recs_col.map(_infer_nonneg_policy_from_recommendations)
-    else:
-        nonneg_s = pd.Series(_DEFAULT_APPLY_NONNEG, index=work.index, dtype=object)
-
-    if recs_col is not None:
-        snap_s = recs_col.map(
-            lambda recs: _infer_snap_mode_from_recommendations(recs, default=snap_mode)
+        nonneg_codes = _map_uniques(
+            recs_col,
+            _nonneg_code_from_recs,
+            na_value=_nonneg_code(_DEFAULT_APPLY_NONNEG),
+            dtype=np.uint8,
         )
     else:
-        snap_s = pd.Series(snap_mode, index=work.index, dtype=object)
+        nonneg_codes = np.full(n_rows, _nonneg_code(_DEFAULT_APPLY_NONNEG), dtype=np.uint8)
+
+    if recs_col is not None:
+        default_snap = _snap_code(snap_mode)
+
+        def _encode_snap(recs: object) -> np.uint8:
+            return _snap_code_from_recs(recs, default=snap_mode)
+
+        snap_codes = _map_uniques(
+            recs_col,
+            _encode_snap,
+            na_value=default_snap,
+            dtype=np.uint8,
+        )
+    else:
+        snap_codes = np.full(n_rows, _snap_code(snap_mode), dtype=np.uint8)
 
     yhat_base_g = yhat_base_raw.copy()
     yhat_ral_g = yhat_ral_raw.copy()
-    clip_mask = nonneg_s.to_numpy() == "clip_zero"
+    clip_mask = nonneg_codes == _NONNEG_CLIP
     if bool(np.any(clip_mask)):
         yhat_base_g[clip_mask] = _apply_nonneg_policy(yhat_base_g[clip_mask], policy="clip_zero")
         yhat_ral_g[clip_mask] = _apply_nonneg_policy(yhat_ral_g[clip_mask], policy="clip_zero")
@@ -774,7 +851,13 @@ def apply_ral(
 
     dqc_implies = pd.Series(False, index=work.index)
     if "dqc_class" in work.columns:
-        dqc_implies = work["dqc_class"].map(_dqc_implies_snap).fillna(False).astype(bool)
+        dqc_codes = _map_uniques(
+            _series_from_column(work, "dqc_class"),
+            _dqc_implies_snap,
+            na_value=False,
+            dtype=bool,
+        )
+        dqc_implies = pd.Series(dqc_codes, index=work.index, dtype=bool)
 
     required = flagged | dqc_implies
     if bool(required.any()):
@@ -801,8 +884,12 @@ def apply_ral(
                 "finite and > 0; refusing fail-open unsnapped forecasts."
             )
 
-        for mode_val in ("ceil", "round", "floor"):
-            mode_mask = required & (snap_s == mode_val)
+        for mode_val, mode_code in (
+            ("ceil", _SNAP_CEIL),
+            ("round", _SNAP_ROUND),
+            ("floor", _SNAP_FLOOR),
+        ):
+            mode_mask = required & (snap_codes == mode_code)
             if not bool(mode_mask.any()):
                 continue
             mode_snap = cast(SnapMode, mode_val)
@@ -817,7 +904,7 @@ def apply_ral(
                 mode=mode_snap,
             )
 
-        clip_required = required & (nonneg_s == "clip_zero")
+        clip_required = required & (nonneg_codes == _NONNEG_CLIP)
         if bool(clip_required.any()):
             work.loc[clip_required, out_base_col] = _apply_nonneg_policy(
                 work.loc[clip_required, out_base_col].to_numpy(dtype=float),
@@ -832,8 +919,16 @@ def apply_ral(
     if bool(blocked.any()):
         work.loc[blocked, out_ral_col] = work.loc[blocked, out_base_col].to_numpy()
 
-    work[f"{out_audit_prefix}nonneg_policy"] = nonneg_s
-    work[f"{out_audit_prefix}snap_mode"] = snap_s
+    work[f"{out_audit_prefix}nonneg_policy"] = pd.Series(
+        _NONNEG_LABELS[nonneg_codes],
+        index=work.index,
+        dtype=object,
+    )
+    work[f"{out_audit_prefix}snap_mode"] = pd.Series(
+        _SNAP_LABELS[snap_codes],
+        index=work.index,
+        dtype=object,
+    )
     work[f"{out_audit_prefix}ral_applied"] = ~blocked
 
     return work

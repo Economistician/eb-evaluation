@@ -169,6 +169,64 @@ def _safe_nanquantile(x: np.ndarray, q: float) -> float:
     return float(np.nanquantile(finite, q))
 
 
+def _segmented_finite_gt_rate(
+    values: np.ndarray,
+    labels: np.ndarray,
+    n_groups: int,
+    threshold: float,
+) -> np.ndarray:
+    """Share of finite values strictly greater than ``threshold``; NaN if none."""
+    out = np.full(n_groups, np.nan, dtype=np.float64)
+    finite = np.isfinite(values)
+    n_finite = np.bincount(labels[finite], minlength=n_groups)
+    gt = finite & (values > threshold)
+    n_gt = np.bincount(labels[gt], minlength=n_groups)
+    ok = n_finite > 0
+    out[ok] = n_gt[ok] / n_finite[ok]
+    return out
+
+
+def _segmented_nanmean(values: np.ndarray, labels: np.ndarray, n_groups: int) -> np.ndarray:
+    """Mean of finite values per group; NaN if a group has none."""
+    out = np.full(n_groups, np.nan, dtype=np.float64)
+    finite = np.isfinite(values)
+    n_finite = np.bincount(labels[finite], minlength=n_groups)
+    sums = np.zeros(n_groups, dtype=np.float64)
+    np.add.at(sums, labels[finite], values[finite])
+    ok = n_finite > 0
+    out[ok] = sums[ok] / n_finite[ok]
+    return out
+
+
+def _segmented_nanquantile(
+    values: np.ndarray,
+    labels: np.ndarray,
+    n_groups: int,
+    q: float,
+) -> np.ndarray:
+    """Per-group ``np.nanquantile`` (linear) on finite values via a sorted layout."""
+    out = np.full(n_groups, np.nan, dtype=np.float64)
+    finite = np.isfinite(values)
+    if not np.any(finite):
+        return out
+    v = values[finite]
+    lab = labels[finite]
+    order = np.lexsort((v, lab))
+    v = np.ascontiguousarray(v[order])
+    lab = lab[order]
+    counts = np.bincount(lab, minlength=n_groups)
+    starts = np.empty(n_groups, dtype=np.intp)
+    starts[0] = 0
+    if n_groups > 1:
+        np.cumsum(counts[:-1], out=starts[1:])
+    nonempty = np.flatnonzero(counts)
+    for g in nonempty:
+        start = int(starts[g])
+        stop = start + int(counts[g])
+        out[g] = float(np.quantile(v[start:stop], q, method="linear"))
+    return out
+
+
 def _require_unique_columns(df: pd.DataFrame, *, context: str) -> None:
     """
     Guardrail: duplicate column labels can cause df[col] to return a DataFrame,
@@ -268,56 +326,59 @@ def compute_error_anatomy(
     work[y_col] = _coerce_numeric_series(work, y_col, context="compute_error_anatomy")
     work[yhat_col] = _coerce_numeric_series(work, yhat_col, context="compute_error_anatomy")
 
-    is_valid = work[y_col].notna() & work[yhat_col].notna()
+    y = work[y_col].to_numpy(dtype=float, copy=False)
+    yhat = work[yhat_col].to_numpy(dtype=float, copy=False)
+    is_valid = (~np.isnan(y)) & (~np.isnan(yhat))
+    abs_error = np.abs(yhat - y)
+    shortfall = np.maximum(y - yhat, 0.0)
+    is_nonzero = is_valid & (y != 0)
+    is_zero = is_valid & (y == 0)
 
-    # Residuals (NaN where either side is missing)
-    err = work[yhat_col] - work[y_col]
-    abs_error = err.abs()
+    grouped = work.groupby(keys, dropna=False, sort=True)
+    labels = grouped.ngroup().to_numpy(dtype=np.intp)
+    key_frame = grouped.size().reset_index().loc[:, keys]
+    n_groups = int(labels.max()) + 1 if labels.size else 0
 
-    # Underbuild / shortfall: y - yhat, floored at 0.
-    shortfall = (work[y_col] - work[yhat_col]).clip(lower=0)
+    if n_groups == 0:
+        n_valid = np.array([], dtype=np.int64)
+        n_nonzero = np.array([], dtype=np.int64)
+        n_zero = np.array([], dtype=np.int64)
+        spike_rate = np.array([], dtype=np.float64)
+        p95_ae = np.array([], dtype=np.float64)
+        p90_ae = np.array([], dtype=np.float64)
+        mae = np.array([], dtype=np.float64)
+        shortfall_rate = np.array([], dtype=np.float64)
+        shortfall_spike_rate = np.array([], dtype=np.float64)
+        p95_shortfall = np.array([], dtype=np.float64)
+        p90_shortfall = np.array([], dtype=np.float64)
+        mean_shortfall = np.array([], dtype=np.float64)
+    else:
+        n_valid = np.bincount(labels[is_valid], minlength=n_groups).astype(np.int64, copy=False)
+        n_nonzero = np.bincount(labels[is_nonzero], minlength=n_groups).astype(np.int64, copy=False)
+        n_zero = np.bincount(labels[is_zero], minlength=n_groups).astype(np.int64, copy=False)
+        spike_rate = _segmented_finite_gt_rate(abs_error, labels, n_groups, spike_ge)
+        p95_ae = _segmented_nanquantile(abs_error, labels, n_groups, 0.95)
+        p90_ae = _segmented_nanquantile(abs_error, labels, n_groups, 0.90)
+        mae = _segmented_nanmean(abs_error, labels, n_groups)
+        shortfall_rate = _segmented_finite_gt_rate(shortfall, labels, n_groups, 0.0)
+        shortfall_spike_rate = _segmented_finite_gt_rate(shortfall, labels, n_groups, spike_ge)
+        p95_shortfall = _segmented_nanquantile(shortfall, labels, n_groups, 0.95)
+        p90_shortfall = _segmented_nanquantile(shortfall, labels, n_groups, 0.90)
+        mean_shortfall = _segmented_nanmean(shortfall, labels, n_groups)
 
-    # Support indicators counted only on valid (y, yhat) pairs.
-    is_nonzero = is_valid & work[y_col].ne(0)
-    is_zero = is_valid & work[y_col].eq(0)
-
-    out = (
-        work.assign(
-            is_valid=is_valid,
-            is_nonzero=is_nonzero,
-            is_zero=is_zero,
-            abs_error=abs_error,
-            shortfall=shortfall,
-        )
-        .groupby(keys, dropna=False)
-        .agg(
-            # Support
-            n_valid=("is_valid", "sum"),
-            n_nonzero=("is_nonzero", "sum"),
-            n_zero=("is_zero", "sum"),
-            # Symmetric AE anatomy (strict exceedance for spikes)
-            spike_rate=(
-                "abs_error",
-                lambda s: _finite_gt_rate(s.to_numpy(dtype=float), spike_ge),
-            ),
-            p95_ae=("abs_error", lambda s: _safe_nanquantile(s.to_numpy(dtype=float), 0.95)),
-            p90_ae=("abs_error", lambda s: _safe_nanquantile(s.to_numpy(dtype=float), 0.90)),
-            mae=("abs_error", lambda s: _safe_nanmean(s.to_numpy(dtype=float))),
-            # Shortfall (underbuild) anatomy
-            shortfall_rate=(
-                "shortfall",
-                lambda s: _finite_gt_rate(s.to_numpy(dtype=float), 0.0),
-            ),
-            shortfall_spike_rate=(
-                "shortfall",
-                lambda s: _finite_gt_rate(s.to_numpy(dtype=float), spike_ge),
-            ),
-            p95_shortfall=("shortfall", lambda s: _safe_nanquantile(s.to_numpy(dtype=float), 0.95)),
-            p90_shortfall=("shortfall", lambda s: _safe_nanquantile(s.to_numpy(dtype=float), 0.90)),
-            mean_shortfall=("shortfall", lambda s: _safe_nanmean(s.to_numpy(dtype=float))),
-        )
-        .reset_index()
-    )
+    out = key_frame.copy()
+    out["n_valid"] = n_valid
+    out["n_nonzero"] = n_nonzero
+    out["n_zero"] = n_zero
+    out["spike_rate"] = spike_rate
+    out["p95_ae"] = p95_ae
+    out["p90_ae"] = p90_ae
+    out["mae"] = mae
+    out["shortfall_rate"] = shortfall_rate
+    out["shortfall_spike_rate"] = shortfall_spike_rate
+    out["p95_shortfall"] = p95_shortfall
+    out["p90_shortfall"] = p90_shortfall
+    out["mean_shortfall"] = mean_shortfall
 
     n_valid_f = out["n_valid"].astype(float)
     out["zero_rate"] = out["n_zero"].astype(float).div(n_valid_f).where(n_valid_f.gt(0.0))
