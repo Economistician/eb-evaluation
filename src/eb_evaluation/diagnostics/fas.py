@@ -137,7 +137,7 @@ def slice_keys(
     *,
     site_col: str = "site_id",
     entity_col: str = "forecast_entity_id",
-    interval_col: str = "INTERVAL_30_INDEX",
+    interval_col: str = "INTERVAL_INDEX",
 ) -> list[str]:
     if mode == "entity":
         return [entity_col]

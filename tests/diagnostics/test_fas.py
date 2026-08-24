@@ -37,11 +37,11 @@ def _rows_by_key(df: pd.DataFrame, key: str) -> dict[Any, pd.Series]:
 
 def test_slice_keys_modes() -> None:
     assert slice_keys("entity") == ["forecast_entity_id"]
-    assert slice_keys("entity_interval") == ["forecast_entity_id", "INTERVAL_30_INDEX"]
+    assert slice_keys("entity_interval") == ["forecast_entity_id", "INTERVAL_INDEX"]
     assert slice_keys("site_entity_interval") == [
         "site_id",
         "forecast_entity_id",
-        "INTERVAL_30_INDEX",
+        "INTERVAL_INDEX",
     ]
 
     with pytest.raises(ValueError, match="Unknown slice mode"):
