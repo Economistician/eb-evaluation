@@ -12,13 +12,9 @@ Electric Barometer metrics, plus familiar symmetric error metrics.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Hashable
-
 import pandas as pd
 
-from eb_metrics.metrics import cwsl, hr_at_tau, mae, mape, nsl, rmse, ud, wmape
-
-from .group import _safe_compose_frs
+from .group import evaluate_groups_df
 
 __all__ = ["evaluate_panel_with_entity_R"]
 
@@ -163,89 +159,48 @@ def evaluate_panel_with_entity_R(
             "After merging df with entity_R, no rows remain. Check entity identifiers and join keys."
         )
 
-    results: list[dict[str, float | Hashable]] = []
+    cu_work = "_eb_entity_cu"
+    co_work = "_eb_entity_co"
+    r_arr = merged[R_col].to_numpy(dtype=float)
+    co_arr = merged[co_col].to_numpy(dtype=float)
+    merged[cu_work] = r_arr * co_arr
+    merged[co_work] = co_arr
 
-    def _safe_metric(fn: Callable[[], float]) -> float:
-        """Compute a metric and return NaN if the metric raises ValueError."""
-        try:
-            return float(fn())
-        except ValueError:
-            return float("nan")
+    metrics = evaluate_groups_df(
+        merged,
+        [entity_col],
+        actual_col=y_true_col,
+        forecast_col=y_pred_col,
+        cu=cu_work,
+        co=co_work,
+        tau=tau,
+        sample_weight_col=sample_weight_col,
+        cwsl_max=cwsl_max,
+    )
 
-    grouped = merged.groupby(entity_col, sort=False)
-
-    for entity_id, g in grouped:
-        y_true = g[y_true_col].to_numpy(dtype=float)
-        y_pred = g[y_pred_col].to_numpy(dtype=float)
-
-        # Per-entity R and co should be constant; take the first
-        R_e = float(g[R_col].iloc[0])
-        co_e = float(g[co_col].iloc[0])
-
-        if sample_weight_col is not None:
-            sample_weight = g[sample_weight_col].to_numpy(dtype=float)
-        else:
-            sample_weight = None
-
-        cu_e = R_e * co_e
-
-        row: dict[str, float | Hashable] = {
-            entity_col: entity_id,
-            "R": R_e,
-            "cu": cu_e,
-            "co": co_e,
+    first = merged.dropna(subset=[entity_col]).drop_duplicates(subset=[entity_col], keep="first")
+    meta = pd.DataFrame(
+        {
+            entity_col: first[entity_col].to_numpy(),
+            "R": first[R_col].to_numpy(dtype=float),
+            "cu": first[cu_work].to_numpy(dtype=float),
+            "co": first[co_col].to_numpy(dtype=float),
         }
-
-        cwsl_val = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred, cu_e=cu_e, co_e=co_e, sample_weight=sample_weight: (
-                cwsl(
-                    y_true=y_true,
-                    y_pred=y_pred,
-                    cu=cu_e,
-                    co=co_e,
-                    sample_weight=sample_weight,
-                )
-            )
-        )
-        nsl_val = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred, sample_weight=sample_weight: nsl(
-                y_true=y_true, y_pred=y_pred, sample_weight=sample_weight
-            )
-        )
-        row["CWSL"] = cwsl_val
-        row["NSL"] = nsl_val
-        row["UD"] = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred, sample_weight=sample_weight: ud(
-                y_true=y_true, y_pred=y_pred, sample_weight=sample_weight
-            )
-        )
-
-        # wMAPE: eb_metrics.wmape has no sample_weight parameter, so call unweighted.
-        row["wMAPE"] = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred: wmape(y_true=y_true, y_pred=y_pred)
-        )
-
-        row["HR@tau"] = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred, tau=tau, sample_weight=sample_weight: hr_at_tau(
-                y_true=y_true,
-                y_pred=y_pred,
-                tau=tau,
-                sample_weight=sample_weight,
-            )
-        )
-        row["FRS"] = _safe_compose_frs(nsl_val, cwsl_val, cwsl_max)
-
-        # Symmetric metrics: call unweighted to match eb_metrics signatures.
-        row["MAE"] = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred: mae(y_true=y_true, y_pred=y_pred)
-        )
-        row["RMSE"] = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred: rmse(y_true=y_true, y_pred=y_pred)
-        )
-        row["MAPE"] = _safe_metric(
-            lambda y_true=y_true, y_pred=y_pred: mape(y_true=y_true, y_pred=y_pred)
-        )
-
-        results.append(row)
-
-    return pd.DataFrame(results)
+    )
+    result = meta.merge(metrics, on=entity_col, how="left")
+    ordered = [
+        entity_col,
+        "R",
+        "cu",
+        "co",
+        "CWSL",
+        "NSL",
+        "UD",
+        "wMAPE",
+        "HR@tau",
+        "FRS",
+        "MAE",
+        "RMSE",
+        "MAPE",
+    ]
+    return result.loc[:, ordered]

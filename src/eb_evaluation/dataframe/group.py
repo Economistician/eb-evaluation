@@ -106,6 +106,41 @@ def evaluate_groups_df(
     if sample_weight_col is not None and sample_weight_col not in df.columns:
         raise KeyError(f"sample_weight_col {sample_weight_col!r} not found in df")
 
+    return _evaluate_groups_df(
+        df,
+        group_cols,
+        actual_col=actual_col,
+        forecast_col=forecast_col,
+        cu=cu,
+        co=co,
+        tau=tau,
+        sample_weight_col=sample_weight_col,
+        cwsl_max=cwsl_max,
+        dropna=True,
+    )
+
+
+def _evaluate_groups_df(
+    df: pd.DataFrame,
+    group_cols: list[str],
+    *,
+    actual_col: str,
+    forecast_col: str,
+    cu: float | str,
+    co: float | str,
+    tau: float,
+    sample_weight_col: str | None,
+    cwsl_max: float,
+    dropna: bool,
+) -> pd.DataFrame:
+    """Panel-level masks + one ``groupby.sum()``. ``dropna`` matches pandas groupby."""
+    if isinstance(cu, str) and cu not in df.columns:
+        raise KeyError(f"cu column {cu!r} not found in df")
+    if isinstance(co, str) and co not in df.columns:
+        raise KeyError(f"co column {co!r} not found in df")
+    if sample_weight_col is not None and sample_weight_col not in df.columns:
+        raise KeyError(f"sample_weight_col {sample_weight_col!r} not found in df")
+
     y_true = df[actual_col].to_numpy(dtype=float)
     y_pred = df[forecast_col].to_numpy(dtype=float)
 
@@ -215,7 +250,7 @@ def evaluate_groups_df(
     )
     feat = pd.DataFrame(feat_cols)
 
-    grouped = feat.groupby(group_cols, sort=False)
+    grouped = feat.groupby(group_cols, dropna=dropna, sort=False)
     agg = pd.DataFrame(grouped.sum(numeric_only=True))
     n_g = pd.Series(grouped.size(), dtype=np.float64)
 

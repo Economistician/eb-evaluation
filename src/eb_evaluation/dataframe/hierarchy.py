@@ -16,11 +16,23 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+import numpy as np
 import pandas as pd
 
-from eb_metrics.metrics import cwsl, hr_at_tau, nsl, ud, wmape
+from .group import _compose_frs, _evaluate_groups_df
 
-from .group import _compose_frs
+_OVERALL_SENTINEL = "_eb_hierarchy_overall"
+
+_GROUPS_TO_HIERARCHY = {
+    "CWSL": "cwsl",
+    "NSL": "nsl",
+    "UD": "ud",
+    "wMAPE": "wmape",
+    "HR@tau": "hr_at_tau",
+    "FRS": "frs",
+}
+
+_GROUPS_ONLY_COLS = ("MAE", "RMSE", "MAPE")
 
 
 def evaluate_hierarchy_df(
@@ -118,8 +130,9 @@ def evaluate_hierarchy_df(
 
     Notes
     -----
-    - Unlike ``evaluate_groups_df``, metric ``ValueError``s propagate; callers must
-      catch if they want NaN-on-failure.
+    - Grouped levels are reduced through ``evaluate_groups_df`` (panel-level masks and one
+      ``groupby.sum()``), then renamed onto this function's schema. Invalid groups yield
+      NaN for the failing metric, matching ``evaluate_groups_df``.
     - ``groupby(..., dropna=False)`` is used so that missing values in grouping keys form explicit
       groups, which is often desirable in operational reporting.
     """
@@ -127,6 +140,9 @@ def evaluate_hierarchy_df(
         raise ValueError("df is empty.")
     if not levels:
         raise ValueError("levels must be a non-empty mapping of level name -> group columns.")
+
+    # Validate FRS bound up front so an invalid cwsl_max still raises.
+    _compose_frs(0.0, 0.0, cwsl_max)
 
     # Validate required columns (actual/forecast + all referenced group columns)
     required_cols = {actual_col, forecast_col}
@@ -140,85 +156,131 @@ def evaluate_hierarchy_df(
     if sample_weight_col is not None and sample_weight_col not in df.columns:
         raise KeyError(f"sample_weight_col {sample_weight_col!r} not found in df")
 
+    tau_for_groups = float(tau) if tau is not None else 2.0
     results: dict[str, pd.DataFrame] = {}
 
     for level_name, group_cols in levels.items():
-        group_cols = list(group_cols)  # normalize to list[str]
+        group_cols = list(group_cols)
 
         if len(group_cols) == 0:
-            # Single overall group
-            y_true = df[actual_col].to_numpy(dtype=float)
-            y_pred = df[forecast_col].to_numpy(dtype=float)
-            sample_weight = (
-                df[sample_weight_col].to_numpy(dtype=float)
-                if sample_weight_col is not None
-                else None
+            results[level_name] = _evaluate_overall_level(
+                df,
+                actual_col=actual_col,
+                forecast_col=forecast_col,
+                cu=cu,
+                co=co,
+                tau=tau,
+                tau_for_groups=tau_for_groups,
+                cwsl_max=cwsl_max,
+                sample_weight_col=sample_weight_col,
             )
-
-            cwsl_val = cwsl(y_true=y_true, y_pred=y_pred, cu=cu, co=co, sample_weight=sample_weight)
-            nsl_val = nsl(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight)
-            metrics_row = {
-                "n_intervals": len(df),
-                "total_demand": float(y_true.sum()),
-                "cwsl": cwsl_val,
-                "nsl": nsl_val,
-                "ud": ud(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight),
-                "wmape": wmape(y_true=y_true, y_pred=y_pred),
-            }
-            if tau is not None:
-                metrics_row["hr_at_tau"] = hr_at_tau(
-                    y_true=y_true, y_pred=y_pred, tau=tau, sample_weight=sample_weight
-                )
-
-            metrics_row["frs"] = _compose_frs(nsl_val, cwsl_val, cwsl_max)
-
-            results[level_name] = pd.DataFrame([metrics_row])
             continue
 
-        # Grouped evaluation
-        group_rows: list[dict] = []
-
-        grouped = df.groupby(group_cols, dropna=False, sort=False)
-        for keys, df_g in grouped:
-            if not isinstance(keys, tuple):
-                keys = (keys,)
-
-            y_true = df_g[actual_col].to_numpy(dtype=float)
-            y_pred = df_g[forecast_col].to_numpy(dtype=float)
-            sample_weight = (
-                df_g[sample_weight_col].to_numpy(dtype=float)
-                if sample_weight_col is not None
-                else None
-            )
-
-            cwsl_val = cwsl(y_true=y_true, y_pred=y_pred, cu=cu, co=co, sample_weight=sample_weight)
-            nsl_val = nsl(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight)
-            row = {
-                "n_intervals": len(df_g),
-                "total_demand": float(y_true.sum()),
-                "cwsl": cwsl_val,
-                "nsl": nsl_val,
-                "ud": ud(y_true=y_true, y_pred=y_pred, sample_weight=sample_weight),
-                "wmape": wmape(y_true=y_true, y_pred=y_pred),
-            }
-            if tau is not None:
-                row["hr_at_tau"] = hr_at_tau(
-                    y_true=y_true, y_pred=y_pred, tau=tau, sample_weight=sample_weight
-                )
-
-            row["frs"] = _compose_frs(nsl_val, cwsl_val, cwsl_max)
-
-            # Attach grouping keys (ensure values are treated as scalars for type-checkers)
-            for col, value in zip(group_cols, keys, strict=False):
-                row[col] = value
-
-            group_rows.append(row)
-
-        level_df = pd.DataFrame(group_rows)
-
-        # Put group columns first for readability.
-        # Use `loc` to keep the return type a DataFrame for type checkers.
+        groups = _evaluate_groups_df(
+            df,
+            group_cols,
+            actual_col=actual_col,
+            forecast_col=forecast_col,
+            cu=cu,
+            co=co,
+            tau=tau_for_groups,
+            sample_weight_col=sample_weight_col,
+            cwsl_max=cwsl_max,
+            dropna=False,
+        )
+        extras = _group_size_and_demand(df, group_cols, actual_col, dropna=False)
+        metrics = _hierarchy_metrics_from_groups(groups, tau=tau)
+        level_df = extras.merge(metrics, on=group_cols, how="left")
         ordered_cols = list(group_cols) + [c for c in level_df.columns if c not in group_cols]
         results[level_name] = level_df.loc[:, ordered_cols]
 
     return results
+
+
+def _evaluate_overall_level(
+    df: pd.DataFrame,
+    *,
+    actual_col: str,
+    forecast_col: str,
+    cu: float | str,
+    co: float | str,
+    tau: float | None,
+    tau_for_groups: float,
+    cwsl_max: float,
+    sample_weight_col: str | None,
+) -> pd.DataFrame:
+    """Evaluate the empty-group (overall) level via a one-group reducer."""
+    keep = [actual_col, forecast_col]
+    if isinstance(cu, str):
+        keep.append(cu)
+    if isinstance(co, str):
+        keep.append(co)
+    if sample_weight_col is not None:
+        keep.append(sample_weight_col)
+
+    work = df.loc[:, keep].copy()
+    work[_OVERALL_SENTINEL] = np.int8(0)
+    groups = _evaluate_groups_df(
+        work,
+        [_OVERALL_SENTINEL],
+        actual_col=actual_col,
+        forecast_col=forecast_col,
+        cu=cu,
+        co=co,
+        tau=tau_for_groups,
+        sample_weight_col=sample_weight_col,
+        cwsl_max=cwsl_max,
+        dropna=False,
+    )
+    metrics = _hierarchy_metrics_from_groups(groups, tau=tau).drop(
+        columns=[_OVERALL_SENTINEL], errors="ignore"
+    )
+    y_true = df[actual_col].to_numpy(dtype=float)
+    extras = pd.DataFrame(
+        {
+            "n_intervals": [len(df)],
+            "total_demand": [float(np.sum(y_true))],
+        }
+    )
+    level_df = pd.concat([extras, metrics.reset_index(drop=True)], axis=1)
+    ordered = [
+        "n_intervals",
+        "total_demand",
+        "cwsl",
+        "nsl",
+        "ud",
+        "wmape",
+        *(["hr_at_tau"] if tau is not None else []),
+        "frs",
+    ]
+    return level_df.loc[:, ordered]
+
+
+def _hierarchy_metrics_from_groups(groups: pd.DataFrame, *, tau: float | None) -> pd.DataFrame:
+    """Rename group-evaluator columns onto the hierarchy schema."""
+    out = groups.rename(columns=_GROUPS_TO_HIERARCHY)
+    drop_cols = [c for c in _GROUPS_ONLY_COLS if c in out.columns]
+    if tau is None and "hr_at_tau" in out.columns:
+        drop_cols.append("hr_at_tau")
+    return out.drop(columns=drop_cols)
+
+
+def _group_size_and_demand(
+    df: pd.DataFrame,
+    group_cols: list[str],
+    actual_col: str,
+    *,
+    dropna: bool,
+) -> pd.DataFrame:
+    """Row counts and numpy-style demand sums in first-appearance group order."""
+    payload: dict[str, np.ndarray] = {c: df[c].to_numpy() for c in group_cols}
+    payload["_y"] = df[actual_col].to_numpy(dtype=float)
+    work = pd.DataFrame(payload)
+    grouped = work.groupby(group_cols, dropna=dropna, sort=False)
+    extras = pd.DataFrame(
+        {
+            "n_intervals": grouped.size(),
+            "total_demand": grouped["_y"].sum(skipna=False),
+        }
+    )
+    return extras.reset_index()

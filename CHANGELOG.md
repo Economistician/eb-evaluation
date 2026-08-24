@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `apply_ral` broadcasts `uint8` nonneg/snap codes internally and writes the existing string audit columns on export.
 - `ReadinessAdjustmentLayer._best_uplift` validates `(y, yhat)` once and scores the uplift grid with `_cwsl_from_validated`.
 - `evaluate_governance_panel_df` slices pre-grouped 1D forecast arrays into `run_governance_gate` instead of copying a per-stream DataFrame of `y` / `yhat`.
+- `evaluate_hierarchy_df` / `evaluate_panel_df` reduce grouped levels through `evaluate_groups_df` and map onto the existing hierarchy schema.
+- `evaluate_panel_with_entity_R` joins `cu = R * co` onto the panel and delegates per-entity metrics to `evaluate_groups_df`.
 
 ## [0.2.9] - 2026-08-23
 
