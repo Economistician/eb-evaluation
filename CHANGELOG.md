@@ -7,9 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-08-24
+
 ### Changed
 
 - `slice_keys` default interval column is `INTERVAL_INDEX`.
+- Pinned sibling packages to System Release 0.2.10 (`eb-metrics==0.2.9`, `eb-adapters==0.2.5`).
 
 ### Fixed
 
