@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `slice_keys` default interval column is `INTERVAL_INDEX`.
 
+### Fixed
+
+- Mixed FAS tokens within one stream fail-close that stream (`mixed_fas_fail_closed`) instead of aborting the panel.
+- `evaluate_governance_panel_df` excludes `is_observable is not True` and `is_structural_zero is True` intervals from DQC/FPC/RAL scoring and coverage when those columns are present.
+
 ### Performance
 
 - `compute_error_anatomy` aggregates FAS slice stats with `np.bincount` / `np.add.at` and segmented quantiles instead of Python lambdas in `groupby.agg`.

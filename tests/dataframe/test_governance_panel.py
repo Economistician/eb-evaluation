@@ -531,6 +531,115 @@ def test_evaluate_governance_panel_unknown_fas_does_not_abort_siblings() -> None
     assert ok["recommendations"] != "unknown_fas_fail_closed"
 
 
+def test_evaluate_governance_panel_mixed_fas_does_not_abort_siblings() -> None:
+    df = _build_sample_panel_df()
+    df["fas_class"] = "ALLOWED"
+    mixed = df["forecast_entity_id"] == 10
+    df.loc[mixed & (df.index % 2 == 0), "fas_class"] = "BLOCKED"
+    out = cast(
+        pd.DataFrame,
+        evaluate_governance_panel_df(
+            df=df,
+            keys=["site_id", "forecast_entity_id"],
+            actual_col="y",
+            base_forecast_col="yhat_base",
+            ral_forecast_col="yhat_ral",
+            tau=2.0,
+            fas_class_col="fas_class",
+        ),
+    )
+    assert len(out) == 2
+    bad = out.loc[out["forecast_entity_id"] == 10].iloc[0]
+    ok = out.loc[out["forecast_entity_id"] == 20].iloc[0]
+    assert bad["fas_class"] == "BLOCKED"
+    assert bad["status"] == "red"
+    assert bad["ral_policy"] == "disallow"
+    assert bad["fpc_raw_class"] == "incompatible"
+    assert bad["recommendations"] == "mixed_fas_fail_closed"
+    assert ok["fas_class"] == "ALLOWED"
+    assert ok["recommendations"] != "mixed_fas_fail_closed"
+
+
+def test_evaluate_governance_panel_unobservable_stream_fails_closed() -> None:
+    df = _build_sample_panel_df()
+    df["is_observable"] = True
+    df.loc[df["forecast_entity_id"] == 10, "is_observable"] = False
+    out = cast(
+        pd.DataFrame,
+        evaluate_governance_panel_df(
+            df=df,
+            keys=["site_id", "forecast_entity_id"],
+            actual_col="y",
+            base_forecast_col="yhat_base",
+            ral_forecast_col="yhat_ral",
+            tau=2.0,
+            fas_class="ALLOWED",
+        ),
+    )
+    bad = out.loc[out["forecast_entity_id"] == 10].iloc[0]
+    ok = out.loc[out["forecast_entity_id"] == 20].iloc[0]
+    assert bad["status"] == "red"
+    assert bad["recommendations"] == "empty_series_fail_closed"
+    assert bad["n_finite"] == 0
+    assert ok["status"] != "red" or ok["recommendations"] != "empty_series_fail_closed"
+
+
+def test_evaluate_governance_panel_structural_zero_excluded_from_coverage() -> None:
+    df = _build_sample_panel_df()
+    df["is_observable"] = True
+    df["is_structural_zero"] = False
+    df.loc[df["forecast_entity_id"] == 10, "is_structural_zero"] = True
+    out = cast(
+        pd.DataFrame,
+        evaluate_governance_panel_df(
+            df=df,
+            keys=["site_id", "forecast_entity_id"],
+            actual_col="y",
+            base_forecast_col="yhat_base",
+            ral_forecast_col="yhat_ral",
+            tau=2.0,
+            fas_class="ALLOWED",
+        ),
+    )
+    bad = out.loc[out["forecast_entity_id"] == 10].iloc[0]
+    assert bad["status"] == "red"
+    assert bad["n_finite"] == 0
+    assert bad["recommendations"] == "empty_series_fail_closed"
+
+
+def test_evaluate_governance_panel_all_true_gates_match_ungated() -> None:
+    df = _build_sample_panel_df()
+    ungated = cast(
+        pd.DataFrame,
+        evaluate_governance_panel_df(
+            df=df,
+            keys=["site_id", "forecast_entity_id"],
+            actual_col="y",
+            base_forecast_col="yhat_base",
+            ral_forecast_col="yhat_ral",
+            tau=2.0,
+            fas_class="ALLOWED",
+        ),
+    )
+    gated = df.copy()
+    gated["is_observable"] = True
+    gated["is_structural_zero"] = False
+    got = cast(
+        pd.DataFrame,
+        evaluate_governance_panel_df(
+            df=gated,
+            keys=["site_id", "forecast_entity_id"],
+            actual_col="y",
+            base_forecast_col="yhat_base",
+            ral_forecast_col="yhat_ral",
+            tau=2.0,
+            fas_class="ALLOWED",
+        ),
+    )
+    for col in ("n", "n_finite", "finite_coverage", "dqc_class", "status", "ral_policy"):
+        assert list(got[col]) == list(ungated[col])
+
+
 def test_run_governance_panel_df_omitted_fas_fails_closed() -> None:
     from eb_evaluation.dataframe.panel import run_governance_panel_df
 

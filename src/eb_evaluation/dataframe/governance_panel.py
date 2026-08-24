@@ -15,7 +15,11 @@ import numpy as np
 import pandas as pd
 
 from eb_evaluation.diagnostics.dqc import DQCClass, DQCThresholds
-from eb_evaluation.diagnostics.fas import FASClass, resolve_panel_fas_class
+from eb_evaluation.diagnostics.fas import (
+    FASClass,
+    panel_fas_class_is_mixed,
+    resolve_panel_fas_class,
+)
 from eb_evaluation.diagnostics.fpc import FPCClass, FPCThresholds
 from eb_evaluation.diagnostics.governance import (
     GovernanceStatus,
@@ -64,6 +68,9 @@ _FAIL_CLOSED_TOKEN = "empty_series_fail_closed"
 _COVERAGE_FAIL_CLOSED_TOKEN = "insufficient_finite_coverage_fail_closed"
 _FAS_REQUIRED_TOKEN = "fas_required_fail_closed"
 _UNKNOWN_FAS_TOKEN = "unknown_fas_fail_closed"
+_MIXED_FAS_TOKEN = "mixed_fas_fail_closed"
+_IS_OBSERVABLE_COL = "is_observable"
+_IS_STRUCTURAL_ZERO_COL = "is_structural_zero"
 MAX_NONFINITE_FRACTION = 0.20
 MIN_FINITE_ALIGNED_ROWS = 8
 
@@ -150,6 +157,42 @@ def _fail_closed_panel_row(
     return row
 
 
+def _series_is_true(s: pd.Series) -> np.ndarray:
+    """True-only mask; NA and non-True values are False (Kleene / fail-closed)."""
+    return s.eq(True).fillna(False).to_numpy(dtype=bool)
+
+
+def panel_trainable_mask(frame: pd.DataFrame) -> tuple[np.ndarray, bool]:
+    """Rows eligible for DQC/FPC/RAL when observability gates are present.
+
+    Missing gate columns leave every row eligible (bit-identical to ungated
+    callers). When present, only ``is_observable is True`` and
+    ``is_structural_zero is not True`` rows are scored.
+    """
+    n = len(frame)
+    mask = np.ones(n, dtype=bool)
+    gates_present = False
+    if _IS_OBSERVABLE_COL in frame.columns:
+        obs = frame[_IS_OBSERVABLE_COL]
+        if not isinstance(obs, pd.Series):
+            raise ValueError(
+                f"expected column {_IS_OBSERVABLE_COL!r} to be a Series, "
+                f"but got {type(obs).__name__}."
+            )
+        mask &= _series_is_true(obs)
+        gates_present = True
+    if _IS_STRUCTURAL_ZERO_COL in frame.columns:
+        structural = frame[_IS_STRUCTURAL_ZERO_COL]
+        if not isinstance(structural, pd.Series):
+            raise ValueError(
+                f"expected column {_IS_STRUCTURAL_ZERO_COL!r} to be a Series, "
+                f"but got {type(structural).__name__}."
+            )
+        mask &= ~_series_is_true(structural)
+        gates_present = True
+    return mask, gates_present
+
+
 def _to_float64_1d(frame: pd.DataFrame, col: str) -> np.ndarray:
     """Coerce a panel column to 1D float64 (non-numeric → NaN), matching ``to_numeric``."""
     s = frame[col]
@@ -221,7 +264,8 @@ def evaluate_governance_panel_df(
         ``status=red``, ``ral_policy=disallow``).
     fas_class_col:
         Optional panel column of per-row FAS classes. Mixed values within a
-        stream raise. When set, this column takes precedence over ``fas_class``.
+        stream fail-close that stream (``mixed_fas_fail_closed``) so siblings
+        can continue. When set, this column takes precedence over ``fas_class``.
         A column that resolves to all-null for a stream is treated as omitted.
 
     Returns
@@ -238,8 +282,11 @@ def evaluate_governance_panel_df(
     ``eb-metrics``. A stream fails closed when more than 20% of rows are
     non-finite or when fewer than ``MIN_FINITE_ALIGNED_ROWS`` (8) finite
     aligned rows remain. Omitted, null, or unknown FAS tokens are recorded
-    as ``BLOCKED``. Unparseable FAS strings fail-close that stream only so
-    sibling streams can continue.
+    as ``BLOCKED``. Unparseable or mixed FAS strings fail-close that stream
+    only so sibling streams can continue. When ``is_observable`` and/or
+    ``is_structural_zero`` columns are present, unobservable and structural-zero
+    intervals are excluded from DQC/FPC/RAL scoring and finite-coverage
+    denominators.
     """
     keys_list = list(keys)
     if len(keys_list) == 0:
@@ -278,9 +325,11 @@ def evaluate_governance_panel_df(
     y_all = _to_float64_1d(work, actual_col)
     yhat_base_all = _to_float64_1d(work, base_forecast_col)
     yhat_ral_all = _to_float64_1d(work, ral_forecast_col)
+    trainable_all, gates_present = panel_trainable_mask(work)
     y_ord = y_all[order]
     base_ord = yhat_base_all[order]
     ral_ord = yhat_ral_all[order]
+    trainable_ord = trainable_all[order]
     finite_ord = np.isfinite(y_ord) & np.isfinite(base_ord) & np.isfinite(ral_ord)
 
     if fas_class_col is not None and fas_class_col not in work.columns:
@@ -310,8 +359,9 @@ def evaluate_governance_panel_df(
         else:
             stream_fas = fas_class
 
-        fin = finite_ord[start:stop]
+        fin = finite_ord[start:stop] & trainable_ord[start:stop]
         n_finite = int(np.count_nonzero(fin))
+        n_coverage = int(np.count_nonzero(trainable_ord[start:stop])) if gates_present else n_total
         if fas_review_is_missing(stream_fas):
             out_rows.append(
                 _fail_closed_panel_row(
@@ -321,6 +371,18 @@ def evaluate_governance_panel_df(
                     n_finite=n_finite,
                     stream_fas=FASClass.BLOCKED,
                     reason=_FAS_REQUIRED_TOKEN,
+                )
+            )
+            continue
+        if panel_fas_class_is_mixed(stream_fas):
+            out_rows.append(
+                _fail_closed_panel_row(
+                    keys_list=keys_list,
+                    key_vals=key_vals,
+                    n=n_total,
+                    n_finite=n_finite,
+                    stream_fas=FASClass.BLOCKED,
+                    reason=_MIXED_FAS_TOKEN,
                 )
             )
             continue
@@ -337,7 +399,7 @@ def evaluate_governance_panel_df(
                 )
             )
             continue
-        if finite_coverage_is_insufficient(n_total, n_finite):
+        if finite_coverage_is_insufficient(n_coverage, n_finite):
             reason = _FAIL_CLOSED_TOKEN if n_finite == 0 else _COVERAGE_FAIL_CLOSED_TOKEN
             out_rows.append(
                 _fail_closed_panel_row(
@@ -354,7 +416,7 @@ def evaluate_governance_panel_df(
         row: dict[str, Any] = dict(zip(keys_list, key_vals, strict=True))
         row["n"] = n_total
         row["n_finite"] = n_finite
-        row["finite_coverage"] = float(n_finite) / float(n_total)
+        row["finite_coverage"] = (float(n_finite) / float(n_coverage)) if n_coverage else 0.0
 
         y = y_ord[start:stop][fin]
         yhat_base = base_ord[start:stop][fin]

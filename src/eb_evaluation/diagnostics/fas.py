@@ -31,6 +31,12 @@ _FAS_CLASS_ALLOWED: Final[str] = FASClass.ALLOWED.value
 _FAS_CLASS_CONDITIONAL: Final[str] = FASClass.CONDITIONAL.value
 _FAS_CLASS_BLOCKED: Final[str] = FASClass.BLOCKED.value
 _FAS_FINGERPRINT_HEX_LEN: Final[int] = 16
+MIXED_FAS_CLASS_TOKEN: Final[str] = "MIXED_FAS_FAIL_CLOSED"
+
+
+def panel_fas_class_is_mixed(stream_fas: FASClass | str | None) -> bool:
+    """Return True when ``resolve_panel_fas_class`` found conflicting tokens."""
+    return stream_fas == MIXED_FAS_CLASS_TOKEN
 
 
 def resolve_panel_fas_class(
@@ -42,7 +48,9 @@ def resolve_panel_fas_class(
     """Resolve one FAS class for a grouped stream.
 
     Preference: ``fas_class_col`` on ``group``, then a row-aligned ``Series``,
-    then a scalar broadcast. Mixed values within a stream raise.
+    then a scalar broadcast. Mixed values within a stream return
+    ``MIXED_FAS_CLASS_TOKEN`` so the caller can fail-close that stream without
+    aborting the panel.
     """
     if fas_class_col is not None:
         if fas_class_col not in group.columns:
@@ -54,9 +62,7 @@ def resolve_panel_fas_class(
         if len(uniq) == 0:
             return None
         if len(uniq) > 1:
-            raise ValueError(
-                f"Mixed fas_class values within one stream in {fas_class_col!r}: {list(uniq)}"
-            )
+            return MIXED_FAS_CLASS_TOKEN
         value = uniq[0]
         return value if isinstance(value, FASClass | str) else str(value)
     if isinstance(fas_class, pd.Series):
@@ -65,7 +71,7 @@ def resolve_panel_fas_class(
         if len(uniq) == 0:
             return None
         if len(uniq) > 1:
-            raise ValueError(f"Mixed fas_class Series values within one stream: {list(uniq)}")
+            return MIXED_FAS_CLASS_TOKEN
         value = uniq[0]
         return value if isinstance(value, FASClass | str) else str(value)
     return fas_class

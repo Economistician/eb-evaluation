@@ -12,7 +12,11 @@ import numpy as np
 import pandas as pd
 
 from eb_evaluation.diagnostics.dqc import DQCClass, DQCThresholds
-from eb_evaluation.diagnostics.fas import FASClass, resolve_panel_fas_class
+from eb_evaluation.diagnostics.fas import (
+    FASClass,
+    panel_fas_class_is_mixed,
+    resolve_panel_fas_class,
+)
 from eb_evaluation.diagnostics.fpc import FPCClass, FPCThresholds
 from eb_evaluation.diagnostics.governance import (
     GovernanceStatus,
@@ -24,7 +28,11 @@ from eb_evaluation.diagnostics.governance import (
 from eb_evaluation.diagnostics.presets import GovernancePreset
 from eb_evaluation.diagnostics.run import run_governance_gate
 
-from .governance_panel import fas_review_is_missing, finite_coverage_is_insufficient
+from .governance_panel import (
+    fas_review_is_missing,
+    finite_coverage_is_insufficient,
+    panel_trainable_mask,
+)
 from .hierarchy import evaluate_hierarchy_df
 
 
@@ -227,12 +235,15 @@ def run_governance_panel_df(
         sub = g.loc[:, stream_cols].copy()
         for col in stream_cols:
             sub[col] = pd.to_numeric(sub[col], errors="coerce")
-        finite_mask = np.isfinite(sub.to_numpy(dtype=float)).all(axis=1)
-        sub = sub.loc[finite_mask]
+        finite_arr = np.isfinite(sub.to_numpy(dtype=float)).all(axis=1)
+        trainable, gates_present = panel_trainable_mask(g)
+        keep = finite_arr & trainable
+        n_denom = int(np.count_nonzero(trainable)) if gates_present else len(g)
+        sub = sub.iloc[keep]
         n_used = len(sub)
         row["n_points_used"] = n_used
         row["n_finite"] = n_used
-        row["finite_coverage"] = (float(n_used) / float(len(g))) if len(g) else 0.0
+        row["finite_coverage"] = (float(n_used) / float(n_denom)) if n_denom else 0.0
 
         stream_fas = resolve_panel_fas_class(g, fas_class=fas_class, fas_class_col=fas_class_col)
         if fas_review_is_missing(stream_fas):
@@ -249,6 +260,22 @@ def run_governance_panel_df(
             row["fas_class"] = FASClass.BLOCKED.value
             row["recommended_mode"] = "reroute_discrete"
             row["recommendations"] = "fas_required_fail_closed"
+            results.append(row)
+            continue
+        if panel_fas_class_is_mixed(stream_fas):
+            row["warnings"] = "mixed_fas_fail_closed"
+            row["dqc_class"] = DQCClass.UNKNOWN.value
+            row["dqc_granularity"] = None
+            row["fpc_raw_class"] = FPCClass.INCOMPATIBLE.value
+            row["fpc_snapped_class"] = FPCClass.INCOMPATIBLE.value
+            row["snap_required"] = False
+            row["snap_unit"] = None
+            row["tau_policy"] = TauPolicy.RAW_UNITS.value
+            row["ral_policy"] = RALPolicy.DISALLOW.value
+            row["status"] = GovernanceStatus.RED.value
+            row["fas_class"] = FASClass.BLOCKED.value
+            row["recommended_mode"] = "reroute_discrete"
+            row["recommendations"] = "mixed_fas_fail_closed"
             results.append(row)
             continue
         if fas_class_is_unparseable(stream_fas):
@@ -269,7 +296,7 @@ def run_governance_panel_df(
             results.append(row)
             continue
 
-        if finite_coverage_is_insufficient(len(g), n_used):
+        if finite_coverage_is_insufficient(n_denom, n_used):
             row["warnings"] = (
                 "empty_series_after_dropna"
                 if n_used == 0
