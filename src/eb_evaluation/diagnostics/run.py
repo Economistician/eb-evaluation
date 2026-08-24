@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from math import isnan
 from typing import Literal, TypeAlias
+
+import numpy as np
 
 from .dqc import DQCClass, DQCResult, DQCThresholds, classify_dqc
 from .fas import FASClass
@@ -24,15 +25,15 @@ from .fpc import (
 # NOTE: snap_to_grid is defined in diagnostics/governance.py (not adjustment/snap.py).
 from .governance import (
     GovernanceDecision,
+    _snap_to_grid_array,
     decide_governance,
     fas_class_is_unparseable,
-    snap_to_grid,
 )
 from .presets import GovernancePreset, preset_policy, preset_thresholds
 
 RecommendedMode = Literal["continuous", "pack_aware", "reroute_discrete"]
 
-FloatArrayLike: TypeAlias = Sequence[float] | Iterable[float]
+FloatArrayLike: TypeAlias = Sequence[float] | Iterable[float] | np.ndarray
 
 # Back-compat note:
 # - "none"/"clip" were used during early prototyping.
@@ -58,23 +59,29 @@ class GateResult:
     recommendations: tuple[str, ...] = ()
 
 
-def _ensure_equal_length(
-    a: Sequence[float], b: Sequence[float], *, name_a: str, name_b: str
-) -> None:
-    if len(a) != len(b):
+def _ensure_equal_length(a: np.ndarray, b: np.ndarray, *, name_a: str, name_b: str) -> None:
+    if a.shape[0] != b.shape[0]:
         raise ValueError(
-            f"Length mismatch: {name_a} has {len(a)} values but {name_b} has {len(b)} values."
+            f"Length mismatch: {name_a} has {a.shape[0]} values but {name_b} has {b.shape[0]} values."
         )
 
 
-def _to_float_list(x: FloatArrayLike) -> list[float]:
-    # `list(np_array)` yields numpy scalar types; we normalize to plain `float`.
-    return [float(v) for v in x]
+def _as_float64_1d(x: FloatArrayLike) -> np.ndarray:
+    """Convert gate inputs to a 1D float64 ndarray without a Python float list."""
+    use_asarray = isinstance(x, np.ndarray) or (
+        not isinstance(x, (str, bytes)) and (hasattr(x, "__array__") or isinstance(x, Sequence))
+    )
+    arr = np.asarray(x, dtype=np.float64) if use_asarray else np.fromiter(x, dtype=np.float64)
+    if arr.ndim == 0:
+        arr = arr.reshape(1)
+    elif arr.ndim != 1:
+        arr = np.ravel(arr)
+    return arr
 
 
-def _invalid_demand_cell_count(values: Sequence[float]) -> int:
+def _invalid_demand_cell_count(values: np.ndarray) -> int:
     """Count NaN or negative cells in a raw demand series."""
-    return sum(1 for v in values if isnan(v) or v < 0.0)
+    return int(np.count_nonzero(np.isnan(values) | (values < 0.0)))
 
 
 def _placeholder_fpc_signals() -> FPCSignals:
@@ -111,7 +118,7 @@ def _normalize_nonneg_mode(mode: NonnegMode) -> Literal["allow", "clip_zero"]:
     raise ValueError(f"Unknown nonneg_mode: {mode!r}")
 
 
-def _apply_nonneg(x: Sequence[float], *, mode: Literal["allow", "clip_zero"]) -> list[float]:
+def _apply_nonneg(x: np.ndarray, *, mode: Literal["allow", "clip_zero"]) -> np.ndarray:
     """
     Apply a non-negativity post-process to forecasts.
 
@@ -120,11 +127,13 @@ def _apply_nonneg(x: Sequence[float], *, mode: Literal["allow", "clip_zero"]) ->
     - This is intentionally located in the run-level orchestration module
       (not in model adapters) so it is auditable and governed.
     - Only forecasts are post-processed. Realized demand `y` is left untouched.
+    - Clip uses ``x < 0`` (not ``maximum``) so ``-0.0`` is preserved, matching
+      the previous list-comprehension implementation.
     """
     if mode == "allow":
-        return [float(v) for v in x]
+        return x
     if mode == "clip_zero":
-        return [0.0 if float(v) < 0.0 else float(v) for v in x]
+        return np.where(x < 0.0, 0.0, x)
     # Defensive: type checkers should prevent this, but keep runtime robust.
     raise ValueError(f"Unknown nonneg_mode: {mode!r}")
 
@@ -212,20 +221,14 @@ def run_governance_gate(
     ValueError
         If series lengths mismatch, or if `preset` is mixed with explicit thresholds.
     """
-    # Normalize inputs to plain lists of floats up-front.
-    #
-    # 1) NumPy arrays are not typed as `Sequence[float]` (Pyright),
-    # 2) Some downstream helpers may do truthiness checks (e.g., `if y:`)
-    #    which raise for NumPy arrays: "truth value is ambiguous".
-    #
-    # Converting here makes the gate robust to numpy/pandas inputs and keeps
-    # downstream diagnostics operating on a simple, predictable type.
-    y_list = _to_float_list(y)
-    yhat_base_list = _to_float_list(yhat_base)
-    yhat_ral_list = _to_float_list(yhat_ral)
+    # Keep inputs as 1D float64 ndarrays. Downstream DQC/FPC helpers are
+    # array-safe; converting to Python lists materializes ~70M-row series.
+    y_arr = _as_float64_1d(y)
+    yhat_base_arr = _as_float64_1d(yhat_base)
+    yhat_ral_arr = _as_float64_1d(yhat_ral)
 
-    _ensure_equal_length(y_list, yhat_base_list, name_a="y", name_b="yhat_base")
-    _ensure_equal_length(y_list, yhat_ral_list, name_a="y", name_b="yhat_ral")
+    _ensure_equal_length(y_arr, yhat_base_arr, name_a="y", name_b="yhat_base")
+    _ensure_equal_length(y_arr, yhat_ral_arr, name_a="y", name_b="yhat_ral")
 
     if preset is not None and (dqc_thresholds is not None or fpc_thresholds is not None):
         raise ValueError(
@@ -263,8 +266,8 @@ def run_governance_gate(
     # Always emit the resolved policy so apply_ral can reconstruct the same constraint.
     recommendations.append(f"forecast_postprocess_nonneg(mode={nonneg_policy})")
     if nonneg_policy != "allow":
-        yhat_base_list = _apply_nonneg(yhat_base_list, mode=nonneg_policy)
-        yhat_ral_list = _apply_nonneg(yhat_ral_list, mode=nonneg_policy)
+        yhat_base_arr = _apply_nonneg(yhat_base_arr, mode=nonneg_policy)
+        yhat_ral_arr = _apply_nonneg(yhat_ral_arr, mode=nonneg_policy)
 
     fas_token: str | None
     if fas_class is None:
@@ -279,7 +282,7 @@ def run_governance_gate(
         dummy_signals = _placeholder_fpc_signals()
         fas_missing = fas_token is None and not unknown_fas
         decision = decide_governance(
-            y=y_list,
+            y=y_arr,
             fpc_signals_raw=dummy_signals,
             fpc_signals_snapped=None,
             dqc_thresholds=dqc_thresholds,
@@ -300,10 +303,10 @@ def run_governance_gate(
             recommendations=tuple(recommendations),
         )
 
-    if _invalid_demand_cell_count(y_list):
+    if _invalid_demand_cell_count(y_arr):
         dummy_signals = _placeholder_fpc_signals()
         decision = decide_governance(
-            y=y_list,
+            y=y_arr,
             fpc_signals_raw=dummy_signals,
             fpc_signals_snapped=None,
             dqc_thresholds=dqc_thresholds,
@@ -323,14 +326,14 @@ def run_governance_gate(
 
     # 1) DQC from realized demand (structure only)
     # NOTE: classify_dqc should accept thresholds=None (use its internal defaults).
-    dqc = classify_dqc(y=y_list, thresholds=eff_dqc)
+    dqc = classify_dqc(y=y_arr, thresholds=eff_dqc)
 
     # 2) FPC raw signals + classification
     # NOTE: classify_fpc should accept thresholds=None (use its internal defaults).
     raw_signals = build_signals_from_series(
-        y=y_list,
-        yhat_base=yhat_base_list,
-        yhat_ral=yhat_ral_list,
+        y=y_arr,
+        yhat_base=yhat_base_arr,
+        yhat_ral=yhat_ral_arr,
         tau=tau,
         cwsl_r=cwsl_r,
     )
@@ -346,8 +349,8 @@ def run_governance_gate(
                 "refusing to pass through unsnapped forecasts."
             )
         unit = float(gran)
-        yhat_base_s = snap_to_grid(yhat_base_list, unit, mode=snap_mode)
-        yhat_ral_s = snap_to_grid(yhat_ral_list, unit, mode=snap_mode)
+        yhat_base_s = _snap_to_grid_array(yhat_base_arr, unit, mode=snap_mode)
+        yhat_ral_s = _snap_to_grid_array(yhat_ral_arr, unit, mode=snap_mode)
 
         # If snap_mode can preserve negatives (e.g., round on negative inputs),
         # re-apply nonneg constraint post-snap when enabled.
@@ -356,7 +359,7 @@ def run_governance_gate(
             yhat_ral_s = _apply_nonneg(yhat_ral_s, mode=nonneg_policy)
 
         snapped_signals = build_signals_from_series(
-            y=y_list,
+            y=y_arr,
             yhat_base=yhat_base_s,  # snapped forecasts, same y
             yhat_ral=yhat_ral_s,
             tau=tau,  # governance will tell downstream how to interpret τ
@@ -376,7 +379,7 @@ def run_governance_gate(
     #   governance will treat them as explicit overrides and will suppress the preset
     #   audit reason ("preset=..."), breaking test_governance expectations.
     decision = decide_governance(
-        y=y_list,
+        y=y_arr,
         fpc_signals_raw=raw_signals,
         fpc_signals_snapped=fpc_signals_snapped,
         dqc_thresholds=dqc_thresholds,

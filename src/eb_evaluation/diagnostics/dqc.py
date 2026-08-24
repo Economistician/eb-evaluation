@@ -9,7 +9,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from math import fabs, isnan
+from math import isnan
+
+import numpy as np
 
 
 class DQCClass(StrEnum):
@@ -80,7 +82,18 @@ class DQCThresholds:
     small_value_max: float = 20.0
 
     # Candidate units to test for grid structure.
-    candidate_units: tuple[float, ...] = (1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 16.0)
+    candidate_units: tuple[float, ...] = (
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        8.0,
+        10.0,
+        12.0,
+        16.0,
+    )
 
     # Pack signature detection: look for mass on a small set of pack sizes.
     # If at least this many distinct pack units appear with meaningful mass, call it piecewise packed.
@@ -102,7 +115,7 @@ class DQCResult:
 
 
 def classify_dqc(
-    y: Sequence[object],
+    y: Sequence[object] | np.ndarray,
     thresholds: DQCThresholds | None = None,
 ) -> DQCResult:
     """
@@ -125,7 +138,12 @@ def classify_dqc(
     thr = thresholds or DQCThresholds()
     reasons: list[str] = []
 
-    if not y:
+    try:
+        n_y = len(y)
+    except TypeError:
+        y = (y,)
+        n_y = 1
+    if n_y == 0:
         return DQCResult(
             dqc_class=DQCClass.UNKNOWN,
             signals=_empty_signals(thr),
@@ -137,7 +155,10 @@ def classify_dqc(
         return DQCResult(
             dqc_class=DQCClass.UNKNOWN,
             signals=_empty_signals(thr),
-            reasons=("unparseable_values_fail_closed", f"unparseable_values={n_unparseable}"),
+            reasons=(
+                "unparseable_values_fail_closed",
+                f"unparseable_values={n_unparseable}",
+            ),
         )
     if n_invalid:
         return DQCResult(
@@ -145,27 +166,26 @@ def classify_dqc(
             signals=_empty_signals(thr),
             reasons=("invalid_values_fail_closed", f"invalid_values={n_invalid}"),
         )
-    if not vals:
+    if vals.size == 0:
         return DQCResult(
             dqc_class=DQCClass.UNKNOWN,
             signals=_empty_signals(thr),
             reasons=("no_valid_values",),
         )
 
-    zero_mass = sum(1 for v in vals if v == 0.0) / float(len(vals))
-    nonzero = [v for v in vals if v > 0.0]
+    n_obs = int(vals.size)
+    zero_mass = float(np.count_nonzero(vals == 0.0)) / float(n_obs)
+    nonzero = vals[vals > 0.0]
+    nonzero_obs = int(nonzero.size)
 
-    n_obs = len(vals)
-    nonzero_obs = len(nonzero)
-
-    support_size = len(set(vals))
+    support_size = int(np.unique(vals).size)
     small_value_mass = (
-        sum(1 for v in nonzero if v <= thr.small_value_max) / float(len(nonzero))
-        if nonzero
+        float(np.count_nonzero(nonzero <= thr.small_value_max)) / float(nonzero_obs)
+        if nonzero_obs
         else 0.0
     )
 
-    if len(nonzero) < thr.min_nonzero_obs:
+    if nonzero_obs < thr.min_nonzero_obs:
         reasons.append(f"nonzero_obs<{thr.min_nonzero_obs}")
 
     # Detect best unit based on grid multiple rate.
@@ -221,7 +241,7 @@ def classify_dqc(
     )
 
     # If we don't have enough data, be conservative: UNKNOWN unless signal is overwhelming.
-    if len(nonzero) < thr.min_nonzero_obs and not packed_enough:
+    if nonzero_obs < thr.min_nonzero_obs and not packed_enough:
         return DQCResult(
             dqc_class=DQCClass.UNKNOWN,
             signals=DQCSignals(
@@ -319,13 +339,52 @@ def _empty_signals(thr: DQCThresholds) -> DQCSignals:
     )
 
 
-def _clean_nonneg(values: Sequence[object], *, round_decimals: int) -> tuple[list[float], int, int]:
+def _as_numeric_array_or_none(values: object) -> np.ndarray | None:
+    """Return a 1D float64 view when conversion cannot hide unparseable cells."""
+    if isinstance(values, np.ndarray):
+        if values.dtype == object or not np.issubdtype(values.dtype, np.number):
+            return None
+        arr = np.asarray(values, dtype=np.float64)
+        return arr.reshape(-1) if arr.ndim != 1 else arr
+    if isinstance(values, (list, tuple)):
+        if not values:
+            return np.empty(0, dtype=np.float64)
+        if any(v is None for v in values):
+            return None
+        try:
+            arr = np.asarray(values, dtype=np.float64)
+        except (TypeError, ValueError):
+            return None
+        if arr.dtype == object:
+            return None
+        return arr.reshape(-1) if arr.ndim != 1 else arr
+    try:
+        arr = np.asarray(values, dtype=np.float64)
+    except (TypeError, ValueError):
+        return None
+    if arr.dtype == object or not np.issubdtype(arr.dtype, np.number):
+        return None
+    return arr.reshape(-1) if arr.ndim != 1 else arr
+
+
+def _clean_nonneg(
+    values: Sequence[object] | np.ndarray, *, round_decimals: int
+) -> tuple[np.ndarray, int, int]:
     """Parse nonnegative values; count unparseable and invalid cells.
 
     ``TypeError`` / ``ValueError`` during conversion are unparseable. NaN and
     negatives are invalid demand. Callers fail closed rather than classify a
     quietly cleaned subset.
     """
+    arr = _as_numeric_array_or_none(values)
+    if arr is not None:
+        invalid = np.isnan(arr) | (arr < 0.0)
+        n_invalid = int(np.count_nonzero(invalid))
+        valid = arr[~invalid]
+        if valid.size:
+            valid = np.round(valid, decimals=round_decimals)
+        return valid, 0, n_invalid
+
     out: list[float] = []
     n_unparseable = 0
     n_invalid = 0
@@ -339,36 +398,31 @@ def _clean_nonneg(values: Sequence[object], *, round_decimals: int) -> tuple[lis
             n_invalid += 1
             continue
         out.append(round(fv, round_decimals))
-    return out, n_unparseable, n_invalid
+    return np.asarray(out, dtype=np.float64), n_unparseable, n_invalid
 
 
-def _multiple_rate(values: Sequence[float], unit: float) -> float:
-    if not values:
+def _multiple_rate(values: np.ndarray, unit: float) -> float:
+    if values.size == 0:
         return float("nan")
     if unit <= 0:
         return float("nan")
-    hits = 0
-    for v in values:
-        # distance to nearest multiple of unit
-        k = round(v / unit)
-        if fabs(v - (k * unit)) <= 1e-6:
-            hits += 1
-    return hits / float(len(values))
+    k = np.round(values / unit)
+    hits = int(np.count_nonzero(np.abs(values - (k * unit)) <= 1e-6))
+    return hits / float(values.size)
 
 
-def _offgrid_mad(values: Sequence[float], unit: float) -> float:
-    if not values:
+def _offgrid_mad(values: np.ndarray, unit: float) -> float:
+    if values.size == 0:
         return float("nan")
     if unit <= 0:
         return float("nan")
-    dsum = 0.0
-    for v in values:
-        k = round(v / unit)
-        dsum += fabs(v - (k * unit))
-    return dsum / float(len(values))
+    k = np.round(values / unit)
+    return float(np.mean(np.abs(values - (k * unit))))
 
 
-def _pick_best_unit(unit_scores: Sequence[tuple[float, float]]) -> tuple[float | None, float]:
+def _pick_best_unit(
+    unit_scores: Sequence[tuple[float, float]],
+) -> tuple[float | None, float]:
     if not unit_scores:
         return None, float("nan")
 
@@ -378,14 +432,14 @@ def _pick_best_unit(unit_scores: Sequence[tuple[float, float]]) -> tuple[float |
 
     # Tie-break: if multiple units are within epsilon, prefer the larger unit (already sorted).
     eps = 1e-6
-    top = [p for p in sorted_scores if fabs(p[1] - best_s) <= eps]
+    top = [p for p in sorted_scores if abs(p[1] - best_s) <= eps]
     if top:
         return top[0][0], top[0][1]
     return best_u, best_s
 
 
 def _detect_pack_signature(
-    nonzero: Sequence[float], granularity: float, thr: DQCThresholds
+    nonzero: np.ndarray, granularity: float, thr: DQCThresholds
 ) -> tuple[float, ...]:
     """
     Detect a "piecewise packed" signature: multiple distinct pack sizes with meaningful mass.
@@ -398,7 +452,7 @@ def _detect_pack_signature(
 
     This is intentionally conservative and interpretable.
     """
-    if not nonzero:
+    if nonzero.size == 0:
         return ()
     if granularity <= 0:
         return ()
@@ -408,14 +462,10 @@ def _detect_pack_signature(
     multiples = (1, 2, 3, 4, 5, 6, 8, 10, 12, 16)
     pack_sizes = [granularity * m for m in multiples]
 
+    n = float(nonzero.size)
     masses: list[tuple[float, float]] = []
-    n = float(len(nonzero))
-
     for p in pack_sizes:
-        ct = 0
-        for v in nonzero:
-            if fabs(v - p) <= 1e-6:
-                ct += 1
+        ct = int(np.count_nonzero(np.abs(nonzero - p) <= 1e-6))
         masses.append((p, ct / n))
 
     strong = [p for p, m in masses if m >= thr.pack_unit_mass_min]

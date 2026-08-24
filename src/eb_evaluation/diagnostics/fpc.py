@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from math import isnan
 
+import numpy as np
+
 from eb_metrics.metrics import cwsl, hr_at_tau, nsl, ud as ud_metric
 
 
@@ -187,9 +189,9 @@ def classify_fpc(
 
 def build_signals_from_series(
     *,
-    y: Sequence[float],
-    yhat_base: Sequence[float],
-    yhat_ral: Sequence[float],
+    y: Sequence[float] | np.ndarray,
+    yhat_base: Sequence[float] | np.ndarray,
+    yhat_ral: Sequence[float] | np.ndarray,
     tau: float,
     ud: float | None = None,
     cwsl_r: float | None = None,

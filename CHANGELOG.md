@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `slice_keys` default interval column is `INTERVAL_INDEX`.
 
+### Performance
+
+- Governance gate, DQC classification, and snap-to-grid stay on 1D `float64` arrays (no Python list materialization or interpreter loops on the series).
+- `apply_ral` merges only control columns onto the interval frame and snaps with vectorized NumPy; full decision audit columns remain on the stream-level table.
+
 ## [0.2.9] - 2026-08-23
 
 ### Changed

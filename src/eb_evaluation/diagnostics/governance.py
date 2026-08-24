@@ -64,11 +64,13 @@ optimization objective.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 import logging
-from math import ceil, floor, isfinite, isnan
+from math import isfinite, isnan
+
+import numpy as np
 
 from .dqc import DQCClass, DQCResult, DQCSignals, DQCThresholds, classify_dqc
 from .fas import FASClass
@@ -145,11 +147,6 @@ class GovernanceDecision:
     reasons: tuple[str, ...] = ()
 
 
-def _as_list(y: Sequence[float] | Iterable[float]) -> list[float]:
-    # Accept numpy arrays, pandas series, etc.
-    return list(y)
-
-
 def _require_finite_positive_snap_unit(unit: float | None) -> float:
     """Require a usable grid unit when DQC says snapping is required."""
     if unit is None:
@@ -169,6 +166,57 @@ def _require_finite_positive_snap_unit(unit: float | None) -> float:
             f"DQC requires snapping but snap_unit must be finite and > 0; got {unit!r}."
         )
     return value
+
+
+def _snap_to_grid_array(values: np.ndarray, unit: float, *, mode: str) -> np.ndarray:
+    """Vectorized snap on a finite 1D float64 array.
+
+    Round mode is half-away-from-zero (``floor(q+0.5)`` / ``ceil(q-0.5)``),
+    matching the public ``snap_to_grid`` contract. Callers must validate
+    ``unit > 0`` and ``mode``.
+    """
+    inv = 1.0 / unit
+    q = values * inv
+    if mode == "ceil":
+        qi = np.ceil(q)
+    elif mode == "floor":
+        qi = np.floor(q)
+    elif mode == "round":
+        qi = np.where(q >= 0.0, np.floor(q + 0.5), np.ceil(q - 0.5))
+    else:
+        raise ValueError(f"Invalid snap mode: {mode}")
+    return qi * unit
+
+
+def _coerce_snap_values(values: Sequence[float] | np.ndarray) -> np.ndarray:
+    """Convert snap inputs to finite float64, preserving public error messages."""
+    if isinstance(values, np.ndarray) and values.dtype != object:
+        arr = np.asarray(values, dtype=np.float64)
+        if arr.ndim == 0:
+            arr = arr.reshape(1)
+        elif arr.ndim != 1:
+            arr = arr.ravel()
+        if not np.isfinite(arr).all():
+            raise ValueError(
+                "snap_to_grid values must be finite; refusing fail-open NaN/inf forecasts."
+            )
+        return arr
+
+    n = len(values)
+    out = np.empty(n, dtype=np.float64)
+    for i, v in enumerate(values):
+        if v is None:
+            raise ValueError("snap_to_grid values must be numeric; got None")
+        try:
+            fv = float(v)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"snap_to_grid values must be numeric; got {v!r}") from exc
+        if not isfinite(fv):
+            raise ValueError(
+                "snap_to_grid values must be finite; refusing fail-open NaN/inf forecasts."
+            )
+        out[i] = fv
+    return out
 
 
 def snap_to_grid(values: Sequence[float], unit: float, *, mode: str = "ceil") -> list[float]:
@@ -205,31 +253,8 @@ def snap_to_grid(values: Sequence[float], unit: float, *, mode: str = "ceil") ->
     if mode not in {"ceil", "round", "floor"}:
         raise ValueError(f"Invalid snap mode: {mode}")
 
-    snapped: list[float] = []
-    inv = 1.0 / unit
-    for v in values:
-        if v is None:
-            raise ValueError("snap_to_grid values must be numeric; got None")
-        try:
-            fv = float(v)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"snap_to_grid values must be numeric; got {v!r}") from exc
-        if not isfinite(fv):
-            raise ValueError(
-                "snap_to_grid values must be finite; refusing fail-open NaN/inf forecasts."
-            )
-
-        q = fv * inv
-        if mode == "ceil":
-            qi = ceil(q)
-        elif mode == "floor":
-            qi = floor(q)
-        else:
-            # Half away from zero (the signed analogue of half-up).
-            qi = floor(q + 0.5) if q >= 0.0 else ceil(q - 0.5)
-
-        snapped.append(float(qi) * unit)
-    return snapped
+    arr = _coerce_snap_values(values)
+    return _snap_to_grid_array(arr, unit, mode=mode).tolist()
 
 
 def build_fpc_signals(
@@ -382,7 +407,7 @@ def _preset_reason_value(preset: str | GovernancePreset) -> str:
 
 def decide_governance(
     *,
-    y: Sequence[float],
+    y: Sequence[float] | np.ndarray,
     fpc_signals_raw: FPCSignals,
     fpc_signals_snapped: FPCSignals | None = None,
     dqc_thresholds: DQCThresholds | None = None,
@@ -465,8 +490,7 @@ def decide_governance(
     eff_fpc = fpc_thresholds or preset_fpc
 
     # 1) DQC classification from realized demand
-    y_list = _as_list(y)
-    dqc = classify_dqc(y_list, thresholds=eff_dqc)
+    dqc = classify_dqc(y, thresholds=eff_dqc)
 
     # 2) Snap requirement + tolerance policy (before FPC reuse).
     snap_required = dqc.dqc_class in (DQCClass.QUANTIZED, DQCClass.PIECEWISE_PACKED)

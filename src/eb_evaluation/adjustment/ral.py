@@ -21,7 +21,7 @@ from typing import Literal, cast
 import numpy as np
 import pandas as pd
 
-from eb_evaluation.diagnostics.governance import snap_to_grid
+from eb_evaluation.diagnostics.governance import _snap_to_grid_array
 from eb_evaluation.diagnostics.presets import preset_policy
 from eb_metrics.metrics import cwsl
 
@@ -332,6 +332,40 @@ REQUIRED_DECISION_COLUMNS = (
     "dqc_class",
     "snap_required",
 )
+_APPLY_RAL_CONTROL_COLUMNS = (
+    "ral_policy",
+    "status",
+    "fas_class",
+    "dqc_class",
+    "snap_required",
+    "snap_unit",
+)
+
+
+def _apply_ral_control_frame(
+    decisions: pd.DataFrame,
+    keys: Sequence[str],
+    *,
+    snap_required_col: str = "snap_required",
+    snap_unit_col: str = "snap_unit",
+    recommendations_col: str | None = None,
+) -> pd.DataFrame:
+    """Narrow join payload: control columns only, not the full decision audit table."""
+    wanted: list[str] = [
+        *keys,
+        *_APPLY_RAL_CONTROL_COLUMNS,
+        snap_required_col,
+        snap_unit_col,
+    ]
+    if recommendations_col is not None:
+        wanted.append(recommendations_col)
+    cols: list[str] = []
+    seen: set[str] = set()
+    for col in wanted:
+        if col in decisions.columns and col not in seen:
+            cols.append(col)
+            seen.add(col)
+    return decisions.loc[:, cols]
 
 
 def _is_missing_scalar(value: object) -> bool:
@@ -505,7 +539,9 @@ def _transform_authorization_mask(
                 "Missing join keys for transform decisions: "
                 f"frame={missing_frame}, decisions={missing_decisions}."
             )
-        joined = frame.loc[:, keys].merge(decisions, on=keys, how="left")
+        joined = frame.loc[:, keys].merge(
+            _apply_ral_control_frame(decisions, keys), on=keys, how="left"
+        )
         joined.index = frame.index
         blocked = _adjustment_blocked_mask(joined)
         policy_obj = joined["ral_policy"] if "ral_policy" in joined.columns else None
@@ -564,17 +600,14 @@ def _apply_snap_policy_series(
     uniq_units = np.unique(u[mask])
     if uniq_units.size == 1:
         unit = float(uniq_units[0])
-        snapped = np.asarray(snap_to_grid(v.tolist(), unit, mode=mode), dtype=float)
-        out = v.copy()
-        out[:] = snapped
-        return pd.Series(out, index=values.index, name=values.name)
+        snapped = _snap_to_grid_array(v, unit, mode=mode)
+        return pd.Series(snapped, index=values.index, name=values.name)
 
     out = v.copy()
     for unit in uniq_units.tolist():
         unit_f = float(unit)
         idx = mask & (u == unit_f)
-        snapped_sub = np.asarray(snap_to_grid(v[idx].tolist(), unit_f, mode=mode), dtype=float)
-        out[idx] = snapped_sub
+        out[idx] = _snap_to_grid_array(v[idx], unit_f, mode=mode)
     return pd.Series(out, index=values.index, name=values.name)
 
 
@@ -664,16 +697,21 @@ def apply_ral(
         if k not in df.columns:
             raise KeyError(f"apply_ral: missing key column {k!r} in df.")
 
-    work = df.copy()
-
     for k in keys:
         if k not in decisions.columns:
             raise KeyError(f"apply_ral: missing key column {k!r} in decisions.")
 
-    overlap = [c for c in decisions.columns if c in work.columns and c not in keys]
-    if overlap:
-        work = work.drop(columns=overlap)
-    merged = work.merge(decisions, on=keys, how="left", indicator=True)
+    infer_from_recs = infer_policy_from_recommendations and recommendations_col in decisions.columns
+    ctrl = _apply_ral_control_frame(
+        decisions,
+        keys,
+        snap_required_col=snap_required_col,
+        snap_unit_col=snap_unit_col,
+        recommendations_col=recommendations_col if infer_from_recs else None,
+    )
+    overlap = [c for c in ctrl.columns if c in df.columns and c not in keys]
+    base = df.drop(columns=overlap) if overlap else df
+    merged = base.merge(ctrl, on=keys, how="left", indicator=True)
     missing = merged.loc[merged["_merge"] != "both", keys]
     if not missing.empty:
         # Fail loudly: prevent silent "policy missing" behavior.
