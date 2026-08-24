@@ -17,7 +17,13 @@ import pandas as pd
 from eb_evaluation.diagnostics.dqc import DQCClass, DQCThresholds
 from eb_evaluation.diagnostics.fas import FASClass, resolve_panel_fas_class
 from eb_evaluation.diagnostics.fpc import FPCClass, FPCThresholds
-from eb_evaluation.diagnostics.governance import GovernanceStatus, RALPolicy, TauPolicy
+from eb_evaluation.diagnostics.governance import (
+    GovernanceStatus,
+    RALPolicy,
+    TauPolicy,
+    fas_class_is_unparseable,
+    record_unknown_fas,
+)
 from eb_evaluation.diagnostics.presets import GovernancePreset
 from eb_evaluation.diagnostics.results import GovernanceResult
 from eb_evaluation.diagnostics.run import run_governance_gate
@@ -57,6 +63,7 @@ def _safe_getattr(obj: object, name: str) -> Any:
 _FAIL_CLOSED_TOKEN = "empty_series_fail_closed"
 _COVERAGE_FAIL_CLOSED_TOKEN = "insufficient_finite_coverage_fail_closed"
 _FAS_REQUIRED_TOKEN = "fas_required_fail_closed"
+_UNKNOWN_FAS_TOKEN = "unknown_fas_fail_closed"
 MAX_NONFINITE_FRACTION = 0.20
 MIN_FINITE_ALIGNED_ROWS = 8
 
@@ -212,7 +219,9 @@ def evaluate_governance_panel_df(
     ``ral_policy=disallow``, FPC ``incompatible``) instead of calling
     ``eb-metrics``. A stream fails closed when more than 20% of rows are
     non-finite or when fewer than ``MIN_FINITE_ALIGNED_ROWS`` (8) finite
-    aligned rows remain. Omitted or null FAS is recorded as ``BLOCKED``.
+    aligned rows remain. Omitted, null, or unknown FAS tokens are recorded
+    as ``BLOCKED``. Unparseable FAS strings fail-close that stream only so
+    sibling streams can continue.
     """
     keys_list = list(keys)
     if len(keys_list) == 0:
@@ -251,6 +260,19 @@ def evaluate_governance_panel_df(
                     n_finite=n_finite,
                     stream_fas=FASClass.BLOCKED,
                     reason=_FAS_REQUIRED_TOKEN,
+                )
+            )
+            continue
+        if fas_class_is_unparseable(stream_fas):
+            record_unknown_fas(stream_fas)
+            out_rows.append(
+                _fail_closed_panel_row(
+                    keys_list=keys_list,
+                    key_vals=key_vals,
+                    n=n_total,
+                    n_finite=n_finite,
+                    stream_fas=FASClass.BLOCKED,
+                    reason=_UNKNOWN_FAS_TOKEN,
                 )
             )
             continue

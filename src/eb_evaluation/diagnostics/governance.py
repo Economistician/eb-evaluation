@@ -67,6 +67,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+import logging
 from math import ceil, floor, isfinite, isnan
 
 from .dqc import DQCClass, DQCResult, DQCSignals, DQCThresholds, classify_dqc
@@ -271,8 +272,44 @@ def build_fpc_signals(
     )
 
 
+_LOGGER = logging.getLogger(__name__)
+_KNOWN_FAS_TOKENS = frozenset(member.value.upper() for member in FASClass)
+_UNKNOWN_FAS_FAIL_CLOSED = "unknown_fas_fail_closed"
+_unknown_fas_fail_closed_count = 0
+
+
+def unknown_fas_fail_closed_count() -> int:
+    """Return how many unparseable FAS tokens have been fail-closed this process."""
+    return _unknown_fas_fail_closed_count
+
+
+def record_unknown_fas(raw: object) -> None:
+    """Log and count an unparseable FAS token so batches can continue."""
+    global _unknown_fas_fail_closed_count
+    _unknown_fas_fail_closed_count += 1
+    _LOGGER.warning(
+        "Unknown fas_class %r; fail-closing stream as BLOCKED (count=%s).",
+        raw,
+        _unknown_fas_fail_closed_count,
+    )
+
+
+def fas_class_is_unparseable(fas_class: FASClass | str | None) -> bool:
+    """Return True for a non-empty FAS token that is not a known class."""
+    if fas_class is None or isinstance(fas_class, FASClass):
+        return False
+    token = str(fas_class).strip()
+    if not token:
+        return False
+    return token.upper() not in _KNOWN_FAS_TOKENS
+
+
 def _coerce_fas_class(fas_class: FASClass | str | None) -> FASClass | None:
-    """Normalize an optional FAS class input to ``FASClass`` or ``None``."""
+    """Normalize an optional FAS class input to ``FASClass`` or ``None``.
+
+    Unparseable tokens are logged and counted, then treated as missing so the
+    caller can fail-close that stream without aborting a panel batch.
+    """
     if fas_class is None:
         return None
     if isinstance(fas_class, FASClass):
@@ -282,8 +319,9 @@ def _coerce_fas_class(fas_class: FASClass | str | None) -> FASClass | None:
         return None
     try:
         return FASClass(token)
-    except ValueError as exc:
-        raise ValueError(f"Unknown fas_class: {fas_class!r}") from exc
+    except ValueError:
+        record_unknown_fas(fas_class)
+        return None
 
 
 def _incompatible_placeholder_fpc(reason: str) -> FPCResult:
@@ -378,8 +416,9 @@ def decide_governance(
     fas_class:
         Required upstream Forecast Admissibility Surface class. ``BLOCKED``
         short-circuits DQC/FPC. ``CONDITIONAL`` downgrades permissive RAL
-        outcomes. ``None`` or a missing/blank value fail-closes as
-        ``BLOCKED`` / ``DISALLOW`` / ``RED``.
+        outcomes.         ``None``, a missing/blank value, or an unknown token fail-closes as
+        ``BLOCKED`` / ``DISALLOW`` / ``RED`` without raising, so a panel
+        batch can continue for sibling streams.
 
     Returns
     -------
@@ -387,9 +426,11 @@ def decide_governance(
         Deterministic policy artifact.
     """
     reasons: list[str] = []
+    unknown_fas = fas_class_is_unparseable(fas_class)
     fas = _coerce_fas_class(fas_class)
     if fas is None:
         dqc_skip, fpc_skip = _skipped_fas_blocked_diagnostics()
+        reason = _UNKNOWN_FAS_FAIL_CLOSED if unknown_fas else "fas_required_fail_closed"
         return GovernanceDecision(
             dqc=dqc_skip,
             fpc_raw=fpc_skip,
@@ -400,7 +441,7 @@ def decide_governance(
             ral_policy=RALPolicy.DISALLOW,
             status=GovernanceStatus.RED,
             fas_class=FASClass.BLOCKED,
-            reasons=("fas_required_fail_closed",),
+            reasons=(reason,),
         )
 
     if fas is FASClass.BLOCKED:

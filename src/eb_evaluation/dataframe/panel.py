@@ -14,7 +14,13 @@ import pandas as pd
 from eb_evaluation.diagnostics.dqc import DQCClass, DQCThresholds
 from eb_evaluation.diagnostics.fas import FASClass, resolve_panel_fas_class
 from eb_evaluation.diagnostics.fpc import FPCClass, FPCThresholds
-from eb_evaluation.diagnostics.governance import GovernanceStatus, RALPolicy, TauPolicy
+from eb_evaluation.diagnostics.governance import (
+    GovernanceStatus,
+    RALPolicy,
+    TauPolicy,
+    fas_class_is_unparseable,
+    record_unknown_fas,
+)
 from eb_evaluation.diagnostics.presets import GovernancePreset
 from eb_evaluation.diagnostics.run import run_governance_gate
 
@@ -243,6 +249,23 @@ def run_governance_panel_df(
             row["fas_class"] = FASClass.BLOCKED.value
             row["recommended_mode"] = "reroute_discrete"
             row["recommendations"] = "fas_required_fail_closed"
+            results.append(row)
+            continue
+        if fas_class_is_unparseable(stream_fas):
+            record_unknown_fas(stream_fas)
+            row["warnings"] = "unknown_fas_fail_closed"
+            row["dqc_class"] = DQCClass.UNKNOWN.value
+            row["dqc_granularity"] = None
+            row["fpc_raw_class"] = FPCClass.INCOMPATIBLE.value
+            row["fpc_snapped_class"] = FPCClass.INCOMPATIBLE.value
+            row["snap_required"] = False
+            row["snap_unit"] = None
+            row["tau_policy"] = TauPolicy.RAW_UNITS.value
+            row["ral_policy"] = RALPolicy.DISALLOW.value
+            row["status"] = GovernanceStatus.RED.value
+            row["fas_class"] = FASClass.BLOCKED.value
+            row["recommended_mode"] = "reroute_discrete"
+            row["recommendations"] = "unknown_fas_fail_closed"
             results.append(row)
             continue
 

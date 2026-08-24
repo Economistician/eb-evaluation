@@ -394,6 +394,26 @@ def test_run_governance_gate_fas_class_none_fails_closed() -> None:
     assert "fas_required_fail_closed" in omitted.decision.reasons
 
 
+def test_run_governance_gate_unknown_fas_token_fails_closed() -> None:
+    y = [0.1 * i for i in range(1, 121)]
+    yhat_base = [v if (i % 2 == 0) else (v * 0.90) for i, v in enumerate(y)]
+    yhat_ral = [v * 1.01 for v in y]
+    gate = run_governance_gate(
+        y=y,
+        yhat_base=yhat_base,
+        yhat_ral=yhat_ral,
+        tau=2.0,
+        cwsl_r=None,
+        fas_class="ALOWED",
+    )
+    assert gate.recommended_mode == "reroute_discrete"
+    assert gate.decision.fas_class == FASClass.BLOCKED
+    assert gate.decision.status == GovernanceStatus.RED
+    assert gate.decision.ral_policy == RALPolicy.DISALLOW
+    assert "unknown_fas_fail_closed" in gate.recommendations
+    assert "unknown_fas_fail_closed" in gate.decision.reasons
+
+
 def test_run_governance_gate_nan_y_fails_closed() -> None:
     y = [0.1 * i for i in range(1, 121)] + [float("nan")]
     yhat_base = [v if (i % 2 == 0) else (v * 0.90) for i, v in enumerate(y[:-1])] + [1.0]

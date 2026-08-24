@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `apply_ral`, `run_governance_workflow_df`, and `run_governance_workflow_df_dict` default `infer_policy_from_recommendations` to `False`, so snap mode stays `ceil` unless an operator opts in.
 - `ReadinessAdjustmentLayer.transform` requires a valid approved governance decisions table. `apply_mask` cannot authorize writes without `decisions`.
+- Development Status classifier is `5 - Production/Stable`.
+- Unknown or typo FAS tokens fail-close that stream as `BLOCKED` / `RED` / `DISALLOW` instead of raising, so sibling streams can continue.
 
 ### Fixed
 

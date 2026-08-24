@@ -22,7 +22,12 @@ from .fpc import (
 )
 
 # NOTE: snap_to_grid is defined in diagnostics/governance.py (not adjustment/snap.py).
-from .governance import GovernanceDecision, decide_governance, snap_to_grid
+from .governance import (
+    GovernanceDecision,
+    decide_governance,
+    fas_class_is_unparseable,
+    snap_to_grid,
+)
 from .presets import GovernancePreset, preset_policy, preset_thresholds
 
 RecommendedMode = Literal["continuous", "pack_aware", "reroute_discrete"]
@@ -269,9 +274,10 @@ def run_governance_gate(
     else:
         fas_token = str(fas_class).strip().upper() or None
 
-    if fas_token is None or fas_token == FASClass.BLOCKED.value:
+    unknown_fas = fas_class_is_unparseable(fas_class)
+    if fas_token is None or fas_token == FASClass.BLOCKED.value or unknown_fas:
         dummy_signals = _placeholder_fpc_signals()
-        fas_missing = fas_token is None
+        fas_missing = fas_token is None and not unknown_fas
         decision = decide_governance(
             y=y_list,
             fpc_signals_raw=dummy_signals,
@@ -279,9 +285,12 @@ def run_governance_gate(
             dqc_thresholds=dqc_thresholds,
             fpc_thresholds=fpc_thresholds,
             preset=effective_preset,
-            fas_class=None if fas_missing else FASClass.BLOCKED,
+            fas_class=fas_class if unknown_fas else (None if fas_missing else FASClass.BLOCKED),
         )
-        recommendations.append("fas_required_fail_closed" if fas_missing else "blocked_by_fas")
+        if unknown_fas:
+            recommendations.append("unknown_fas_fail_closed")
+        else:
+            recommendations.append("fas_required_fail_closed" if fas_missing else "blocked_by_fas")
         return GateResult(
             dqc=decision.dqc,
             fpc_raw=decision.fpc_raw,

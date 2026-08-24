@@ -505,6 +505,32 @@ def test_evaluate_governance_panel_df_null_fas_column_fails_closed() -> None:
     assert (out["recommendations"] == "fas_required_fail_closed").all()
 
 
+def test_evaluate_governance_panel_unknown_fas_does_not_abort_siblings() -> None:
+    df = _build_sample_panel_df()
+    df["fas_class"] = np.where(df["forecast_entity_id"] == 10, "ALOWED", "ALLOWED")
+    out = cast(
+        pd.DataFrame,
+        evaluate_governance_panel_df(
+            df=df,
+            keys=["site_id", "forecast_entity_id"],
+            actual_col="y",
+            base_forecast_col="yhat_base",
+            ral_forecast_col="yhat_ral",
+            tau=2.0,
+            fas_class_col="fas_class",
+        ),
+    )
+    assert len(out) == 2
+    bad = out.loc[out["forecast_entity_id"] == 10].iloc[0]
+    ok = out.loc[out["forecast_entity_id"] == 20].iloc[0]
+    assert bad["fas_class"] == "BLOCKED"
+    assert bad["status"] == "red"
+    assert bad["ral_policy"] == "disallow"
+    assert bad["recommendations"] == "unknown_fas_fail_closed"
+    assert ok["fas_class"] == "ALLOWED"
+    assert ok["recommendations"] != "unknown_fas_fail_closed"
+
+
 def test_run_governance_panel_df_omitted_fas_fails_closed() -> None:
     from eb_evaluation.dataframe.panel import run_governance_panel_df
 

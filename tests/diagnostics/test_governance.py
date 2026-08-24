@@ -540,6 +540,20 @@ def test_governance_fas_class_none_fails_closed() -> None:
     assert explicit.status == GovernanceStatus.RED
 
 
+def test_governance_unknown_fas_token_fails_closed() -> None:
+    y, raw, snapped = _continuous_compatible_inputs()
+    res = decide_governance(
+        y=y,
+        fpc_signals_raw=raw,
+        fpc_signals_snapped=snapped,
+        fas_class="ALOWED",
+    )
+    assert res.fas_class == FASClass.BLOCKED
+    assert res.ral_policy == RALPolicy.DISALLOW
+    assert res.status == GovernanceStatus.RED
+    assert "unknown_fas_fail_closed" in res.reasons
+
+
 def test_decide_governance_unknown_disallows_ral() -> None:
     from eb_evaluation.diagnostics.dqc import DQCResult, DQCSignals
 
