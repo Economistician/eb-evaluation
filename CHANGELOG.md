@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Unblock CI after the System Release 0.2.10 PyPI publish race (`eb-metrics==0.2.9` was missing during the original audit install).
+
 ## [0.2.10] - 2026-08-24
 
 ### Changed
